@@ -1,92 +1,164 @@
+```{r, warning=FALSE, echo=FALSE, include=F}
+setwd('/DATA/users/m.slagter/IFNgamma_response/')
+source('R/load_packages.R')
+source('R/helper_funcs.R')
+source('R/gene_sets.R')
+source('R/load_data.R')
+source('R/prep_gsea.R')
+source('R/gsea_wrapper.R')
+source('R/missing_genes.R')
+source('R/heatmaps.R')
+```
+
+# GSEA
+
+
+## Identify missing gene symbols
+
+Imperfect compatibility wrt gene names in expression matrix and in MSigDB gene
+sets
+
 ```{r, warning=FALSE, echo=FALSE}
-devtools::load_all(file.path('~/antigenic_space', 'libs', 'fasanalysis'))
-pacman::p_load('data.table')
-pacman::p_load('ggplot2')
-pacman::p_load('rlm')
-pacman::p_load('dplyr')
-if (!require('DESeq2')) {
-  source("https://bioconductor.org/biocLite.R")
-  biocLite("DESeq2")
-}
-library('DESeq2')
-theme_set(theme_bw())
+length(recon_symb) / length(comb_missing)
+## [1] 0.145493
+length(overlap_symb) / length(recon_symb)
+## [1] 0.1648045
+llply(missing_by_geneset, function(x) {
+  rescued_genes <- sort(intersect(x, overlap_symb))
+  sprintf('Saved %d/%d (%.2f) of genes in gene set',
+          length(rescued_genes), length(x),
+          length(rescued_genes) / length(x))
+})
+```
 
-inspect_mat <- function(mat) {
-  print(class(mat)); print(dim(mat)); print(mat[1:5, 1:5])
-}
+## C2 Pathways
 
-# theme_set(theme_fas())
-# qplot(1:3)
+
+### Reactome
+
+
+```{r}
+gmt <- update_genesets('c2')
+noi <- names(gmt) %>% { grep(pattern = 'REACTOME', x = ., value = T) }
+sf(ggsea_res_c2 <- ggsea_wrapper(gmt[noi]))
+geneset_plot <- rn(unlist(ggsea_res_c2[ggsea_res$p < .05, 'GeneSet']))
+gen_multiple_heatmaps(gmt[geneset_plot], dir_name = 'C2', 
+                      pvals = ggsea_res_c2[ggsea_res$GeneSet %in% geneset_plot, ]$p
+                      )
+knitr::knit(ggsea_res_c2)
+pacman::p_load("DT")
+datatable(ggsea_res_c2, options = list(pageLength = 5))
+```
+
+## C6 Oncogenic genes
+
+
+```{r}
+gmt <- update_genesets('c6')
+noi <- names(gmt)
+ggsea_res <- ggsea_wrapper(gmt[noi])
+geneset_plot <- rn(unlist(ggsea_res[ggsea_res$p < .05, 'GeneSet']))
+gen_multiple_heatmaps(gmt[geneset_plot], dir_name = 'C6', 
+                      pvals = ggsea_res[ggsea_res$GeneSet %in% geneset_plot, ]$p
+                      )
+```
+
+## C7 Immunology gene sets
+
+
+```{r}
+gmt <- update_genesets('c7')
+noi <- names(gmt) %>% 
+  grep('CELL', ., value = T, invert = T) %>%
+  grep('THYMOCYTE', ., value = T, invert = T) %>%
+  grep('TREG', ., value = T, invert = T) %>%
+  grep('CD4', ., value = T, invert = T) %>%
+  grep('MONOCYTE', ., value = T, invert = T) %>%
+  grep('GRANULOCYTE', ., value = T, invert = T) %>%
+  grep('CD8', ., value = T, invert = T) %>%
+  grep('MACROPHAGE', ., value = T, invert = T) %>%
+  grep('NEUTROPHIL', ., value = T, invert = T) %>%
+  grep('EOSINOPHIL', ., value = T, invert = T) %>%
+  grep('TH', ., value = T, invert = T)
+tail(noi, n = 500)
+ggsea_res <- ggsea_wrapper(gmt[noi])
+geneset_plot <- rn(unlist(ggsea_res[ggsea_res$p < .05, 'GeneSet']))
+gen_multiple_heatmaps(gmt[geneset_plot], dir_name = 'C7', 
+                      pvals = ggsea_res[ggsea_res$GeneSet %in% geneset_plot, ]$p
+                      )
+```
+
+## Known IFN gamma signature gene sets
+
+```{r}
+excluded_genes <- c('CD8A', 'CD8B', 'PRF1', 'GZMM')
+excluded_genes <- c()
+gmt <- lapply(update_genesets('ifn'), function(x) {
+  setdiff(x, excluded_genes)
+})
+ifn_ggsea_res <- ggsea_wrapper(gmt)
+gen_multiple_heatmaps(gmt, dir_name = 'IFNy_sigs', pvals = ifn_ggsea_res$p)
 ```
 
 
-```{r, load_transcriptome, warning=FALSE, echo=FALSE}
-dat_path <- file.path('~/Dropbox', 'PDX_CL_DP_TS_project', 
-                      'RNAseq_data', 'DESeq2_normalized.RData')
-if (!exists("Sample_annotation")) load(dat_path)
-# ls()
-# Gene_annotation
-# tail(Sample_annotation)
-# head(Sample_annotation)
-# head(RC_data)
-# str(RC_data)
-# class(Sample_annotation)
-# colnames(Sample_annotation)
-# Sample_annotation$File_name
 
-idx <- (is.na(Sample_annotation$Hours) | Sample_annotation$Hours == 24) & 
-       Sample_annotation$Treatment %in% c('Untreated')
-soi <- as.character(Sample_annotation$File_name[idx])
-Sample_names <- paste(Sample_annotation$Cell_line[idx], 
-                      Sample_annotation$Treatment[idx], sep = '_')
-# Sample_annotation[Sample_annotation$File_name %in% soi, ]
-RC_f <- RC_data[, c('external_gene_id', soi)]
-colnames(RC_f) <- c('external_gene_id', Sample_names)
-RC_f <- aggregate(. ~ external_gene_id, RC_f, sum)
-RC_f$external_gene_id
-col_facs <- 1e-6 * apply(RC_f[, Sample_names], 2, sum)
-RC_f_n <- scale(RC_f[, Sample_names], center = F, scale = col_facs) 
-inspect_mat(RC_f_n)
-## TODO Check this statement for validity
-rownames(RC_f_n) <- as.character(RC_f$external_gene_id)
-# RC_f_n$sample <- Sample_names
-# RC_f_n <- as.data.frame(RC_f_n)
-# single_genes <- RC_f$external_gene_id[table(RC_f$external_gene_id) == 1]
-stopifnot(all(dim(RC_f) < dim(RC_data)))
-RC_f_n <- RC_f[, Sample_names] / apply(RC_f[, Sample_names], 2, sum)
-inspect_mat(RC_f_n)
+
+# Investigate response variables
+
+```{r, warning=FALSE, echo=FALSE}
+expand_vec <- c(0, 0)
+p1 <- ggplot(fh, aes(x = PDL1_0, y = PDL1_10, label = cell_line)) + 
+    geom_point() +
+    geom_smooth() +
+    geom_text_repel(hjust = -.2, size = 3) +
+    scale_y_continuous(name = 'PDL1 (10 ng)') +
+    scale_x_continuous(name = 'PDL1 (US)', expand = expand_vec)
+p2 <- ggplot(fh, aes(x = PDL1_0, y = geom_mean, label = cell_line)) + 
+    geom_point() +
+    geom_smooth() +
+    scale_y_continuous(name = 'PDL1 (geometric mean US and 10 ng)') +
+    geom_text_repel(hjust = -.2, size = 3) +
+    scale_x_continuous(name = 'PDL1 (US)', expand = expand_vec)
+p3 <- ggplot(fh, aes(x = PDL1_0, y = harm_mean, label = cell_line)) + 
+    geom_point() +
+    geom_smooth() +
+    geom_text_repel(hjust = -.2, size = 3) +
+    scale_y_continuous(name = 'PDL1 (harmonic mean US and 10 ng)') +
+    scale_x_continuous(name = 'PDL1 (US)', expand = expand_vec)
+
+# source('R/load_packages.R')
+p1 <- plot_panel_layout(list(p1, p2, p3), filename = 'plots/PDL1_up.pdf',
+                        w = 20, h = 15)
 ```
 
-```{r, load_upreg, warning=FALSE, echo=FALSE}
-dat_path <- file.path('~/Dropbox', 'PDX_CL_DP_TS_project', 'Response_data', 
-                      'cell_surface_data.csv')
-fh <- fread(dat_path)
 
-setnames(fh, c('cell_line', 
-               paste(rep(c('MHC', 'PDL1'), each = 4), 
-                     c('US', '0', '1', '10'), sep = "_")))
-fh <- fh[-1]
-num_cols <- setdiff(colnames(fh), 'cell_line')
-fh[, (num_cols) := lapply(.SD, function(x) as.numeric(gsub(',', '.', x))), 
-   .SDcols = num_cols]
+# Raw correlations with response variables
 
-setkey(fh, cell_line)
-fh <- fh[gsub('.CL_Untreated', '', rownames(RC_f_n))] 
-fh[gsub('.CL_Untreated', '', rownames(RC_f_n))] 
 
-ggplot(fh, aes(x = PDL1_US, y = PDL1_10 / PDL1_US, label = cell_line)) + 
-  geom_point() +
-  geom_text(hjust = -.2) +
-  geom_smooth() +
-  scale_x_continuous(expand = c(.2, 0))
-
-ggplot(fh, aes(x = PDL1_US, y = PDL1_10, label = cell_line)) + 
-  geom_point() +
-  geom_text(hjust = -.2) +
-  geom_smooth() +
-  scale_x_continuous(expand = c(.2, 0))
-
-fh[, PDL1_10 / PDL1_US]
+```{r, warning=FALSE, echo=FALSE, eval = F}
+cors <- lapply(auto_name(c('harm_mean', 'geom_mean', 'PDL1_US')), 
+               function(y_var) {
+  message('processing: ', y_var)
+  corlist <- sapply(1:nrow(RC_f_n), function(idx) {
+    vec <- unlist(RC_f_n[idx, ])
+    stopifnot(all(names(vec) == fh[, cell_line]))
+    cor(fh[, get(y_var)], vec, method = 'spearman', 
+        use = 'pairwise.complete.obs')
+  })
+  cor_dat <- data.table(gene_symbol=rownames(RC_f_n), s.cor=corlist)
+  return(cor_dat[!is.na(s.cor)][order(-abs(s.cor))])
+})
+saveRDS(cors, 'rds/cors.rds')
 ```
+
+
+```{r, warning=FALSE, echo=FALSE}
+fh
+cors <- readRDS('rds/cors.rds')
+N <- 20
+lol <- lapply(cors, function(dtf) { dtf[1:N, sort(gene_symbol)] })
+venn.diagram(x = lol, filename = sprintf('plots/cor_overlap_top%d.pdf', N))
+```
+
 
 
