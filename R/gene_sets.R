@@ -1,9 +1,14 @@
-gene_set_dir <- file.path('/DATA', 'resources', 'GSEA_genesets')
+gene_set_dir <- file.path('~/libs', 'GSEA_genesets')
 
-list_gene_sets <- function() list.files(gene_set_dir)
+list_gene_sets <- function(gene_symb = 'entrez') {
+  list.files(gene_set_dir, pattern = gene_symb)
+}
 
-find_gene_set <- function(pat = 'c7') {
-  gene.sets <- grep(pat, list.files(gene_set_dir, full.names = T), value = T)
+find_gene_set <- function(pat = 'c7', gene_symb = 'symbols') {
+  gene_symb <- match.arg(gene_symb, choices = c('entrez', 'symbols'), 
+                         several.ok = F)
+  pat_m <- sprintf('%s.*%s', pat, gene_symb)
+  gene.sets <- grep(pat_m, list.files(gene_set_dir, full.names = T), value = T)
   if (length(gene.sets) == 0) {
     stop('No gene set found')
   }
@@ -14,3 +19,4 @@ find_gene_set <- function(pat = 'c7') {
   }
   return(gene.sets)
 }
+find_gene_set()

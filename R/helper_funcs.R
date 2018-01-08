@@ -1,3 +1,5 @@
+theme_set(theme_ms(base_size = 8))
+
 inspect_mat <- function(mat, 
                         maxR=min(5, nrow(mat)), 
                         maxC=min(5, ncol(mat))) 

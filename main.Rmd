@@ -1,63 +1,92 @@
 ```{r, warning=FALSE, echo=FALSE, include=F}
-setwd('/DATA/users/m.slagter/IFNgamma_response/')
+# setwd('/DATA/users/m.slagter/IFNgamma_response/')
 source('R/load_packages.R')
 source('R/helper_funcs.R')
 source('R/gene_sets.R')
 source('R/load_data.R')
 source('R/prep_gsea.R')
+# source('R/convert_to_entrez.R')
 source('R/gsea_wrapper.R')
 source('R/missing_genes.R')
 source('R/heatmaps.R')
 ```
 
-# GSEA
+```{r, warning=FALSE, echo=FALSE}
 
+
+```
+
+# GSEA
 
 ## Identify missing gene symbols
 
-Imperfect compatibility wrt gene names in expression matrix and in MSigDB gene
-sets
+Imperfect compatibility with respect to gene names in expression matrix and in
+MSigDB gene sets
 
 ```{r, warning=FALSE, echo=FALSE}
-length(recon_symb) / length(comb_missing)
-## [1] 0.145493
-length(overlap_symb) / length(recon_symb)
-## [1] 0.1648045
-llply(missing_by_geneset, function(x) {
-  rescued_genes <- sort(intersect(x, overlap_symb))
-  sprintf('Saved %d/%d (%.2f) of genes in gene set',
-          length(rescued_genes), length(x),
-          length(rescued_genes) / length(x))
-})
+if (gene_var == 'symbol') {
+  length(recon_symb) / length(comb_missing)
+  ## [1] 0.145493
+  length(overlap_symb) / length(recon_symb)
+  ## [1] 0.1648045
+  llply(missing_by_geneset, function(x) {
+    rescued_genes <- sort(intersect(x, overlap_symb))
+    sprintf('Saved %d/%d (%.2f) of genes in gene set',
+            length(rescued_genes), length(x),
+            length(rescued_genes) / length(x))
+  })
+}
 ```
 
 ## C2 Pathways
 
-
 ### Reactome
 
-
-```{r}
+```{r, eval = F}
 gmt <- update_genesets('c2')
 noi <- names(gmt) %>% { grep(pattern = 'REACTOME', x = ., value = T) }
-sf(ggsea_res_c2 <- ggsea_wrapper(gmt[noi]))
+ggsea_res_c2 <- ggsea_wrapper(gmt[noi])
 geneset_plot <- rn(unlist(ggsea_res_c2[ggsea_res$p < .05, 'GeneSet']))
 gen_multiple_heatmaps(gmt[geneset_plot], dir_name = 'C2', 
                       pvals = ggsea_res_c2[ggsea_res$GeneSet %in% geneset_plot, ]$p
                       )
 knitr::knit(ggsea_res_c2)
-pacman::p_load("DT")
+pacman::p_load('DT')
 datatable(ggsea_res_c2, options = list(pageLength = 5))
 ```
 
-## C6 Oncogenic genes
+```{r}
+## Entrez version
+gmt <- read_gmt(find_gene_set('c2.all'))
+noi <- names(gmt) %>% { grep(pattern = 'REACTOME', x = ., value = T) }
+ggsea_res_c2 <- ggsea_wrapper(gmt[noi])
+geneset_plot <- rn(unlist(ggsea_res_c2[ggsea_res_c2$p < .05, 'GeneSet']))
+gen_multiple_heatmaps(gmt[geneset_plot], dir_name = 'C2', 
+                      pvals = ggsea_res_c2[ggsea_res_c2$GeneSet %in% geneset_plot, ]$p
+                      )
+knitr::kable(ggsea_res_c2[ggsea_res_c2$p < .05,])
+# pacman::p_load('DT')
+# datatable(ggsea_res_c2, options = list(pageLength = 5))
+```
 
+## C6 Oncogenic genes
 
 ```{r}
 gmt <- update_genesets('c6')
 noi <- names(gmt)
 ggsea_res <- ggsea_wrapper(gmt[noi])
 geneset_plot <- rn(unlist(ggsea_res[ggsea_res$p < .05, 'GeneSet']))
+gen_multiple_heatmaps(gmt[geneset_plot], dir_name = 'C6', 
+                      pvals = ggsea_res[ggsea_res$GeneSet %in% geneset_plot, ]$p
+                      )
+```
+
+
+```{r}
+gmt <- read_gmt(find_gene_set('c6'))
+noi <- names(gmt)
+ggsea_res_c6 <- ggsea_wrapper(gmt[noi])
+geneset_plot <- rn(unlist(ggsea_res_c6[ggsea_res_c6$p < .05, 'GeneSet']))
 gen_multiple_heatmaps(gmt[geneset_plot], dir_name = 'C6', 
                       pvals = ggsea_res[ggsea_res$GeneSet %in% geneset_plot, ]$p
                       )
@@ -136,16 +165,17 @@ p1 <- plot_panel_layout(list(p1, p2, p3), filename = 'plots/PDL1_up.pdf',
 
 
 ```{r, warning=FALSE, echo=FALSE, eval = F}
-cors <- lapply(auto_name(c('harm_mean', 'geom_mean', 'PDL1_US')), 
-               function(y_var) {
-  message('processing: ', y_var)
-  corlist <- sapply(1:nrow(RC_f_n), function(idx) {
-    vec <- unlist(RC_f_n[idx, ])
+cors <- lapply(auto_name(c('PDL1_FC', 'PDL1_US')), 
+               function(resp_var) {
+  message('processing: ', resp_var)
+  corlist <- sapply(1:ncol(regress_vars[[gene_var]][['X_mat']]), function(idx) {
+    vec <- unlist(regress_vars[[gene_var]][['X_mat']][, idx])
     stopifnot(all(names(vec) == fh[, cell_line]))
-    cor(fh[, get(y_var)], vec, method = 'spearman', 
+    cor(fh[, get(resp_var)], vec, method = 'spearman', 
         use = 'pairwise.complete.obs')
   })
-  cor_dat <- data.table(gene_symbol=rownames(RC_f_n), s.cor=corlist)
+  cor_dat <- data.table(gene_symbol=colnames(regress_vars[[gene_var]][['X_mat']]), 
+                        s.cor=corlist)
   return(cor_dat[!is.na(s.cor)][order(-abs(s.cor))])
 })
 saveRDS(cors, 'rds/cors.rds')

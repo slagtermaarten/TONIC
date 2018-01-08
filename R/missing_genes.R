@@ -28,22 +28,25 @@ if (F) {
   #           returnall = T, species='human')
 }
 
-## Step 2: Query [http://www.genenames.org/] and read in results
-missing_symb_fh <- fread('dat/symbol_checker_missing_symb.tsv')
-setnames(missing_symb_fh, colnames(missing_symb_fh), 
-         tolower(gsub(" ", "_", colnames(missing_symb_fh))))
-missing_symb_fh <- missing_symb_fh[, .(input, match_type, approved_symbol)]
-recon_symb <- missing_symb_fh[approved_symbol != input & approved_symbol != "", 
-                setNames(approved_symbol, input)] %>%
-                { grep(pattern = 'withdrawn', x = ., value = T, invert = T) }
-overlap_symb <- sort(setdiff(recon_symb, RC_f[, 'external_gene_id']))
+
+if (gene_var == 'symbol' || gene_var == 'external_gene_id') {
+  ## Step 2: Query [http://www.genenames.org/] and read in results
+  missing_symb_fh <- fread('dat/symbol_checker_missing_symb.tsv')
+  setnames(missing_symb_fh, colnames(missing_symb_fh), 
+           tolower(gsub(" ", "_", colnames(missing_symb_fh))))
+  missing_symb_fh <- missing_symb_fh[, .(input, match_type, approved_symbol)]
+  recon_symb <- missing_symb_fh[approved_symbol != input & approved_symbol != "", 
+                  setNames(approved_symbol, input)] %>%
+                  { grep(pattern = 'withdrawn', x = ., value = T, invert = T) }
+  # overlap_symb <- sort(setdiff(recon_symb, RC_f_n[, get(gene_var)]))
+}
 
 
 #' Update gene sets with more up to date gene symbols
 #'
 #'
 update_genesets <- function(querystr = 'c7') {
-  gene_sets <- read_gmt(find_gene_set(querystr))
+  gene_sets <- ggsea::read_gmt(find_gene_set(querystr, gene_symb = 'symbols'))
   return(lapply(gene_sets, function(gs) {
     saveable_genes <- intersect(gs, names(recon_symb))
     if (length(saveable_genes) > 0) {
