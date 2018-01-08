@@ -24,7 +24,7 @@ resp_var <- 'PDL1_FC'
 
 ## Load_transcriptome
 dat_path <- file.path('data-raw', 'RNAseq_data', 'DESeq2_normalized.RData')
-if (!exists('Sample_annotation')) load(dat_path)
+if (!exists('Sample_annotation') || !exists('RC_data')) load(dat_path)
 idx <- (is.na(Sample_annotation$Hours) | Sample_annotation$Hours == 24) & 
        Sample_annotation$Treatment %in% c('Untreated')
 soi <- as.character(Sample_annotation$File_name[idx])
@@ -32,22 +32,39 @@ Sample_names <- paste(Sample_annotation$Cell_line[idx],
                       Sample_annotation$Treatment[idx], sep = '_')
 
 ## Subselect to samples of interest and aggregate expression levels
-RC_f <- RC_data[, c('external_gene_id', soi)]
-colnames(RC_f) <- c('external_gene_id', Sample_names)
-RC_f <- aggregate(. ~ external_gene_id, RC_f, sum)
-## Some rows should have been combined and some columns unselected
-stopifnot(all(dim(RC_f) < dim(RC_data)))
+gene_var <- 'external_gene_id'
+gene_var <- 'ensembl_gene_id'
+RC_f <- RC_data[, c(gene_var, soi)]
+colnames(RC_f) <- c(gene_var, Sample_names)
+if (any(table(RC_f[, gene_var]) > 1)) {
+  RC_f <- aggregate(sprintf('. ~ %s', gene_var), RC_f, sum)
+  ## Some rows should have been combined and some columns unselected
+  stopifnot(all(dim(RC_f) < dim(RC_data)))
+}
 
-## Normalize expression data
-col_facs <- 1e-6 * apply(RC_f[, Sample_names], 2, sum)
-RC_f_n <- scale(RC_f[, Sample_names], center = F, scale = col_facs) 
-## All column sums should equal 1e6
-stopifnot(all(eps(apply(RC_f_n[, Sample_names], 2, sum), 1e6)))
-## No rows should have been lost
-stopifnot(nrow(RC_f_n) == nrow(RC_f))
+## Normalize expression data 
+if (F) {
+  ## Manual method
+  col_facs <- 1e-6 * apply(RC_f[, Sample_names], 2, sum)
+  RC_f_n <- scale(RC_f[, Sample_names], center = F, scale = col_facs) 
+  ## All column sums should equal 1e6
+  stopifnot(all(eps(apply(RC_f_n[, Sample_names], 2, sum), 1e6)))
+  ## No rows should have been lost
+  stopifnot(nrow(RC_f_n) == nrow(RC_f))
+  ## Name rows and columns
+  rownames(RC_f_n) <- as.character(RC_f[, gene_var])
+} else if (F) { 
+  ## Normalize with DESeq
+  ## Data already in CPM format?
+  colnames(RC_f)
+  rownames(RC_f)
+  gexp_counts <- RC_f
+  gexp_counts <- gexp_counts[, colSums(gexp_counts) > nrow(gexp_counts)]
+  print(dim(gexp_counts))
+} else {
+  RC_f_n <- RC_f
+}
 
-## Name rows and columns
-rownames(RC_f_n) <- as.character(RC_f$external_gene_id)
 colnames(RC_f_n) <- harmonize_celllines(colnames(RC_f_n))
 if (F) {
   inspect_mat(RC_f_n)
@@ -56,13 +73,26 @@ if (F) {
 }
 
 ## Remove genes for which variance is 0, this confuses ggsea code
-idx <- which(!eps(apply(RC_f_n, 1, sd), 0))
-messagef('Removing %d/%d (%.2f) genes from RNA exp data due to zero std', 
-         nrow(RC_f_n) - length(idx),
-         nrow(RC_f_n),
-         (nrow(RC_f_n) - length(idx)) / nrow(RC_f_n))
+idx <- which(!eps(apply(RC_f_n[, setdiff(colnames(RC_f_n), "ensembl_gene_id")], 
+                        1, sd), 1e-6))
+message(
+  format_frac(msg = 'RNA exp data genes removed with zero std', 
+              num = nrow(RC_f_n) - length(idx),
+              denom = nrow(RC_f_n)))
 RC_f_n <- RC_f_n[idx, ]
 rm(idx)
+
+if (T) {
+  sample_names <- gsub('(.+)\\.1', '\\1', colnames(RC_f_n))
+  ## Take mean of technical replicates
+  tech_means <- sapply(auto_name(unique(sample_names)), function(sn) {
+    idx <- which(sample_names == sn)
+    means <- apply(RC_f_n[, idx], 1, mean)
+    return(means)
+  })
+  rm(sample_names)
+  RC_f_n <- tech_means
+}
 
 ## Select down to cell lines for which both expression and PD-L1 staining is
 ## available
