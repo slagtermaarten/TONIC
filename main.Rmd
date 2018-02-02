@@ -1,194 +1,126 @@
 ```{r, warning=FALSE, echo=FALSE, include=F}
-# setwd('/DATA/users/m.slagter/IFNgamma_response/')
-source('R/load_packages.R')
-source('R/helper_funcs.R')
-source('R/gene_sets.R')
 source('R/load_data.R')
-source('R/prep_gsea.R')
-# source('R/convert_to_entrez.R')
-source('R/gsea_wrapper.R')
-source('R/missing_genes.R')
-source('R/heatmaps.R')
+```
+
+Investigate the effect of various induction treatments on tumor immune profiles.
+
+```{r, warning=FALSE, echo=FALSE}
+patient_labels.m <- melt(patient_labels,
+                         id.vars = c('patient', 'response', 'tis_score',
+                                     'clinical_response',
+                                     'mean_log2_hk', 'qc_status', 'arm'))
+dcast(patient_labels.m, . ~ patient)
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
+plot_single_gene_fc <- function(gene_symbol = 'CD274',
+                                    timepoints = c(1,2)) {
+  allowed_patients <- patient_labels[timepoint %in% timepoints,
+                                     .N >= 2, by = patient][V1 == TRUE, patient]
+  gene_idx <- exp_levels[, which(gene_symbol == parent.frame(3)$gene_symbol)]
 
+  setkey(patient_labels, patient)
+  res <- lapply(timepoints, function(tp) {
+    exp_levels[gene_idx,
+               patient_labels[allowed_patients][timepoint == tp, as.character(filename)],
+               with = F] %>% unlist %>% setNames(., NULL)
+  }) %>% { data.table('patient' = allowed_patients,
+                      'tp_a' = .[[1]], 'tp_b' = .[[2]]) }
+  res <- merge(res, patient_labels[, .(patient, response, arm)], by = 'patient')
 
-```
+  res[, 'fc' := log2(tp_b) - log2(tp_a)]
+  x_var = 'tp_a'; y_var = 'fc'
+  colour_var = 'arm'
+  colour_var = 'response'
 
-# GSEA
+  p <- ggplot(res, aes_string(x = x_var, y = y_var, colour = colour_var)) +
+    geom_vline(linetype = 'dashed', 
+               xintercept = median(res[, get(x_var)], na.rm = T), alpha = .5) +
+    geom_hline(linetype = 'dashed', 
+               yintercept = median(res[, get(y_var)], na.rm = T), alpha = .5) +
+    geom_point(alpha = .5) +
+    theme_bw() +
+    scale_x_continuous(name = sprintf('%s time point %d', gene_symbol,
+                                      timepoints[1])) +
+    scale_y_continuous(name = sprintf('log(fc) %s time points %d & %d', gene_symbol,
+                                      timepoints[1], timepoints[2])) +
+    scale_colour_discrete() +
+    ggtitle(gene_symbol)
 
-## Identify missing gene symbols
+  ## Draw median cross hairs
+  x_width <- diff(res[, range(get(x_var))]) / 20
+  y_width <- diff(res[, range(get(y_var))]) / 20
+  p <- p + geom_segment(aes(x = V1 - x_width, y = V2,
+                            xend = V1 + x_width, yend = V2),
+                        lineend = 'butt',
+                        data = res[, .(median(get(x_var), na.rm = T),
+                                       median(get(y_var), na.rm = T)), by = colour_var])
+  p <- p + geom_segment(aes(x = V1, y = V2 + y_width,
+                            xend = V1, yend = V2 - y_width),
+                        lineend = 'butt',
+                        data = res[, .(median(get(x_var), na.rm = T),
+                                       median(get(y_var), na.rm = T)),
+                        by = colour_var])
+  return(p)
 
-Imperfect compatibility with respect to gene names in expression matrix and in
-MSigDB gene sets
-
-```{r, warning=FALSE, echo=FALSE}
-if (gene_var == 'symbol') {
-  length(recon_symb) / length(comb_missing)
-  ## [1] 0.145493
-  length(overlap_symb) / length(recon_symb)
-  ## [1] 0.1648045
-  llply(missing_by_geneset, function(x) {
-    rescued_genes <- sort(intersect(x, overlap_symb))
-    sprintf('Saved %d/%d (%.2f) of genes in gene set',
-            length(rescued_genes), length(x),
-            length(rescued_genes) / length(x))
-  })
 }
-```
 
-## C2 Pathways
-
-### Reactome
-
-```{r, eval = F}
-gmt <- update_genesets('c2')
-noi <- names(gmt) %>% { grep(pattern = 'REACTOME', x = ., value = T) }
-ggsea_res_c2 <- ggsea_wrapper(gmt[noi])
-geneset_plot <- rn(unlist(ggsea_res_c2[ggsea_res$p < .05, 'GeneSet']))
-gen_multiple_heatmaps(gmt[geneset_plot], dir_name = 'C2', 
-                      pvals = ggsea_res_c2[ggsea_res$GeneSet %in% geneset_plot, ]$p
-                      )
-knitr::knit(ggsea_res_c2)
-pacman::p_load('DT')
-datatable(ggsea_res_c2, options = list(pageLength = 5))
-```
-
-```{r}
-## Entrez version
-gmt <- read_gmt(find_gene_set('c2.all'))
-noi <- names(gmt) %>% { grep(pattern = 'REACTOME', x = ., value = T) }
-ggsea_res_c2 <- ggsea_wrapper(gmt[noi])
-geneset_plot <- rn(unlist(ggsea_res_c2[ggsea_res_c2$p < .05, 'GeneSet']))
-gen_multiple_heatmaps(gmt[geneset_plot], dir_name = 'C2', 
-                      pvals = ggsea_res_c2[ggsea_res_c2$GeneSet %in% geneset_plot, ]$p
-                      )
-knitr::kable(ggsea_res_c2[ggsea_res_c2$p < .05,])
-# pacman::p_load('DT')
-# datatable(ggsea_res_c2, options = list(pageLength = 5))
-```
-
-## C6 Oncogenic genes
-
-```{r}
-gmt <- update_genesets('c6')
-noi <- names(gmt)
-ggsea_res <- ggsea_wrapper(gmt[noi])
-geneset_plot <- rn(unlist(ggsea_res[ggsea_res$p < .05, 'GeneSet']))
-gen_multiple_heatmaps(gmt[geneset_plot], dir_name = 'C6', 
-                      pvals = ggsea_res[ggsea_res$GeneSet %in% geneset_plot, ]$p
-                      )
-```
-
-
-```{r}
-gmt <- read_gmt(find_gene_set('c6'))
-noi <- names(gmt)
-ggsea_res_c6 <- ggsea_wrapper(gmt[noi])
-geneset_plot <- rn(unlist(ggsea_res_c6[ggsea_res_c6$p < .05, 'GeneSet']))
-gen_multiple_heatmaps(gmt[geneset_plot], dir_name = 'C6', 
-                      pvals = ggsea_res[ggsea_res$GeneSet %in% geneset_plot, ]$p
-                      )
-```
-
-## C7 Immunology gene sets
-
-
-```{r}
-gmt <- update_genesets('c7')
-noi <- names(gmt) %>% 
-  grep('CELL', ., value = T, invert = T) %>%
-  grep('THYMOCYTE', ., value = T, invert = T) %>%
-  grep('TREG', ., value = T, invert = T) %>%
-  grep('CD4', ., value = T, invert = T) %>%
-  grep('MONOCYTE', ., value = T, invert = T) %>%
-  grep('GRANULOCYTE', ., value = T, invert = T) %>%
-  grep('CD8', ., value = T, invert = T) %>%
-  grep('MACROPHAGE', ., value = T, invert = T) %>%
-  grep('NEUTROPHIL', ., value = T, invert = T) %>%
-  grep('EOSINOPHIL', ., value = T, invert = T) %>%
-  grep('TH', ., value = T, invert = T)
-tail(noi, n = 500)
-ggsea_res <- ggsea_wrapper(gmt[noi])
-geneset_plot <- rn(unlist(ggsea_res[ggsea_res$p < .05, 'GeneSet']))
-gen_multiple_heatmaps(gmt[geneset_plot], dir_name = 'C7', 
-                      pvals = ggsea_res[ggsea_res$GeneSet %in% geneset_plot, ]$p
-                      )
-```
-
-## Known IFN gamma signature gene sets
-
-```{r}
-excluded_genes <- c('CD8A', 'CD8B', 'PRF1', 'GZMM')
-excluded_genes <- c()
-gmt <- lapply(update_genesets('ifn'), function(x) {
-  setdiff(x, excluded_genes)
-})
-ifn_ggsea_res <- ggsea_wrapper(gmt)
-gen_multiple_heatmaps(gmt, dir_name = 'IFNy_sigs', pvals = ifn_ggsea_res$p)
-```
-
-
-
-
-# Investigate response variables
-
-```{r, warning=FALSE, echo=FALSE}
-expand_vec <- c(0, 0)
-p1 <- ggplot(fh, aes(x = PDL1_0, y = PDL1_10, label = cell_line)) + 
-    geom_point() +
-    geom_smooth() +
-    geom_text_repel(hjust = -.2, size = 3) +
-    scale_y_continuous(name = 'PDL1 (10 ng)') +
-    scale_x_continuous(name = 'PDL1 (US)', expand = expand_vec)
-p2 <- ggplot(fh, aes(x = PDL1_0, y = geom_mean, label = cell_line)) + 
-    geom_point() +
-    geom_smooth() +
-    scale_y_continuous(name = 'PDL1 (geometric mean US and 10 ng)') +
-    geom_text_repel(hjust = -.2, size = 3) +
-    scale_x_continuous(name = 'PDL1 (US)', expand = expand_vec)
-p3 <- ggplot(fh, aes(x = PDL1_0, y = harm_mean, label = cell_line)) + 
-    geom_point() +
-    geom_smooth() +
-    geom_text_repel(hjust = -.2, size = 3) +
-    scale_y_continuous(name = 'PDL1 (harmonic mean US and 10 ng)') +
-    scale_x_continuous(name = 'PDL1 (US)', expand = expand_vec)
-
-# source('R/load_packages.R')
-p1 <- plot_panel_layout(list(p1, p2, p3), filename = 'plots/PDL1_up.pdf',
-                        w = 20, h = 15)
-```
-
-
-# Raw correlations with response variables
-
-
-```{r, warning=FALSE, echo=FALSE, eval = F}
-cors <- lapply(auto_name(c('PDL1_FC', 'PDL1_US')), 
-               function(resp_var) {
-  message('processing: ', resp_var)
-  corlist <- sapply(1:ncol(regress_vars[[gene_var]][['X_mat']]), function(idx) {
-    vec <- unlist(regress_vars[[gene_var]][['X_mat']][, idx])
-    stopifnot(all(names(vec) == fh[, cell_line]))
-    cor(fh[, get(resp_var)], vec, method = 'spearman', 
-        use = 'pairwise.complete.obs')
-  })
-  cor_dat <- data.table(gene_symbol=colnames(regress_vars[[gene_var]][['X_mat']]), 
-                        s.cor=corlist)
-  return(cor_dat[!is.na(s.cor)][order(-abs(s.cor))])
-})
-saveRDS(cors, 'rds/cors.rds')
+plot_single_gene_fc()
 ```
 
 
 ```{r, warning=FALSE, echo=FALSE}
-fh
-cors <- readRDS('rds/cors.rds')
-N <- 20
-lol <- lapply(cors, function(dtf) { dtf[1:N, sort(gene_symbol)] })
-venn.diagram(x = lol, filename = sprintf('plots/cor_overlap_top%d.pdf', N))
+plot_single_score_fc <- function(gene_symbol = 'CD274',
+                                    timepoints = c(1,2)) {
+  allowed_patients <- patient_labels[timepoint %in% timepoints,
+                                     .N >= 2, by = patient][V1 == TRUE, patient]
+  gene_idx <- exp_levels[, which(gene_symbol == parent.frame(3)$gene_symbol)]
+
+  setkey(patient_labels, patient)
+  res <- lapply(timepoints, function(tp) {
+    exp_levels[gene_idx,
+               patient_labels[allowed_patients][timepoint == tp, as.character(filename)],
+               with = F] %>% unlist %>% setNames(., NULL)
+  }) %>% { data.table('patient' = allowed_patients,
+                      'tp_a' = .[[1]], 'tp_b' = .[[2]]) }
+  res <- merge(res, patient_labels[, .(patient, response, arm)], by = 'patient')
+
+  res[, 'fc' := log2(tp_b) - log2(tp_a)]
+  x_var = 'tp_a'; y_var = 'fc'
+  colour_var = 'arm'
+  colour_var = 'response'
+
+  p <- ggplot(res, aes_string(x = x_var, y = y_var, colour = colour_var)) +
+    geom_vline(linetype = 'dashed', 
+               xintercept = median(res[, get(x_var)], na.rm = T), alpha = .5) +
+    geom_hline(linetype = 'dashed', 
+               yintercept = median(res[, get(y_var)], na.rm = T), alpha = .5) +
+    geom_point(alpha = .5) +
+    theme_bw() +
+    scale_x_continuous(name = sprintf('%s time point %d', gene_symbol,
+                                      timepoints[1])) +
+    scale_y_continuous(name = sprintf('log(fc) %s time points %d & %d', gene_symbol,
+                                      timepoints[1], timepoints[2])) +
+    scale_colour_discrete() +
+    ggtitle(gene_symbol)
+
+  ## Draw median cross hairs
+  x_width <- diff(res[, range(get(x_var))]) / 20
+  y_width <- diff(res[, range(get(y_var))]) / 20
+  p <- p + geom_segment(aes(x = V1 - x_width, y = V2,
+                            xend = V1 + x_width, yend = V2),
+                        lineend = 'butt',
+                        data = res[, .(median(get(x_var), na.rm = T),
+                                       median(get(y_var), na.rm = T)), by = colour_var])
+  p <- p + geom_segment(aes(x = V1, y = V2 + y_width,
+                            xend = V1, yend = V2 - y_width),
+                        lineend = 'butt',
+                        data = res[, .(median(get(x_var), na.rm = T),
+                                       median(get(y_var), na.rm = T)),
+                        by = colour_var])
+  return(p)
+
+}
+
+plot_single_gene_by_arm()
 ```
-
-
-
