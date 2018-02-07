@@ -1,0 +1,48 @@
+# Recreate gene signatures
+
+```{r, warning=FALSE, echo=FALSE, include=F}
+source('R/load_data.R')
+source('R/plotting.R')
+```
+
+
+Virtually no overlap in genes involved in gene signatures
+
+```{r, warning=FALSE, echo=FALSE}
+m <- dcast(danaher_signature_genes, signature_name ~ gene_name, 
+           fun.aggregate = length) %>% 
+  as.data.frame %>%
+  { column_to_rownames(., var = 'signature_name') } %>%
+  as.matrix %>%
+  t %>%
+  overlap_analysis
+plot(m)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+## Compute [N_samples] * [N_signatures] matrix of gene expression scores
+compute_signature_scores <- function(integrating_func = function(x, ...) 
+                                     { log2(median(x, ..., na.rm = T) + 1) }) {
+  sigs <- danaher_signature_genes[, unique(signature_name)]
+  res <- lapply(sigs, function(sig) {
+    genes <- danaher_signature_genes[signature_name == sig, 
+                                     as.character(gene_name)]
+    
+    exp_levels[gene_symbol %in% genes] %>%
+      { .[, .SD, .SDcols = setdiff(colnames(.), 'gene_symbol')] } %>%
+      { .[, lapply(.SD, integrating_func)] } %>%
+      unlist
+  }) %>% as.data.frame()
+  colnames(res) <- sigs
+  return(res)
+}
+
+## TODO harmonize data structures and compare 
+my_scores <- compute_signature_scores()
+my_scores$filename <- rownames(my_scores)
+merge(my_scores, patient_labels[, .(file_name)]
+
+danaher_scores.m
+
+setnames(danaher_scores, gsub('\\.|-', '_',colnames(danaher_scores)))
+```
