@@ -1,0 +1,265 @@
+---
+title: "TIL TCR repertoire and relationship to induction arm and clinical response"
+author: "Maarten"
+output: html_document
+---
+
+
+```{r, warning=FALSE, echo=FALSE}
+knitr::opts_chunk$set(message = FALSE, cache = T, cache.lazy = F,
+                      cache.comments = F, autodep = T, warning = FALSE,
+                      echo = TRUE, error = FALSE)
+knitr::opts_knit$set(progress = TRUE, verbose = TRUE)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+```
+
+# Relationship between various repertoire size estimators
+
+Various (statistical) methods of estimating the total repertoire size,
+extrapolating from the observed to the unobserved total.
+
+```{r, fig.width = 12, fig.height = 6, warning=FALSE, echo=FALSE}
+plot_cor_mat <- function(tp = timepoints,
+                         cormethod = 'spearman',
+                         sig_level = c(.05, .0005, 000005)) {
+  library(corrplot)
+  p_dat <-
+    patient_labels[, .(timepoint,
+                       tis_score,
+                       productive_clonality,
+                       adaptive_t_cells,
+                       sample_amount_ng,
+                       cd8_mm2,
+                       pd_l1_tumor,
+                       pd_l1_immunoinfiltrate,
+                       ca15_3,
+                       ldh,
+                       crp,
+                       s_til,
+                       ichao1,
+                       observed_richness,
+                       efron_thisted_estimator,
+                       daley_smith_estimator)] %>%
+    as.data.frame() %>%
+    dplyr::filter(timepoint %in% tp) %>%
+    dplyr::select(-timepoint) %>%
+    { .[apply(., 1, function(x) all(!is.na(x))), ] } %>%
+    as.matrix
+
+  ## Format column names a bit
+  colnames(p_dat) <- gsub('^s_', 'stromal ', colnames(p_dat))
+  colnames(p_dat) <- gsub('pd_l1', 'PD-L1', colnames(p_dat))
+  colnames(p_dat) <- gsub('ca15_3', 'ca15.3', colnames(p_dat))
+  colnames(p_dat) <- simple_cap(gsub('_', ' ', colnames(p_dat)),
+    caplist = c('mm2', 'Ichao1', 'cells', 'TIS', 'score', 's', 'ng', 'LDH',
+                'CRP', 'TIL'))
+
+  corrplot(cor(p_dat, method = cormethod),
+           p.mat = cor.mtest(p_dat, method = cormethod)$p,
+           addrect = 6,
+           tl.col = 'gray40',
+           pch.col = 'white',
+           pch.cex = .9,
+           # order = 'AOE',
+           order = "hclust",
+           # tl.pos = 'ld',
+           # type = 'lower',
+           tl.cex = .9,
+           sig.level = sig_level,
+           insig = "label_sig",
+           method = 'color',
+           mar = c(0,0,6,0), # http://stackoverflow.com/a/14754408/54964
+           title = sprintf('%s - %s',
+                           paste(tp, collapse = ', '),
+                           simple_cap(cormethod)))
+}
+
+plot_cor_mat()
+## Separating by timepoint does not change these correlations for the Adapative
+## data, as expected
+plot_cor_mat(tp = 'Baseline')
+plot_cor_mat(tp = 'Post-induction')
+plot_cor_mat(tp = 'On nivo')
+```
+
+
+# Relationship between distribution and induction treatment & clinical response
+
+```{r, warning=FALSE, echo=FALSE}
+plot_parallel_adaptive <- function(p_var = 'efron_thisted_estimator') {
+  p_dat <- patient_labels[, c('patient', 'timepoint', 'clinical_response',
+                              'arm', p_var),
+                          with = F]
+  setnames(p_dat, p_var, 'value')
+  p_dat <- p_dat[!is.na(value)]
+
+  plot_parallel_coords(p_dat, facet_var = 'arm',
+                       colour_var = 'clinical_response') +
+    scale_y_continuous(name = var_to_label(p_var))
+}
+```
+
+
+```{r, warning=FALSE, echo=FALSE}
+# devtools::install_github('Rdatatable/data.table')
+
+facet_var = NULL
+facet_var = 'arm'
+facet_var = 'clinical_response'
+facet_var = rev(c('arm', 'clinical_response'))
+alpha_lev = .8
+
+var1 = 'efron_thisted_estimator'
+# lvar = var1
+var2 = 'pielou_evenness'
+
+aggregate_timepoints <- function(lvar = 'efron_thisted_estimator') {
+  p_dat <- Reduce(function(x, y) merge(x, y, all = TRUE, by = 'patient'),
+   list(patient_labels[timepoint == timepoints[1],
+                       c('patient', lvar), with = F][!is.na(get(lvar))],
+        patient_labels[timepoint == timepoints[2],
+                       c('patient', lvar), with = F][!is.na(get(lvar))],
+        patient_labels[timepoint == timepoints[3],
+                       c('patient', lvar), with = F][!is.na(get(lvar))]))
+  p_dat <- setnames(p_dat, c('patient',
+                             sprintf('%s_%s', lvar, c('tp1', 'tp2', 'tp3'))))
+  p_dat[, (sprintf('%s_12', lvar)) := 2^(log2(get(sprintf('%s_tp2', lvar))) -
+                                         log2(get(sprintf('%s_tp1', lvar))))]
+  p_dat[, (sprintf('%s_13', lvar)) := 2^(log2(get(sprintf('%s_tp3', lvar))) -
+                                         log2(get(sprintf('%s_tp1', lvar))))]
+  return(p_dat)
+}
+
+# t1 <- aggregate_timepoints(var1)
+# unique(t1, by = 'patient')
+# t2 <- aggregate_timepoints(var2)
+# # , aggregate_timepoints(var2),
+# merge(t1, t2, by = 'patient', allow.cartesian = T)
+agg_tp <-
+  merge(aggregate_timepoints(var1), aggregate_timepoints(var2),
+      by = 'patient', all = T)[naturalsort::naturalorder(patient)]
+melt(agg_tp, formula = as.formula('patient ~ %s + %s', sprintf('%s_12', var1), 
+     sprintf('%s_13', var1)))
+
+agg_tp <- melt(agg_tp, formula = as.formula('patient ~ .'))
+# agg_tp <- melt(agg_tp, formula = as.formula('patient ~ %s',
+#                                   paste(c(sprintf('%s_12', var1),
+#                                           sprintf('%s_13', var1),
+#                                           sprintf('%s_12', var2),
+#                                           sprintf('%s_13', var2)),
+#                                         collapse = ' + ')))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+
+
+
+s_plot <- ggplot(p_dat, aes(x = efron_thisted_estimator,
+                            y = pielou_evenness,
+                            label = timepoint_number,
+                            shape = comb_time_resp,
+                            group = patient,
+                            colour = comb_time_resp)) +
+  geom_line(alpha = alpha_lev, show.legend = F) +
+  geom_point(size = 2, alpha = alpha_lev) +
+  # ggrepel::geom_text_repel(segment.color = 'grey90', color = 'black') +
+  # geom_text(color = 'white') +
+  # geom_smooth(se = F) +
+  scale_fill_manual(values = comb_time_resp_palette) +
+  scale_colour_manual(name = '', values = comb_time_resp_palette) +
+  scale_shape_manual(name = '',
+                     values = setNames(c(1, 2, 3, 1, 2, 3) + 14,
+                                       names(comb_time_resp_palette))) +
+  scale_x_continuous('Repertoire size', trans = 'log10', expand = c(0, 0)) +
+  scale_y_continuous('Repertoire evenness', trans = 'identity',
+                     expand = c(0, 0)) +
+  theme(legend.position = 'top', legend.direction = 'vertical') +
+  gg_legend_alpha_cancel
+  # guides(shape = guide_legend(nrow = 3))
+
+if (!is.null(facet_var)) {
+  s_plot <- s_plot + facet_wrap(as.formula(sprintf('~ %s',
+                                                   paste(facet_var,
+                                                         collapse = ' + '))),
+                                nrow = length(facet_var))
+}
+
+print(s_plot)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+
+cowplot::plot_grid(
+  plot_parallel_adaptive(p_var = 'efron_thisted_estimator') + remove_x +
+    remove_legend + scale_y_continuous(trans = 'log10',
+                                       name = 'Repertoire size'),
+  plot_parallel_adaptive(p_var = 'pielou_evenness') + remove_strip +
+    theme(legend.position = 'top'),
+  s_plot + remove_strip, ncol = 1, align = 'v', rel_heights = c(.4, .4, .6))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+compare_adaptive_summary_stats <- function(tp1 = 'Baseline',
+                                           tp2 = 'On nivo',
+                                           facet_var = 'arm',
+                                           comp_measure = 'pielou_evenness') {
+
+  t_dat <- patient_labels[, {
+    .SD[timepoint == tp2, get(comp_measure)] -
+    .SD[timepoint == tp1, get(comp_measure)]
+  }, by = patient]
+  setnames(t_dat, 'V1', 'value')
+
+  t_dat <- merge(t_dat, patient_labels, all.x = T, all.y = F) %>%
+    unique(by = c('patient'))
+
+  label_proc <- function(labels)
+    sapply(labels, function(lab) parse(text = lab))
+
+  # t_dat[, label := NULL]
+  t_dat[!is.na(value), 'label' := sprintf('%s~(italic(n)==%d)',
+                                          clinical_response, .N),
+        by = c(facet_var, 'clinical_response')]
+
+  ggplot(t_dat[!is.na(label)],
+         aes(x = label, y = value, fill = clinical_response)) +
+    geom_boxplot(varwidth = F) +
+    ggbeeswarm::geom_quasirandom() +
+    # ggpubr::compare_means(method = 'wilcox.test') +
+    scale_y_continuous(name = sprintf('%s %s vs. %s',
+                                      var_to_label(comp_measure),
+                                      tp2, tp1)) +
+    scale_x_discrete(name = '', labels = label_proc) +
+    facet_grid(as.formula(sprintf('~ %s', facet_var)), scales = 'free_x') +
+    rotate_x_labels(45) +
+    theme(legend.position = 'none')
+}
+
+compare_adaptive_summary_stats(tp1 = 'Baseline', tp2 = 'Post-induction',
+                               comp_measure = 'pielou_evenness')
+compare_adaptive_summary_stats(tp1 = 'Baseline', tp2 = 'On nivo',
+                               comp_measure = 'pielou_evenness')
+
+compare_adaptive_summary_stats(tp1 = 'Baseline', tp2 = 'Post-induction',
+                               comp_measure = 'sample_cells_mass_estimate')
+compare_adaptive_summary_stats(tp1 = 'Baseline', tp2 = 'On nivo',
+                               comp_measure = 'sample_cells_mass_estimate')
+
+compare_adaptive_summary_stats(tp1 = 'Baseline', tp2 = 'Post-induction',
+                               comp_measure = 'productive_clonality')
+compare_adaptive_summary_stats(tp1 = 'Baseline', tp2 = 'On nivo',
+                               comp_measure = 'productive_clonality')
+```
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+devtools::load_all(file.path('~/libs', 'maartenutils'))
+arr <- w_fread(file.path(p_root, 'data-raw', 'AdaptiveAllRearrangements.tsv'),
+               col_classes = c('productive_frequency' = 'numeric'))
+arr[, productive_frequency := as.numeric(productive_frequency)]
+arr[, uniqueN(amino_acid)]
+# arr[, sum(productive_frequency, na.rm = T), by = sample_name][, table(V1)]
+
+```
