@@ -53,9 +53,9 @@ rna_read_counts <- rna_read_counts[, c('external_gene_id',
   merge(rna_sample_annotation)
 rna_read_counts[, cf_number := NULL]
 setkey(rna_read_counts, patient, external_gene_id, timepoint)
+rna_read_counts[, t_number := NULL]
 setcolorder(rna_read_counts, c('patient', 'induction_arm', 'timepoint',
                         'external_gene_id', 'value'))
 
 # rna_FC <- rna_read_counts[, .('FC' = compute_FC(.SD)), 
 #                    by = c('patient', 'external_gene_id')]
-

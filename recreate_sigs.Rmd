@@ -5,20 +5,6 @@ source('R/load_data.R')
 source('R/plotting.R')
 ```
 
-
-Virtually no overlap in genes involved in gene signatures
-
-```{r, warning=FALSE, echo=FALSE}
-m <- dcast(danaher_signature_genes, signature_name ~ gene_name, 
-           fun.aggregate = length) %>% 
-  as.data.frame %>%
-  { column_to_rownames(., var = 'signature_name') } %>%
-  as.matrix %>%
-  t %>%
-  overlap_analysis
-plot(m)
-```
-
 ```{r, warning=FALSE, echo=FALSE}
 ## Compute [N_samples] * [N_signatures] matrix of gene expression scores
 compute_signature_scores <- function(integrating_func = function(x, ...) 

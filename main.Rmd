@@ -1,93 +1,388 @@
+---
+title: "Identifying clinical responders from NanoString data in the TONIC trial"
+author: "Maarten Slagter"
+output: html_document
+---
+
+```{r, cache = F, warning=FALSE, echo=FALSE}
+knitr::opts_chunk$set(message = FALSE, cache = F, cache.lazy = F,
+                      cache.comments = F, autodep = T, warning = FALSE,
+                      echo = TRUE, error = FALSE)
+knitr::opts_knit$set(progress = TRUE, verbose = TRUE)
+```
+
 ```{r, warning=FALSE, echo=FALSE, include=F}
-# source('~/antigenic_space/bin/install_packages.R')
-library(maartenutils)
-source('R/load_data.R')
-source('R/ML.R')
-source('R/plotting.R')
-ggplot2::theme_set(theme_ms(base_size = 8))
-```
-
-Investigate the effect of various induction treatments on tumor immune profiles.
-
-```{r, warning=FALSE, echo=FALSE}
-plot_single_gene_fc()
-```
-
-```{r, warning=FALSE, echo=FALSE}
-p_dat %>% .[variable == 'tis'] %>%
-  plot_timepoint_comparison(x_var = x_var, y_var = y_var,
-                            N_lines = 11,
-                            colour_var = 'arm')
+source('R/init.R')
 ```
 
 ```{r, eval = F, warning=FALSE, echo=FALSE}
-x <- seq(0, 10, by = .1)
-plot(x, dgamma(x = x, shape = 5, rate = 4))
-# plot(x, dbeta(x = x, shape1 = 2, shape2 = 2))
+# install.packages('extrafont')
+# font_import(pattern="[H/h]elvetica", prompt=FALSE)
+# font_import(pattern="helvetica", prompt=FALSE)
+# require(ggplot2)
+```
+
+# Association with response
+
+RG = genes associated with response on nivo
+UG = genes upregulated due to induction treatment, subset of RG
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/test_associations.R')
+p_vals <- list()
+
+p_vals[['gene_set']] <-
+  lapply(auto_name(timepoints), function(tp) {
+    res <- data.table(gene_set = test_gene_sets)
+    res <- rbindlist(lapply(test_gene_sets, function(gs) {
+      test_gene_set_association(gene_set = gs, timepoint = tp,
+                                y_var = 'response')
+    }))
+    return(res[order(-p_val)])
+  })
+
+p_vals[['single_gene']] <-
+  lapply(auto_name(timepoints), function(tp) {
+    res <- data.table(gene_symbol = test_genes)
+    res[, 'p_val' := test_gene_association(gene = .SD[, gene_symbol],
+                                           timepoint = tp,
+                                           y_var = 'response'),
+         by = 1:nrow(res)]
+    return(res[order(-p_val)])
+  })
+saveRDS(p_vals, file.path('rds', 'p_vals.rds'))
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
-plot_bivariates(x_var = 'baseline', y_var = 'post.induction',
-                colour_var = 'arm')
+p_vals[['single_gene']][['On nivo']][p_val <= .05]
+p_vals[['gene_set']][['Baseline']][p_val <= .05]
+p_vals[['gene_set']][['Post-induction']][p_val <= .05]
+p_vals[['gene_set']][['On nivo']][p_val <= .05]
+p_vals[['single_gene']]$`On nivo`
 ```
+
+```{r, exporttofiles, warning=FALSE, echo=FALSE}
+## Write tables to HTML
+pacman::p_load(tableHTML)
+
+dir.create(file.path(p_root, 'html'))
+for (s1 in names(p_vals)) {
+  for (s2 in names(p_vals[[s1]])) {
+
+    cp_friendly_tp <- timepoints_inv[s2]
+    fn <- file.path(p_root, 'html', sprintf('cors_%s_%s.html',
+                                            s1, cp_friendly_tp))
+    print(fn)
+    write_tableHTML(tableHTML(p_vals[[s1]][[s2]]), file = fn)
+  }
+}
+```
+
+## Heatmap of p-values
 
 ```{r, warning=FALSE, echo=FALSE}
-p_dat %>% .[variable == 'tis'] %>%
-  plot_timepoint_comparison(x_var = x_var, y_var = y_var,
-                            N_lines = 17,
-                            colour_var = 'response')
+m <- rbindlist(lapply(auto_name(sig_gene_sets), function(gs) {
+  test_gene_set_association
+}), fill = T)
+m[p_val > .05, p_val := NA]
+
+p <- plot_p_values_induction(m)
+ggsave(plot = p, filename = file.path(plot_dir,
+                            'induction_fc_p_values_baseline_on_nivo.png'),
+       width = 3.3, height = 5.6, units = 'in')
 ```
 
-```{r, eval = F, warning=FALSE, echo=FALSE}
-## Does not work for some reason
-p <- p_dat %>%
-  plot_timepoint_comparison(x_var = x_var, y_var = y_var, colour_var = 'arm')
-ggplot2::facet_grid(p, as.formula('. ~ variable'))
+# Overlap genes in gene signatures
+
+Virtually no overlap in genes involved in gene signatures
+
+```{r, warning=FALSE, echo=FALSE}
+m <- dcast(danaher_signature_genes, signature_name ~ gene_name,
+           fun.aggregate = length) %>%
+  as.data.frame %>%
+  { column_to_rownames(., var = 'signature_name') } %>%
+  as.matrix %>%
+  t %>%
+  overlap_analysis
+plot(m)
+```
+
+Virtually no overlap in genes involved in gene signatures
+
+```{r, warning=FALSE, echo=FALSE}
+devtools::load_all(file.path('~/libs', 'maartenutils'))
+
+danaher_signature_genes[, 'signature_name' := gsub(' ', '.',
+                                                   tolower(signature_name))]
+danaher_signature_genes[, 'signature_name' := gsub('\\.|-', '.',
+                                                   tolower(signature_name))]
+stopifnot(all(sig_gene_sets %in% 
+              danaher_signature_genes[, unique(signature_name)]))
+
+m <- dcast(danaher_signature_genes[signature_name %in% sig_gene_sets],
+           formula = signature_name ~ gene_name,
+           fun.aggregate = length) %>%
+  as.data.frame %>%
+  { column_to_rownames(., var = 'signature_name') } %>%
+  as.matrix %>%
+  t %>%
+  overlap_analysis
+
+p <- plot(m, cap_fun = identity)
 ```
 
 # Parallel coordinates plots
 
-Geneset level
+## Gene level
 
 ```{r, warning=FALSE, echo=FALSE}
-colour_var = 'response'
-plots <- lapply(danaher_scores.m[, unique(variable)],
-                plot_parallel_coords_geneset,
-                colour_var = colour_var)
-filename <- file.path(img_dir, sprintf('parallel_%s.pdf', colour_var))
-
-maartenutils::plot_panel_layout(plots, ncol = 5, filename = filename, 
-                  labels = NULL,
-                  w = 22, h = length(plots) / 5 * 9, 
-                  label_size = 8)
-sys_file_open(filename)
-```
-
-Gene level
-
-```{r, warning=FALSE, echo=FALSE}
+source('R/load_data.R')
 source('R/plotting.R')
 colour_var = 'response'
-genes = exp_levels[, sort(unique(gene_symbol))] %>% 
-  # qs %>% 
+exp_levels[, gene_symbol := gsub('-|\\.', '-', gene_symbol)]
+genes = exp_levels[, sort(unique(gene_symbol))] %>%
+  # qs %>%
   as.character
 
 N_plots <- length(genes)
-ppp <- 15
-N_pages <- ceiling(N_plots / ppp) 
+ppp <- 16
+N_pages <- ceiling(N_plots / ppp)
 N_brackets <- (ceiling(N_plots / ppp) * ppp)
 plot_idx <- suppressWarnings(base::split(1:N_plots, rep(1:N_pages, each = ppp)))
 
 plyr::l_ply(seq_along(plot_idx), function(idx) {
   li <- plot_idx[[idx]]
   if (length(li) == 0 || all(is.na(li))) return(NULL)
-  plots <- lapply(genes[li],
-                  plot_parallel_coords_single_gene,
-                  colour_var = colour_var)
+  li_first <- li[1]
+  plots <- lapply(li, function(x) {
+    p <- plot_parallel_coords_single_gene(genes[x], colour_var = colour_var) +
+      ggplot2::theme(legend.position = 'none') +
+      scale_y_continuous(name = 'log2 expression')
+    if (x == li_first) {
+      p <- p + theme(legend.direction = 'vertical', legend.position = 'right')
+    }
+    return(p)
+  })
   fn <- sprintf('plots/parallel_single_gene_idx-%s_%s.pdf', idx, colour_var)
   plot_panel_layout(plots, ncol = 4, nrow = 4,
-                    filename = fn, 
-                    w = 22, h = length(plots) / 5 * 9, 
+                    labels = NULL,
+                    filename = fn,
+                    w = 22, h = length(plots) / 5 * 11,
                     label_size = 8)
 })
+```
+
+## Geneset level
+
+Which induction arms most strongly upregulate gene signatures associated with
+response?
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+colour_var = NULL
+colour_var = 'patient'
+colour_var = 'response'
+
+plots <- lapply(danaher_scores.m[, unique(variable)], function(x) {
+  p <- plot_parallel_coords_geneset(x, colour_var = colour_var,
+                                    facet_var = 'arm')
+  return(p)
+})
+```
+
+```{r, warning=FALSE, echo=FALSE}
+filename <- file.path(img_dir, sprintf('parallel_%s.pdf',
+                                       ifelse(is.null(colour_var), 'ungrouped',
+                                              colour_var)))
+
+maartenutils::plot_panel_layout(plots, ncol = 5, filename = filename,
+                                labels = NULL,
+                                w = 22, h = length(plots) / 5 * 9,
+                                label_size = 8)
+sys_file_open(filename)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/plotting_nanostring.R')
+
+gen_parallel_coord_plots <- 
+  function(facet_var = 'arm', colour_var = 'patient') {
+  plots <- lapply(danaher_scores.m[, auto_name(levels(variable))],
+                  function(gene_set) {
+                    browser()
+    sum_dat <- prep_geneset_parallel_coords(gene_set = gene_set,
+                                            colour_var = facet_var,
+                                            facet_var = facet_var)
+    p_dat <- danaher_scores.m[variable == gene_set]
+    p <- plot_parallel_coords(p_dat = p_dat, sum_dat = sum_dat,
+                              palette_name = 'FantasticFox',
+                              facet_var = facet_var,
+                              point_alpha = .6,
+                              colour_var = colour_var, title = gene_set) +
+      theme(legend.position = 'none')
+    return(p)
+  })
+
+  filename <- file.path(img_dir, sprintf('parallel_%s.pdf',
+                                         ifelse(is.null(colour_var), 'ungrouped',
+                                                colour_var)))
+  p <- maartenutils::plot_panel_layout(plots, ncol = 1, nrow = 4,
+                                       filename = filename,
+                                       labels = NULL,
+                                       w = 22, h = 25)
+
+  filename <- file.path(img_dir, sprintf('parallel_%s_highlighted.pdf',
+                                         ifelse(is.null(colour_var), 'ungrouped',
+                                                colour_var)))
+  p <- maartenutils::plot_panel_layout(
+    list(plots[['tis']], plots[['glycolytic.activity']]),
+    ncol = 1, nrow = 2,
+    filename = filename,
+    labels = NULL,
+    w = 22, h = 25 / 2)
+  return(plots)
+}
+
+# plots <- gen_parallel_coord_plots(facet_var = 'arm', colour_var = 'patient')
+plots <- gen_parallel_coord_plots(facet_var = 'arm', colour_var = 'response')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+```
+
+```{r, warning=FALSE, echo=FALSE}
+devtools::load_all(file.path('~/libs', 'maartenutils'))
+library(grid)
+plot_panel_layout(lapply(sig_gene_sets, function(gs) {
+                           p <- plot_parallel_coords_geneset(gene_set = gs)
+                           if (gs != sig_gene_sets[1])
+                             p <- p + ggplot2::theme(legend.position = 'none')
+                           else
+                             p <- p + ggplot2::theme(legend.position = 'right')
+                           return(p)
+                         }),
+                  filename = file.path('plots', 'parallel_sig_signatures.pdf'),
+                  labels = NULL,
+                  w = 17.4, h = 25, ncol = 3)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+devtools::load_all('~/libs/maartenutils')
+plot_parallel_coords_geneset(gene_set = 'tis', facet_var = 'arm')
+```
+
+Compare tp 2 to tp 0 in terms of expression of significant gene sets
+
+Raw data in combination with association with response
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+
+plots <- lapply(auto_name(test_gene_sets), function(gs) {
+  offs = grid::unit(.05, 'npc')
+  label_size = 8
+  if (gs %in% sig_gene_sets) {
+    resp_ass <- grid::textGrob('R',
+                               x = 2 * offs,
+                               y = grid::unit(1, 'npc') - offs,
+                               gp = grid::gpar(fontsize = label_size,
+                                               col='black',
+                                               fontface = 'bold'))
+  } else {
+    resp_ass <- NULL
+  }
+  # resp_ass_sq <- grid::rectGrob('A', x = offs,
+  #                            y = grid::unit(1, 'npc') - offs,
+  #                            gp = grid::gpar(fontsize = label_size,
+  #                                            col='black',
+  #                                            fontface = 'bold'))
+  main_p <- plot_parallel_coords_geneset(gene_set = gs, facet_var = 'arm')
+  if (!gs == test_gene_sets[1])
+    main_p <- main_p + theme('legend.position' = 'none')
+  return(grid::grobTree(to_g(main_p), resp_ass))
+})
+
+ml <- gridExtra::marrangeGrob(plots, nrow=4, ncol=1, top = '')
+ggsave(plot = ml,
+       filename = file.path(plot_dir, 'parallel_genesets_by_arm.pdf'),
+       width = 17.4, height = 25, units = 'cm')
+```
+
+Heatmaps of p-values
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+m <- rbindlist(lapply(auto_name(sig_gene_sets), function(gs) {
+  test_gene_set_difference(gene_set = gs, tp1 = 'Baseline', tp = 'Post-induction')
+}), fill = T)
+invisible(m[p_val > .05, p_val := NA])
+p <- plot_p_values_induction(m)
+ggsave(plot = p, filename = file.path(plot_dir,
+                            'induction_fc_p_values_baseline_post_induction.png'),
+       width = 10, height = 13, units = 'cm')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+m <- rbindlist(lapply(auto_name(sig_gene_sets), function(gs) {
+  test_gene_set_difference(gene_set = gs, tp1 = 'Baseline', tp = 'On nivo')
+}), fill = T)
+invisible(m[p_val > .05, p_val := NA])
+
+p <- plot_p_values_induction(m)
+ggsave(plot = p, filename = file.path(plot_dir,
+                            'induction_fc_p_values_baseline_on_nivo.png'),
+       width = 10, height = 13, units = 'cm')
+```
+
+# Correlations in gene expression set scores
+
+```{r, warning=FALSE, echo=FALSE}
+library(corrplot)
+
+cor_mat <-
+  danaher_scores.m[, dcast(data = .SD, formula = patient ~ variable,
+                           value.var = 'value'), by = timepoint]
+
+plot_cor_mat <- function(tp = 'Baseline',
+                         cormethod = 'spearman') {
+  cor_mat[timepoint == tp] %>%
+    dplyr::select(-timepoint, -patient) %>%
+    { .[apply(., 1, function(x) all(!is.na(x)))] } %>%
+    as.matrix %>% cor(., method = cormethod) %>%
+    corrplot(., order = "hclust", addrect = 6, tl.col = 'gray40',
+             tl.pos = 'ld', type = 'lower',
+             tl.cex = .8,
+             # addCoef.col = "black", # Add coefficient of correlation
+                      # Combine with significance
+             # sig.level = 0.05, insig = "blank",
+             mar=c(0,0,1,0), # http://stackoverflow.com/a/14754408/54964
+             title = sprintf('%s - %s', tp, simple_cap(cormethod)))
+}
+
+pdf(file = file.path(plot_dir, 'danaher_signature_correlations.pdf'),
+    paper = 'a4', width = 0, height = 0)
+layout(matrix(1:6, byrow = T, nrow = 3))
+plot_cor_mat(tp = 'Baseline', cormethod = 'pearson')
+plot_cor_mat(tp = 'Baseline', cormethod = 'spearman')
+plot_cor_mat(tp = 'Post-induction', cormethod = 'pearson')
+plot_cor_mat(tp = 'Post-induction', cormethod = 'spearman')
+plot_cor_mat(tp = 'On nivo', cormethod = 'pearson')
+plot_cor_mat(tp = 'On nivo', cormethod = 'spearman')
+dev.off()
+```
+
+# Test pat 22
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+patient_labels[patient == 'pat_26']
+prepare_test_gene_set_difference(gene_set = 'mmr.loss',
+                                 facet_var = NULL,
+                                 tp1 = 'Baseline',
+                                 tp2 = 'On nivo')
+prepare_test_gene_set_difference(gene_set = 'mmr.loss',
+                                 facet_var = NULL,
+                                 tp1 = 'Baseline',
+                                 tp2 = 'Post-induction')
 ```

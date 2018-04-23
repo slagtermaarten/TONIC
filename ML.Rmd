@@ -52,7 +52,6 @@ ml_dat <- prepare_ml_dat(tp = 'Baseline')
 plot_PCA_axes(tp = 'baseline', dat = ml_dat[[1]], color_var = 'response', 
               labellings = ml_dat[[2]])
 
-
 setkey(patient_labels, filename)
 ml_dat <- prepare_ml_dat(tp = 'Post-induction')
 plot_PCA_axes(tp = 'post_induction', dat = ml_dat[[1]], color_var = 'arm', 
@@ -84,7 +83,13 @@ res <- glmnet_class_test(tp = 'On nivo')
 
 # Random forest approach
 
+Given that gene sets associated with clinical response at timepoint 2 were also
+already higher at baseline (when combining all treatment arms), it seems
+plausible that responders can be identified at baseline based on these gene
+sets. 
+
 ```{r, cache = T, dependson, warning=FALSE, echo=FALSE}
+source('R/ML.R')
 rfs <- plyr::llply(timepoints, function(tp) {
   perform_rf(tp = tp)
 }, .parallel = !local_run)
@@ -94,4 +99,42 @@ rfs <- plyr::llply(timepoints, function(tp) {
 plots <- lapply(rfs, plot_importance)
 plot_panel_layout(plots, ncol = 3, filename = NULL, 
                   w = 20, h = 20, label_size = 8)
+```
+
+Use clinical information to train predictor
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+library(maartenutils)
+
+x_dat <- clinical_annotation[, .(induction_therapy, who_performance_status, 
+                                 s_til, ca15_3, response_bin)] %>%
+  maartenutils::filter_na_rows()
+invisible(x_dat[, response_bin := factor(response_bin)])
+
+rf_default <- caret::train(x = as.data.frame(select(x_dat, -response_bin)), 
+  y = unlist(select(x_dat, response_bin)),
+  method = "rf", 
+  tuneGrid = expand.grid(.mtry=ceiling(sqrt(ncol(x_dat - 1)))), 
+  trControl = trainControl(method="repeatedcv",
+  number=nrow(x_dat), 
+  savePredictions = T,
+  repeats=10))
+```
+
+Kappa of zero indicates no added benefit over a 'null' classifier which simply
+classifies randomly based on incidence.
+
+```{r, warning=FALSE, echo=FALSE}
+str(rf_default)
+selectedIndices <- rf_default$pred$mtry == 3
+str(rf_default)
+rf_default$pred
+library(caret)
+library(pROC)
+head(rf_default$pred)
+
+plot.roc(rf_default$pred$obs[selectedIndices],
+         rf_default$pred$M)
+
 ```

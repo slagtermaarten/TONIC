@@ -6,7 +6,9 @@ pacman::p_load(DEoptimR)
 pacman::p_load(caret)
 pacman::p_load(glmnet)
 
-prepare_ml_dat <- function(tp = 'Baseline') {
+prepare_ml_dat <- function(tp = 'Baseline', type = 'gene_sets') {
+  type <- match.arg(type, choices = c('genes', 'gene_sets'), several.ok = F)
+
   if (tolower(tp) == 'all') {
     # tp <- c('Baseline', 'On-nivo', 'Post-induction')
     tp <- patient_labels[, levels(timepoint)]
@@ -18,16 +20,20 @@ prepare_ml_dat <- function(tp = 'Baseline') {
     { .[!is.na(response)] } %>%
     { .[response != 'SD'] }
 
-  # t_dat_info %>% .[, table(response)]
-  # rownames(exp_levels) <- exp_levels[, gene_symbol]
-  ## Subselect relevant columns from expression matrix
-  t_dat <- exp_levels[, .SD, .SDcols = t_dat_info[, as.character(filename)]] %>% 
-    { log2(. + 1) } %>% 
-    ## Scale data
-    # base::scale(.)
-    t 
+  if (type == 'genes') {
+    # t_dat_info %>% .[, table(response)]
+    # rownames(exp_levels) <- exp_levels[, gene_symbol]
+    ## Subselect relevant columns from expression matrix
+    t_dat <- exp_levels[, .SD, .SDcols = t_dat_info[, as.character(filename)]] %>% 
+      { log2(. + 1) } %>% 
+      ## Scale data
+      # base::scale(.)
+      t 
+    colnames(t_dat) <- exp_levels[, gene_symbol]
+  } else if (type == 'gene_sets') {
+    browser() 
+  }
 
-  colnames(t_dat) <- exp_levels[, gene_symbol]
   ## Get rid of some genes with NA values for some patients
   t_dat <- t_dat[, apply(t_dat, 2, function(x) all(!is.na(x)))]
 
@@ -79,18 +85,19 @@ glmnet_class_test <- function(alphas = seq(0.0, 1, by = .1),
 perform_rf <- function(tp = 'Baseline') {
   prep <- prepare_ml_dat(tp = tp)
   t_dat <- prep[[1]]
+  str(t_dat)
   responses <- factor(prep[[2]])
   set.seed(1001)
 
-  rf_default <- train(x = t_dat, y = responses,
+  rf_default <- caret::train(x = t_dat, y = responses,
                       method="rf", 
-                      metric="Accuracy", 
+                      metric="Kappa", 
                       tuneGrid = expand.grid(.mtry=ceiling(sqrt(ncol(t_dat)))), 
                       trControl = trainControl(method="repeatedcv",
                                                number=nrow(t_dat), 
-                                               repeats=25))
+                                               repeats=10))
 
-  return(rf_default$finalModel)
+  return(rf_default)
 }
 
 
