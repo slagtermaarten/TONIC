@@ -70,8 +70,8 @@ for (s1 in names(p_vals)) {
   for (s2 in names(p_vals[[s1]])) {
 
     cp_friendly_tp <- timepoints_inv[s2]
-    fn <- file.path(p_root, 'html', sprintf('cors_%s_%s.html',
-                                            s1, cp_friendly_tp))
+    fn <- file.path(p_root, 'html', 
+                    sprintf('cors_%s_%s.html', s1, cp_friendly_tp))
     print(fn)
     write_tableHTML(tableHTML(p_vals[[s1]][[s2]]), file = fn)
   }
@@ -318,9 +318,9 @@ m <- rbindlist(lapply(auto_name(sig_gene_sets), function(gs) {
 }), fill = T)
 invisible(m[p_val > .05, p_val := NA])
 p <- plot_p_values_induction(m)
-ggsave(plot = p, filename = file.path(plot_dir,
-                            'induction_fc_p_values_baseline_post_induction.png'),
-       width = 10, height = 13, units = 'cm')
+# ggsave(plot = p, filename = file.path(plot_dir,
+#                             'induction_fc_p_values_baseline_post_induction.png'),
+#        width = 10, height = 13, units = 'cm')
 ```
 
 ```{r, warning=FALSE, echo=FALSE}

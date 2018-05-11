@@ -11,6 +11,9 @@ timepoints_inv <- setNames(names(timepoints), timepoints)
 blood_timepoints <- auto_name(c(-2, 0, 6, 10, 12))
 treatment_arms <- c('No induction', 'Radiotherapy', 'Cyclophosphamide',
                     'Cisplatin', 'Doxorubicin')
+## Marleen's preferred way of ordering the projects
+treatment_arms <- c('Radiotherapy', 'Doxorubicin', 'Cyclophosphamide',
+                    'Cisplatin', 'No induction')
 
 resp_colors <- maartenutils::gen_color_vector('Zissou1', 2) %>%
   darken(factor = c(1.0, 1.2)) %>%
@@ -29,11 +32,30 @@ maartenutils::set_dt_types(patient_labels,
 patient_labels[, patient := paste0('pat_', patient)]
 stopifnot(patient_labels[is.na(arm), .N <= 3])
 
+if (T) {
+  ## Merge DNA Seq CF numbers
+	dna_seq_cfs <-
+		read_excel(file.path(data_dir, 'Samples_WES_TONICstageI_baseline.xlsx')) %>%
+		as.data.table %>%
+		maartenutils::normalize_colnames()
+  dna_seq_cfs[, 'patient' := paste0('pat_', study_id)]
+  dna_seq_cfs[, c('sequencing_number', 'induction_arm', 
+                  't_number', 'study_id') :=
+              list(NULL, NULL, NULL, NULL)]
+  setnames(dna_seq_cfs, 'tumor/blood', 'sample_type')
+  setnames(dna_seq_cfs, 'cf_number_(name_seq)', 'dna_cf_number')
+  patient_labels <- 
+    controlled_merge(patient_labels,
+                     dna_seq_cfs[sample_type == 'Tumor', 
+                        .(dna_cf_number, patient, timepoint = 'Baseline')],
+                     by_cols = c('patient', 'timepoint'))
+}
+
 if (F) {
   ## More recent overview of clinical response data, merge into existing overview
   response_data <- read.csv(file.path(p_root, 'data-raw/response_data.csv'),
                             dec = ',', sep = ';') %>% as.data.table %>%
-    normalize_colnames %>%
+   normalize_colnames %>%
     ## Select last columns containing patient_id and RECIST labels
     { rev(.)[, c(2, 3)] } %>%
     { .[!is.na(patient.id)] } %>%
@@ -56,7 +78,7 @@ if (T) {
 		read_excel(file.path(data_dir, 'SampleManifest_adaptive.xlsx')) %>%
 		as.data.table %>%
 		maartenutils::normalize_colnames()
-	setnames(adaptive_sample_annotation, 
+	setnames(adaptive_sample_annotation,
 					 gsub('__', '_', colnames(adaptive_sample_annotation)))
 
   homogenize_arms <- function(vec) {
@@ -73,16 +95,16 @@ if (T) {
   adaptive_sample_annotation[, arm := homogenize_arms(induction_arm)]
   adaptive_sample_annotation[, induction_arm := NULL]
 
-	tumor_adaptive <- adaptive_sample_annotation[, 
+	tumor_adaptive <- adaptive_sample_annotation[,
 		c(colnames(adaptive_sample_annotation)[1:8], 'arm'), with = F]
 	# patient_labels[, uniqueN(adaptive_sample_name)]
 	# tumor_adaptive[, uniqueN(adaptive_sample_name)]
-	tumor_adaptive <- 
+	tumor_adaptive <-
 		tumor_adaptive[, .('adaptive_sample_name' = as.character(sample_name),
 											 arm,
 											 'cf_number' = cf_nummer,
 											 'patient' = paste0('pat_', study_id),
-											 'timepoint' = 
+											 'timepoint' =
 							timepoints[as.integer(gsub('N15TON-(\\d)', '\\1', tijdspunt))])]
   ## Not all patients have all three time points assayed
   # tumor_adaptive[, .N, by = patient]
@@ -93,7 +115,7 @@ if (T) {
 	# tumor_adaptive[, class(patient)]
 	## Then merge adaptive sample IDs...
 	patient_labels <- merge(patient_labels, tumor_adaptive,
-													by = c('patient', 'timepoint', 'arm'), 
+													by = c('patient', 'timepoint', 'arm'),
 													all.x = T, all.y = T)
   stopifnot(patient_labels[is.na(arm), .N <= 3])
 	if (F) {
@@ -101,22 +123,22 @@ if (T) {
 		missing_samples <- setdiff(tumor_adaptive[, adaptive_sample_name],
 						patient_labels[, adaptive_sample_name])
 		tumor_adaptive[adaptive_sample_name %in% missing_samples]
-		missing_cfs <- tumor_adaptive[adaptive_sample_name %in% missing_samples, 
+		missing_cfs <- tumor_adaptive[adaptive_sample_name %in% missing_samples,
 																			 naturalsort(unique(cf_number))]
-		missing_patients <- tumor_adaptive[adaptive_sample_name %in% missing_samples, 
+		missing_patients <- tumor_adaptive[adaptive_sample_name %in% missing_samples,
 																			 naturalsort(unique(patient))]
 		patient_labels[patient %in% missing_patients]
 		patient_labels[cf_number %in% missing_cfs]
 	}
 
   patient_labels[, clinical_response := zoo::na.locf(clinical_response,
-                                                     fromLast = F), 
+                                                     fromLast = F),
                  by = patient]
   # patient_labels[, clinical_response := zoo::na.locf(clinical_response,
-  #                                                    fromLast = T), 
+  #                                                    fromLast = T),
   #                by = patient]
   # patient_labels[, clinical_response := zoo::na.locf(clinical_response,
-  #                                                    fromLast = F), 
+  #                                                    fromLast = F),
   #                by = patient]
   # patient_labels[is.na(clinical_response)]
 
@@ -132,12 +154,12 @@ if (T) {
 
   ## Another patient_labels-like object but for blood timepoints
 	blood_adaptive <- adaptive_sample_annotation[, 10:16]
-	blood_adaptive <- blood_adaptive[!is.na(sample_name), 
-								 .('adaptive_sample_name' = sample_name, 
-                   'patient' = paste0('pat_', study_id_1), 
+	blood_adaptive <- blood_adaptive[!is.na(sample_name),
+								 .('adaptive_sample_name' = sample_name,
+                   'patient' = paste0('pat_', study_id_1),
 									 'blood_timepoint' = tijdspunt_in_weken)]
 	# blood_adaptive[, arm := factor(arm, levels = treatment_arms)]
-	blood_adaptive[, blood_timepoint := factor(blood_timepoint, 
+	blood_adaptive[, blood_timepoint := factor(blood_timepoint,
                             levels = sort(unique(blood_timepoint)))]
   blood_adaptive <- merge(blood_adaptive,
     unique(patient_labels, by = 'patient')[, .(patient, arm, response,
@@ -166,15 +188,15 @@ if (T) {
 		set_dt_types(tmp, .)
   tmp[, daley_smith_estimator := as.numeric(daley_smith_estimator)]
 	setnames(tmp, 'sample', 'adaptive_sample_name')
-  setdiff(patient_labels[!is.na(adaptive_sample_name), adaptive_sample_name], 
+  setdiff(patient_labels[!is.na(adaptive_sample_name), adaptive_sample_name],
           tmp[, adaptive_sample_name]) %>%
 					{ length(.) } %>%
 					{ messagef('Missing summary stats for %d samples', .) }
 	## Finally merge in adaptive info
 	## This line messes up patient_labels object
-	patient_labels <- merge(patient_labels, tmp, by = 'adaptive_sample_name', 
+	patient_labels <- merge(patient_labels, tmp, by = 'adaptive_sample_name',
 													all.x = T, all.y = F)
-  blood_adaptive <- merge(blood_adaptive, tmp, by = 'adaptive_sample_name', 
+  blood_adaptive <- merge(blood_adaptive, tmp, by = 'adaptive_sample_name',
 													all.x = T, all.y = F)
 	rm(tmp)
 
@@ -183,13 +205,14 @@ if (T) {
 		maartenutils::normalize_colnames()
   tmp[, total_t_cells := NULL]
   # tmp[order(-fraction_productive_of_cells_mass_estimate)]
-  setnames(tmp, 'fraction_productive_of_cells_mass_estimate', 
+  ## This is Fraction T/B Cells of Nucleated Cells Estimate
+  setnames(tmp, 'fraction_productive_of_cells_mass_estimate',
            'adaptive_t_cells')
 	setnames(tmp, 'sample_name', 'adaptive_sample_name')
 	setnames(tmp, gsub('\'', '', colnames(tmp)))
-	patient_labels <- merge(patient_labels, tmp, by = 'adaptive_sample_name', 
+	patient_labels <- merge(patient_labels, tmp, by = 'adaptive_sample_name',
 													all.x = T, all.y = F)
-  blood_adaptive <- merge(blood_adaptive, tmp, by = 'adaptive_sample_name', 
+  blood_adaptive <- merge(blood_adaptive, tmp, by = 'adaptive_sample_name',
 													all.x = T, all.y = F)
 	setkey(patient_labels, patient, timepoint)
 }
@@ -217,14 +240,14 @@ blood_adaptive <- manual_clinical_corrections(blood_adaptive)
 if (T) {
   ## Combine timepoint and clinical response into one variable and create
   ## corresponding palette
-  patient_labels[, 'comb_time_resp' := 
+  patient_labels[, 'comb_time_resp' :=
                  sprintf('%s-%s', timepoint, clinical_response)]
-  levs <- patient_labels[, expand.grid('timepoint' = levels(timepoint), 
+  levs <- patient_labels[, expand.grid('timepoint' = levels(timepoint),
                                        'clinical_response' = levels(clinical_response))]
   levs$timepoint <- factor(levs$timepoint, levels = timepoints)
   levs$comb <- apply(levs, 1, paste, collapse = '-')
   levs$cf <- (1.3^(as.integer(levs$timepoint) - 2))
-  levs$color <- maartenutils::lighten(c(rep(resp_colors[1], 3), 
+  levs$color <- maartenutils::lighten(c(rep(resp_colors[1], 3),
                                        rep(resp_colors[2], 3)),
                                      (1.4^(as.integer(levs$timepoint) - 2)))
   comb_time_resp_palette <- setNames(levs$color, levs$comb)
@@ -249,7 +272,7 @@ if (T) {
   maartenutils::set_dt_types(clinical_annotation,
                              c('cd8_mm2' = 'numeric',
                                's_til' = 'numeric'))
-  clinical_annotation[induction_therapy == 'Cyclofosfamide',  
+  clinical_annotation[induction_therapy == 'Cyclofosfamide',
                       induction_therapy := 'Cyclophosphamide']
   # clinical_annotation[, table(induction_therapy)]
   clinical_annotation[, induction_therapy := factor(induction_therapy,
@@ -303,7 +326,9 @@ danaher_scores.m <- melt(danaher_scores,
 danaher_scores.m[, 'timepoint' := gsub('.*_(.*)', '\\1', variable)]
 danaher_scores.m[, variable := gsub('(.*)_.*', '\\1', variable)]
 danaher_scores.m[, patient := paste0('pat_', patient)]
-danaher_scores.m[, timepoint := factor(timepoints[as.character(timepoint)],
+danaher_scores.m[, timepoint := factor(plyr::mapvalues(timepoint, 
+                                                       unique(timepoint), 
+                                                       timepoints),
                                        levels = timepoints)]
 danaher_scores.m[arm == 'Cyclofosfamide',  arm := 'Cyclophosphamide']
 # danaher_scores.m[, table(arm)]
@@ -316,7 +341,7 @@ set_dt_types(danaher_scores.m, c('patient' = 'factor', 'timepoint' = 'factor',
 
 ## Gene signatures
 danaher_signature_genes <- read.csv(file.path(p_root,
-                                              'data-raw/danaher_signature_genes.csv'),
+                             'data-raw/danaher_signature_genes.csv'),
                            dec = ',', sep = ';') %>% as.data.table %>%
   normalize_colnames()
 setnames(danaher_signature_genes,
@@ -337,3 +362,74 @@ test_genes <- exp_levels[, unique(gene_symbol)] %>%
   grep(pattern = 'Housekeeping', x = ., value = T, invert = T)
 
 test_gene_sets <- danaher_scores.m[, levels(variable)]
+
+
+## Read adaptive seq data if required
+read_adaptive_seqs <- function(force_reload = F) {
+  if (exists('arr', envir = globalenv()) && !force_reload) {
+    return(invisible()) 
+  }
+  arr <- w_fread(file.path(p_root, 'data-raw', 'AdaptiveAllRearrangements.tsv'),
+                 col_classes = c('productive_frequency' = 'numeric'))
+  arr[, productive_frequency := as.numeric(productive_frequency)]
+  arr[, reads := NULL]
+  arr <- arr[!is.na(amino_acid) & amino_acid != 'na']
+  setnames(arr, 'sample_name', 'adaptive_sample_name')
+  arr1 <-
+    merge(arr[grepl('T_', adaptive_sample_name)],
+          patient_labels[, .(patient, adaptive_sample_name,
+                             timepoint,
+                             arm,
+                             clinical_response, response)],
+          by = 'adaptive_sample_name',
+          all.x = T, all.y = F)
+  arr2 <-
+    merge(arr[grepl('B_', adaptive_sample_name)],
+          blood_adaptive[, .(patient, adaptive_sample_name, arm,
+                             blood_timepoint,
+                             clinical_response, response)],
+          by = 'adaptive_sample_name',
+          all.x = T, all.y = F)
+  setnames(arr2, 'blood_timepoint', 'timepoint')
+  arr <- rbind(arr1, arr2, fill = T)[patient != 'patient_64']
+  
+  arr[, timepoint := factor(as.character(timepoint), 
+                            levels = c(timepoints, blood_timepoints))]
+
+  ## Merge in 'Fraction T-cells of nucleated cells' 
+  arr <- 
+    controlled_merge(arr, 
+                     patient_labels[, .(adaptive_sample_name, 
+                                        adaptive_t_cells)],
+                     by_cols = 'adaptive_sample_name')
+  arr <- 
+    controlled_merge(arr, 
+                     blood_adaptive[, .(adaptive_sample_name, 
+                                        adaptive_t_cells)],
+                     by_cols = 'adaptive_sample_name')
+
+  arr[, 'normalized_frequency' := productive_frequency * adaptive_t_cells]
+  assign('arr', arr, envir = globalenv())
+  return(invisible())
+}
+
+
+vcfs <- list.files(file.path(forge_mirror, 'calls'), pattern = '.vcf$') 
+vcf_table <- data.table(vcf_fn = vcfs)
+vcf_table[, 'tumor_cf' := gsub('.{2}_.{4}_.{1,2}_(CF\\d{5})_.*', 
+                               '\\1', vcf_fn)]
+
+# vcf_table[, 'cf' := gsub('.{2}_.{4}_.{1,2}_(CF\\d{5})_.*(CF\\d{5}).*', 
+#                          '\\1-\\2', fn)]
+# vcf_table[, 'tumor_cf' := gsub('(.*)-(.*)', '\\1', cf)]
+# vcf_table[, 'normal_cf' := gsub('(.*)-(.*)', '\\2', cf)]
+# vcf_table[, cf := NULL]
+
+contra_fns <- list.files(file.path(forge_mirror, 'contra', 'CNATable'), 
+                   pattern = '.txt$') 
+contra_fns <- data.table(contra_fn = contra_fns)
+contra_fns[, 'tumor_cf' := gsub('.{4}_.{1,2}_(CF\\d{5})_.*', 
+                                '\\1', contra_fn)]
+wes_table <- merge(contra_fns, vcf_table, all = T)
+rm(vcf_table)
+rm(contra_fns)

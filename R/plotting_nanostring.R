@@ -256,17 +256,27 @@ prep_geneset_parallel_coords <- function(gene_set = 'apm',
 plot_parallel_coords <- function(p_dat,
                                  sum_dat = NULL,
                                  colour_var = 'response',
+                                 group_var = 'patient',
                                  facet_var = NULL,
+                                 size_var = NULL,
                                  timepoint_v = 'timepoint',
                                  man_colors = resp_colors,
                                  swarm_width = .2,
+                                 unswarm_zero = F,
                                  point_alpha = .7,
+                                 line_alpha = point_alpha / 2 * 1,
                                  title = '') {
   if (!require('vipor')) {
     devtools::install_github('sherrillmix/vipor')
   }
   p_dat[, x_coord := vipor::offsetX(value, width = swarm_width) +
-                     as.integer(get(timepoint_v)), by = c(timepoint_v)]
+                     as.integer(get(timepoint_v)), 
+                   by = c(timepoint_v, facet_var)]
+
+  if (unswarm_zero) {
+    p_dat[value == 0, x_coord := as.integer(get(timepoint_v)),
+          by = c(timepoint_v, facet_var)]
+  }
 
   if (!is.null(facet_var))
     fl <- length(facet_var)
@@ -274,10 +284,11 @@ plot_parallel_coords <- function(p_dat,
     fl <- 1
 
   p <- ggplot(p_dat, aes_string(x = 'x_coord', y = 'value',
-                                labels = NULL, group = 'patient')) +
+                                labels = NULL, group = group_var,
+                                size = size_var)) +
     # ggbeeswarm::geom_quasirandom(alpha = point_alpha) +
     geom_point(alpha = point_alpha) +
-    geom_line(alpha = point_alpha / 3 * 1) +
+    geom_line(alpha = line_alpha) +
     # scale_x_discrete(name = '', labels = timepoints) +
     scale_y_continuous(name = 'Gene expression score') +
     ggtitle(title)
