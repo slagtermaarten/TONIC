@@ -230,7 +230,8 @@ compute_TCR_FCs <- function(patient = 'pat_11',
                             tp1 = 'Baseline',
                             tp2 = 'Post-induction',
                             tp3 = '-2',
-                            tp4 = '0') {
+                            tp4 = '0',
+                            y_var = 'productive_frequency') {
   if (!exists('arr')) read_adaptive_seqs()
 
   suf_data <- all(c(tp1, tp2, tp3, tp4) %in%
@@ -241,7 +242,7 @@ compute_TCR_FCs <- function(patient = 'pat_11',
 
   if (!suf_data) {
     mymessage('compute_TCR_FCs',
-              sprintf('Skipping %s for tps %s %s %s %s',
+              sprintf('Skipping %s for tps %s %s %s %s %s',
                       patient, tp1, tp2, tp3, tp4))
     return(NULL)
   }
@@ -256,25 +257,25 @@ compute_TCR_FCs <- function(patient = 'pat_11',
     { .[, {
           if (.SD[timepoint %in% c(tp1, tp2), .N] > 0) {
             fc1 = .SD[timepoint == tp2,
-                      log2(replace_NA(productive_frequency, 0) + 1)] -
+                      log2(replace_NA(get(y_var), 0) + 1)] -
                   .SD[timepoint == tp1,
-                      log2(replace_NA(productive_frequency, 0) + 1)]
+                      log2(replace_NA(get(y_var), 0) + 1)]
           } else {
             fc1 = as.numeric(NA)
           }
           if (.SD[timepoint %in% c(tp3, tp4), .N] > 0) {
             fc2 = .SD[timepoint == tp4,
-                      log2(replace_NA(productive_frequency, 0) + 1)] -
+                      log2(replace_NA(get(y_var), 0) + 1)] -
                   .SD[timepoint == tp3,
-                      log2(replace_NA(productive_frequency, 0) + 1)]
+                      log2(replace_NA(get(y_var), 0) + 1)]
           } else {
             fc2 = as.numeric(NA)
           }
 
-          ad1 = .SD[timepoint == tp2, replace_NA(productive_frequency, 0)] -
-                .SD[timepoint == tp1, replace_NA(productive_frequency, 0)]
-          ad2 = .SD[timepoint == tp4, replace_NA(productive_frequency, 0)] -
-                .SD[timepoint == tp3, replace_NA(productive_frequency, 0)]
+          ad1 = .SD[timepoint == tp2, replace_NA(get(y_var), 0)] -
+                .SD[timepoint == tp1, replace_NA(get(y_var), 0)]
+          ad2 = .SD[timepoint == tp4, replace_NA(get(y_var), 0)] -
+                .SD[timepoint == tp3, replace_NA(get(y_var), 0)]
 
           list('arm' = arm,
                'clinical_response' = clinical_response,
@@ -287,25 +288,41 @@ compute_TCR_FCs <- function(patient = 'pat_11',
 
 
 compute_tp_comp_FCs <- function(
-  tp1 = 'Baseline', tp2 = 'Post-induction', tp3 = '-2', tp4 = '0') {
+  tp1 = 'Baseline', tp2 = 'Post-induction', tp3 = '-2', tp4 = '0',
+  overwrite = T, y_var = 'normalized_frequency') {
   if (!exists('arr')) read_adaptive_seqs()
 
-  plyr::llply(arr[, auto_name(unique(patient))], function(patient) {
-    fn <- file.path(rds_dir, 'FCs',
-                    sprintf('%s_FCs_%s_%s_%s_%s.rds',
-                            patient, tp1, tp2, tp3, tp4))
-    if (file.exists(fn)) {
+  plyr::llply(arr[, naturalsort::naturalsort(auto_name(unique(patient)))],
+              function(patient) {
+    fn <- get_FC_fn(patient, tp1, tp2, tp3, tp4, y_var)
+    if (file.exists(fn) && !overwrite) {
       return(readRDS(fn))
     }
     FCs <- compute_TCR_FCs(patient = patient,
-                           tp1 = tp1, tp2 = tp2, tp3 = tp3, tp4 = tp4)
+                           tp1 = tp1, tp2 = tp2, tp3 = tp3, tp4 = tp4, 
+                           y_var = y_var)
     if (is.null(FCs)) return(NULL)
     saveRDS(FCs, file = fn)
-    FC_p <- plot_FC(FCs, facet_var = NULL, alpha_lev = .2,
-                    colour_var = NULL,
-                    plot_points = 'all',
-                    var1 = 'exp1', var2 = 'exp2')
+    # FC_p <- plot_FC(FCs, facet_var = NULL, alpha_lev = .2,
+    #                 colour_var = NULL,
+    #                 plot_points = 'all',
+    #                 var1 = 'exp1', var2 = 'exp2')
   }, .parallel = !local_run)
+}
+
+
+timepoint_s_dat <- function(timepoint) {
+  stopifnot(length(timepoint) == 1)
+  if (timepoint %in% blood_timepoints) {
+    s_dat <- blood_adaptive
+    s_dat <- s_dat[as.character(blood_timepoint) == parent.frame(3)$timepoint]
+  } else if (timepoint %in% timepoints) {
+    s_dat <- patient_labels
+    s_dat <- s_dat[as.character(timepoint) == parent.frame(3)$timepoint]
+  } else {
+    stopf('Unknown timepoint %s', timepoint)
+  }
+  return(s_dat)
 }
 
 
@@ -320,13 +337,7 @@ test_adaptive_association <- function(measures = c('sample_clonality',
                                       facet_var = NULL,
                                       patient_ids = patient_labels[, unique(patient)]) {
   stopifnot(timepoint %in% c(timepoints, blood_timepoints))
-  if (timepoint %in% blood_timepoints) {
-    s_dat <- blood_adaptive
-    s_dat <- s_dat[as.character(blood_timepoint) == parent.frame(3)$timepoint]
-  } else {
-    s_dat <- patient_labels
-    s_dat <- s_dat[as.character(timepoint) == parent.frame(3)$timepoint]
-  }
+  s_dat <- timepoint_s_dat(timepoint)
   p_dat <- s_dat[as.character(patient) %in% patient_ids]
   if (null_dat(p_dat)) return(NULL)
   comp_levels <- p_dat[, levels(get(y_var))]
@@ -338,10 +349,9 @@ test_adaptive_association <- function(measures = c('sample_clonality',
     }
 
     dtf <- p_dat[, .('measure' = measure,
-                     'timepoint' = parent.frame(3)$timepoint,
                      'p_val' = tryCatch(wilcox.test(as.formula(sprintf('%s ~ %s',
                                                               measure, y_var)),
-                                           data = .SD)$p.val, 
+                                           data = .SD)$p.val,
                                   error = function(e) { print(e); return(NA) }),
                      'log2FC' = median(.SD[get(y_var) == comp_levels[2],
                                        log2(get(measure))],
@@ -352,18 +362,50 @@ test_adaptive_association <- function(measures = c('sample_clonality',
                 by = facet_var]
     return(dtf)
   }), fill = T)
-  res[, 'p_val.bh' := p.adjust(p_val, method = 'BH'), by = facet_var]
+  # res[, 'p_val.bh' := p.adjust(p_val, method = 'BH'), by = facet_var]
   res[, 'p_val.fdr' := p.adjust(p_val, method = 'fdr'), by = facet_var]
-  res[, 'p_val.bonferroni' := p.adjust(p_val, method = 'bonferroni'),
-      by = facet_var]
+  # res[, 'p_val.bonferroni' := p.adjust(p_val, method = 'bonferroni'),
+  #     by = facet_var]
+  res[, 'timepoint' := timepoint]
+  first_cols <- c('timepoint', 'measure')
+  setcolorder(res, c(first_cols, setdiff(colnames(res), first_cols)))
   return(res)
 }
+
+
+#' Plot single timepoint summary stat comparisons
+#'
+#'
+plot_single_timepoint_r_assocation <- function(
+  measures = c('sample_clonality', 'efron_thisted_estimator',
+               'adaptive_t_cells'),
+  l_timepoint = 'Baseline', facet_var = 'arm') {
+  s_dat <- timepoint_s_dat(l_timepoint)
+  lapply(measures, function(measure) {
+    p <- ggplot(s_dat,
+           aes_string(x = 'clinical_response', y = measure,
+                      fill = 'clinical_response')) +
+      geom_boxplot() +
+      ggpubr::stat_compare_means(label = 'p.signif') +
+      scale_fill_manual(name = '', values = resp_colors) +
+      scale_y_continuous(name = sprintf('%s at %s', var_to_label(measure),
+                                        l_timepoint)) +
+      xlab('Clinical response')
+    if (!is.null(facet_var)) {
+      p <- p + facet_grid(as.formula(sprintf('~ %s ', facet_var)))
+    }
+    return(p)
+  })
+}
+
 
 #' Plot TCR abundance comparison between blood and tumor compartments
 #'
 #'
-plot_tp_comp_direct <- function(tp1 = 'Baseline', tp2 = '-2') {
-  plyr::llply(arr[, auto_name(unique(patient))], function(patient) {
+plot_tp_comp_direct <- function(tp1 = 'Baseline', tp2 = '-2',
+                                y_var = 'normalized_frequency') {
+  plyr::llply(arr[, naturalsort::naturalsort(auto_name(unique(patient)))],
+              function(patient) {
     suf_data <- arr[patient == parent.frame(3)$patient,
                     all(c(tp1, tp2) %in% timepoint)]
     if (!suf_data) return(NULL)
@@ -371,9 +413,9 @@ plot_tp_comp_direct <- function(tp1 = 'Baseline', tp2 = '-2') {
                  timepoint %in% c(tp1, tp2)]
 
     p_dat <- merge(t_dat[timepoint == tp1,
-                   c('productive_frequency', 'amino_acid')],
+                   c(y_var, 'amino_acid')],
                    t_dat[timepoint == tp2,
-                   c('productive_frequency', 'amino_acid')],
+                   c(y_var, 'amino_acid')],
                    all = TRUE, by = 'amino_acid')
 
     check_timepoint <- function(tp) {
@@ -388,9 +430,9 @@ plot_tp_comp_direct <- function(tp1 = 'Baseline', tp2 = '-2') {
 
     ggplot(p_dat, aes(x = productive_frequency.x, y = productive_frequency.y)) +
       geom_count(alpha = .1) +
-      scale_x_continuous(name = sprintf('Productive frequency %s', tp1),
+      scale_x_continuous(name = sprintf('%s %s', var_to_label(y_var), tp1),
                          limits = c(0, max_val)) +
-      scale_y_continuous(name = sprintf('Productive frequency %s', tp2),
+      scale_y_continuous(name = sprintf('%s %s', var_to_label(y_var), tp2),
                          limits = c(0, max_val)) +
       geom_hline(yintercept = 0, color = 'gray20', linetype = 'dashed') +
       geom_vline(xintercept = 0, color = 'gray20', linetype = 'dashed') +
@@ -406,17 +448,40 @@ plot_tp_comp_direct <- function(tp1 = 'Baseline', tp2 = '-2') {
 }
 
 
+format_patient_title <- function(patient) {
+  # patient_labels[patient == parent.frame(3)$patient]
+  sprintf('%s - %s - %s',
+          patient,
+          patient_labels[patient == parent.frame(3)$patient,
+                         unique(arm)],
+          patient_labels[patient == parent.frame(3)$patient,
+                         unique(clinical_response)]) %>%
+  unique()
+}
+
+
+#' Get filename of cached FC computation
+#'
+#'
+get_FC_fn <- function(patient, tp1, tp2, tp3, tp4, y_var = '') {
+  file.path(rds_dir, 'FCs', sprintf('%s_FCs_%s_%s_%s%s.rds',
+                                    patient, tp1, tp2, tp3, tp4,
+                                    ifelse(y_var == '', '', 
+                                           sprintf('_%s', y_var))))
+}
+
+
 #' Compare TCR abundance FCs in two compartments
 #'
 #'
-plot_tp_comp_FCs <- function(
-  tp1 = 'Baseline', tp2 = 'Post-induction', tp3 = '-2', tp4 = '0') {
-  if (!exists('arr')) read_adaptive_seqs()
+plot_tp_comp_FCs <- function(tp1 = 'Baseline', tp2 = 'Post-induction',
+                             tp3 = '-2', tp4 = '0', 
+                             y_var = 'normalized_frequency') {
+  read_adaptive_seqs()
 
-  plyr::llply(arr[, auto_name(unique(patient))], function(patient) {
-    fn <- file.path(rds_dir, 'FCs',
-                    sprintf('%s_FCs_%s_%s_%s_%s.rds',
-                            patient, tp1, tp2, tp3, tp4))
+  plyr::llply(arr[, naturalsort::naturalsort(auto_name(unique(patient)))],
+              function(patient) {
+    fn <- get_FC_fn(patient, tp1, tp2, tp3, tp4, y_var)
     if (file.exists(fn)) {
       FCs <- readRDS(fn)
     } else {
@@ -429,12 +494,7 @@ plot_tp_comp_FCs <- function(
       geom_hline(yintercept = 0, color = 'gray20', linetype = 'dashed') +
       geom_vline(xintercept = 0, color = 'gray20', linetype = 'dashed') +
       # ggtitle(sprintf('%s %s-%s vs %s-%s', patient, tp1, tp2, tp3, tp4)) +
-      ggtitle(sprintf('%s - %s - %s',
-                      patient,
-                      patient_labels[patient == parent.frame(3)$patient,
-                                     unique(arm)],
-                      patient_labels[patient == parent.frame(3)$patient,
-                                     unique(clinical_response)])) +
+      ggtitle(format_patient_title(patient)) +
       theme(legend.position = 'right', legend.direction = 'vertical',
             aspect.ratio = 1)
   })
@@ -568,25 +628,28 @@ plot_TCR_chronological <- function(patient = 'pat_11',
                                    timepoint_v = 'timepoint',
                                    facet_var = NULL,
                                    colour_var = 'shared_timepoints',
+                                   allowed_timepoints = timepoints,
                                    # p_var = 'productive_frequency',
                                    p_var = 'normalized_frequency',
                                    compartment = 'tumor') {
   read_adaptive_seqs(force_reload = F)
-  pat_arr <- unique(arr[patient %in% parent.frame(3)$patient, 
-                        .(adaptive_sample_name, amino_acid, productive_frequency, 
-                          normalized_frequency,
-                          timepoint)])
-  pat_arr[, productive_frequency := sum(productive_frequency, na.rm = T), 
+  pat_arr <- unique(arr[patient %in% parent.frame(3)$patient &
+                        get(timepoint_v) %in% allowed_timepoints,
+                        .(adaptive_sample_name, amino_acid, productive_frequency,
+                          normalized_frequency, timepoint)])
+  if (pat_arr[, uniqueN(timepoint)] == 1) return(NULL)
+  if (null_dat(pat_arr)) return(NULL)
+  pat_arr[, productive_frequency := sum(productive_frequency, na.rm = T),
           by = .(amino_acid, timepoint)]
-  pat_arr[, normalized_frequency := sum(normalized_frequency, na.rm = T), 
+  pat_arr[, normalized_frequency := sum(normalized_frequency, na.rm = T),
           by = .(amino_acid, timepoint)]
   pat_arr <- unique(pat_arr)
   # pat_arr[amino_acid %in% 'CSVQGAGTEAFF']
   # pat_arr[amino_acid %in% 'CSVPDPLGNTEAFF']
 
   setkey(pat_arr, amino_acid, timepoint)
-  subs <- expand.grid('amino_acid' = pat_arr[, unique(amino_acid)], 
-                      'timepoint' = pat_arr[, unique(timepoint)]) %>% 
+  subs <- expand.grid('amino_acid' = pat_arr[, unique(amino_acid)],
+                      'timepoint' = pat_arr[, unique(timepoint)]) %>%
     as.data.table
   # subs[, .N, by = amino_acid][N != length(timepoints)]
   pat_arr <- pat_arr[subs, ]
@@ -607,18 +670,20 @@ plot_TCR_chronological <- function(patient = 'pat_11',
   wide_dat[, 'clone_N' := .N, by = timepoints_present]
   cluster_assigns <- unique(wide_dat, by = timepoints_present) %>%
     { .[, 'cluster_ID' := 1:.N] }
-  wide_dat <- 
-    controlled_merge(wide_dat, 
-                     cluster_assigns[, c('cluster_ID', timepoints_present), 
+  wide_dat <-
+    controlled_merge(wide_dat,
+                     cluster_assigns[, c('cluster_ID', timepoints_present),
                                      with = F])
-  pat_arr <- controlled_merge(pat_arr, 
+  pat_arr <- controlled_merge(pat_arr,
                               wide_dat[, .(amino_acid, cluster_ID, clone_N)])
   pat_arr <- pat_arr[shared_timepoints != 0]
   size_breaks <- setNames(unlist(pat_arr[, .(min(clone_N), median(clone_N),
                                     max(clone_N))]), NULL)
   pat_arr <- unique(pat_arr, by = c('cluster_ID', 'timepoint'))
+  cols <- gen_color_vector(n = 3, name = 'Zissou1') %>%
+    { .[1:pat_arr[, uniqueN(shared_timepoints)]] }
 
-  plot_parallel_coords(pat_arr, 
+  p <- plot_parallel_coords(pat_arr,
     facet_var = facet_var,
     size_var = 'clone_N',
     timepoint_v = timepoint_v,
@@ -626,9 +691,10 @@ plot_TCR_chronological <- function(patient = 'pat_11',
     line_alpha = .1,
     swarm_width = .3,
     group_var = 'amino_acid',
-    man_colors = gen_color_vector(n = pat_arr[, uniqueN(shared_timepoints)]),
+    man_colors = cols,
     colour_var = colour_var) +
     scale_y_continuous(name = var_to_label(p_var), trans = 'log10') +
     scale_size_continuous(name = '# Clones', breaks = size_breaks) +
     ggtitle(sprintf('%s', compartment))
+  return(p)
 }
