@@ -167,6 +167,7 @@ prepare_adaptive_FC <- function(# facet_var = NULL,
   # rm(missing_pats)
   # agg_tp <- agg_tp[timepoint != timepoints[1]]
   agg_tp <- agg_tp[order(patient, timepoint)]
+  agg_tp <- agg_tp[order(timepoint)]
   return(agg_tp)
 }
 
@@ -197,7 +198,6 @@ plot_FC <- function(agg_tp,
   }
 
   if (!is.null(colour_var) && colour_var == 'comb_time_resp') {
-    s_plot <- s_plot + aes_string(shape = colour_var)
     pal_mask <- c(2,3,5,6)
     pal_mask <- c(1, 2, 3, 4, 5, 6)
     s_plot <- s_plot +
@@ -207,6 +207,17 @@ plot_FC <- function(agg_tp,
       scale_shape_manual(name = '',
                values = setNames(c(1, 2, 3, 1, 2, 3) + 14,
                                  names(comb_time_resp_palette))[pal_mask])
+  }
+
+  if (!is.null(colour_var) && colour_var == 'timepoint') {
+    s_plot <- s_plot + aes_string(colour = colour_var) +
+      # scale_fill_manual(values = timepoint_colors) +
+      scale_colour_manual(name = '', 
+                          values = setNames(as.character(timepoint_colors),
+                                            names(timepoint_colors))) +
+      scale_shape_manual(name = '',
+               values = setNames(c(1, 2, 3) + 14,
+                                 names(timepoint_colors)))
   }
 
   s_plot <- s_plot +
@@ -575,7 +586,9 @@ plot_adaptive_FC <- function(dtf = patient_labels,
   agg_tp <- prepare_adaptive_FC(dtf = dtf, facet_var = facet_var,
                                 alpha_lev = alpha_lev, var1 = var1,
                                 var2 = var2)
-  plot_FC(agg_tp[timepoint %in% p_timepoints],
+  agg_tp_f <- agg_tp[timepoint %in% p_timepoints]
+  agg_tp_f[, timepoint]
+  plot_FC(agg_tp_f,
           facet_var = facet_var, alpha_lev = alpha_lev,
           colour_var = colour_var, var1 = var1, var2 = var2)
 }
@@ -695,6 +708,10 @@ plot_TCR_chronological <- function(patient = 'pat_11',
     colour_var = colour_var) +
     scale_y_continuous(name = var_to_label(p_var), trans = 'log10') +
     scale_size_continuous(name = '# Clones', breaks = size_breaks) +
-    ggtitle(sprintf('%s', compartment))
+    ggtitle(sprintf('%s', compartment)) +
+    guides(
+     size = guide_legend(order = 1),
+     colour = guide_legend(order = 2)
+    )
   return(p)
 }

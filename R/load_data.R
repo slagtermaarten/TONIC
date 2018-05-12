@@ -5,20 +5,41 @@ pacman::p_load(naturalsort)
 # d <- calcNormFactors(d)
 # v <- voom(d, design)
 
+my_test <- function(idx = 1) {
+  bool <- patient_labels[, uniqueN(arm) > 1, by = patient][, any(V1)]
+  if (bool) {
+    print(idx)
+    browser()
+  }
+}
+
 timepoints <- c('baseline' = 'Baseline', 'post.induction' = 'Post-induction',
                 'on.nivo' = 'On nivo')
 timepoints_inv <- setNames(names(timepoints), timepoints)
 blood_timepoints <- auto_name(c(-2, 0, 6, 10, 12))
-treatment_arms <- c('No induction', 'Radiotherapy', 'Cyclophosphamide',
-                    'Cisplatin', 'Doxorubicin')
-## Marleen's preferred way of ordering the projects
+## Marleen's ingrained way of ordering the projects
 treatment_arms <- c('Radiotherapy', 'Doxorubicin', 'Cyclophosphamide',
                     'Cisplatin', 'No induction')
+## Ordering by clinical benefit and NanoString results
+treatment_arms <- c('No induction', 'Radiotherapy', 'Cyclophosphamide',
+                    'Cisplatin', 'Doxorubicin')
+
+arm_colors <- 
+  maartenutils::gen_color_vector('Royal1', 5) %>%
+  # `[`(c(3,4,5)) %>%
+  { c(darken(maartenutils::gen_color_vector('Zissou1', 1), 
+             factor = c(.9, 1.3)), .) } %>%
+  `[`(c(3,1,2,5,4)) %>%
+  setNames(treatment_arms) %>%
+  attr_pass('class', 'color_vector')
 
 resp_colors <- maartenutils::gen_color_vector('Zissou1', 2) %>%
   darken(factor = c(1.0, 1.2)) %>%
-  setNames(c('NR', 'R'))
-# plot_palette(resp_colors)
+  setNames(c('R', 'NR'))
+
+timepoint_colors <- maartenutils::gen_color_vector('Zissou1', 1) %>%
+  darken(factor = rev(c(.75, 1.0, 1.25))) %>%
+  setNames(timepoints)
 
 ## A primary source of the most relevant clinical information
 patient_labels <- read.csv(file.path(p_root, 'data-raw/patient_labels.csv'),
@@ -49,6 +70,7 @@ if (T) {
                      dna_seq_cfs[sample_type == 'Tumor', 
                         .(dna_cf_number, patient, timepoint = 'Baseline')],
                      by_cols = c('patient', 'timepoint'))
+  my_test(idx = 1)
 }
 
 if (F) {
@@ -87,8 +109,10 @@ if (T) {
     vec[vec == 'cis'] = 'cisplatin'
     vec[vec == 'doxorubicin'] = 'doxo'
     vec[vec == 'doxorubicine'] = 'dox'
-    reps <- setNames(treatment_arms, c('no induction', 'radiotherapy',
-                                       'cyclofosfamide', 'cisplatin', 'doxo'))
+    reps <- setNames(c('No induction', 'Radiotherapy', 'Cyclophosphamide',
+                       'Cisplatin', 'Doxorubicin'), 
+                     c('no induction', 'radiotherapy', 'cyclofosfamide',
+                       'cisplatin', 'doxo'))
     return(reps[vec])
   }
 
@@ -114,9 +138,11 @@ if (T) {
 	# tumor_adaptive[, class(timepoint)]
 	# tumor_adaptive[, class(patient)]
 	## Then merge adaptive sample IDs...
-	patient_labels <- merge(patient_labels, tumor_adaptive,
-													by = c('patient', 'timepoint', 'arm'),
-													all.x = T, all.y = T)
+  my_test(idx = 2)
+	patient_labels <- controlled_merge(patient_labels, tumor_adaptive,
+                                     by_cols = c('patient', 'timepoint', 'arm'),
+                                     dup_priority = 'f')
+  my_test(idx = 3)
   stopifnot(patient_labels[is.na(arm), .N <= 3])
 	if (F) {
 		## Analyze missing samples
@@ -148,7 +174,7 @@ if (T) {
 		patient_labels[is.na(arm)]
 		patient_labels[patient == 'pat_33']
 		pacman::p_load('zoo')
-		patient_labels[, arm := na.locf(arm), by = patient]
+		# patient_labels[, arm := na.locf(arm), by = patient]
 		patient_labels[, clinical_response := na.locf(clinical_response), by = patient]
 	}
 
@@ -433,3 +459,6 @@ contra_fns[, 'tumor_cf' := gsub('.{4}_.{1,2}_(CF\\d{5})_.*',
 wes_table <- merge(contra_fns, vcf_table, all = T)
 rm(vcf_table)
 rm(contra_fns)
+# write_tsv(patient_labels, '~/Downloads/TONIC_pat_labels.tsv')
+# write_tsv(blood_adaptive, '~/Downloads/TONIC_blood_pat_labels.tsv')
+
