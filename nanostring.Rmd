@@ -1,0 +1,62 @@
+---
+title: "NanoString data analyses in the TONIC trial"
+author: "Maarten Slagter"
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+    theme: united
+---
+
+```{r, cache = F, warning=FALSE, echo=FALSE}
+knitr::opts_chunk$set(message = FALSE, cache = F, cache.lazy = F,
+                      cache.comments = F, autodep = T, warning = FALSE,
+                      echo = TRUE, error = FALSE)
+knitr::opts_knit$set(progress = TRUE, verbose = TRUE)
+source('R/init.R')
+```
+
+Heatmaps with and without p-values
+
+```{r, warning=FALSE, echo=FALSE, fig.width = 9, fig.height = 12}
+source('R/plotting_adaptive.R')
+source('R/plotting_nanostring.R')
+source('R/test_associations.R')
+m <- rbindlist(lapply(auto_name(sig_gene_sets), function(gs) {
+  test_gene_set_difference(gene_set = gs, 
+                           tp1 = 'Baseline', 
+                           tp = 'Post-induction')
+}), fill = T)
+
+invisible(m[p_val > .05, p_val := NA])
+p <- plot_p_values_induction(m)
+print(p)
+
+invisible(m[, p_val := NA])
+pa <- plot_p_values_induction(m)
+print(pa)
+# ggsave(plot = p, filename = file.path(plot_dir,
+#                             'induction_fc_p_values_baseline_post_induction.png'),
+#        width = 10, height = 13, units = 'cm')
+```
+
+```{r, warning=FALSE, echo=FALSE, fig.width = 9, fig.height = 12}
+m <- rbindlist(lapply(auto_name(sig_gene_sets), function(gs) {
+  test_gene_set_difference(gene_set = gs, 
+                           tp1 = 'Baseline', 
+                           tp = 'On nivo')
+}), fill = T)
+
+invisible(m[p_val > .05, p_val := NA])
+p <- plot_p_values_induction(m)
+print(p)
+
+invisible(m[, p_val := NA])
+pa <- plot_p_values_induction(m)
+print(pa)
+
+# ggsave(plot = p, filename = file.path(plot_dir,
+#                             'induction_fc_p_values_baseline_on_nivo.png'),
+#        width = 10, height = 13, units = 'cm')
+```
+
