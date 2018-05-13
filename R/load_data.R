@@ -46,12 +46,15 @@ danaher_scores.m[, timepoint := factor(plyr::mapvalues(timepoint,
                                        levels = timepoints)]
 danaher_scores.m[arm == 'Cyclofosfamide',  arm := 'Cyclophosphamide']
 # danaher_scores.m[, table(arm)]
-danaher_scores.m[, arm := factor(arm, levels = treatment_arms)]
 set_dt_types(danaher_scores.m, c('patient' = 'factor', 'timepoint' = 'factor',
                                  'variable' = 'factor'))
-# danaher_scores.m <- merge(danaher_scores.m,
-#                           patient_labels[, .(patient, response, arm)],
-#                           by = 'patient')
+danaher_scores.m <- controlled_merge(danaher_scores.m,
+                                     patient_labels[, .(patient, response, arm)])
+danaher_scores.m[, arm := factor(arm, levels = treatment_arms)]
+setnames(danaher_scores.m, 'response', 'clinical_response')
+danaher_scores.m[, clinical_response := factor(clinical_response, 
+                                               levels = c('NR', 'R'))]
+                                     
 
 ## Gene signatures
 danaher_signature_genes <- read.csv(file.path(p_root,

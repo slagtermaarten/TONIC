@@ -243,9 +243,9 @@ prep_geneset_parallel_coords <- function(gene_set = 'apm',
   danaher_scores.m[allowed][!is.na(value)][variable == gene_set][arm == 'Cisplatin']
   sum_dat <- danaher_scores.m[allowed][variable == gene_set] %>%
     { .[, .('value' = median(value, na.rm = T), 'patient' = 'median'),
-        by = c('timepoint', colour_var, facet_var)] }
+        by = c('timepoint', facet_var)] }
 
-  if (!is.null(colour_var)) {
+  if (!is.null(colour_var) && colour_var %in% colnames(sum_dat)) {
     sum_dat <- sum_dat[!is.na(get(colour_var))]
   }
 
@@ -303,10 +303,16 @@ plot_parallel_coords <- function(p_dat,
   }
 
   if (!is.null(sum_dat)) {
-    p <- p + geom_point(aes_string(group = colour_var), shape = 21,
+    sum_dat[, 'x_coord' := as.integer(get(timepoint_v)), 
+            by = c(timepoint_v, facet_var)]
+    if (colour_var %nin% colnames(sum_dat)) {
+      sum_dat[, (colour_var) := NA]
+    }
+    p <- p + geom_point(aes_string(group = facet_var), shape = 21,
                         size = 4, alpha = .8, colour = 'black',
                         data = sum_dat, size = 2) +
              geom_line(aes(group = NULL), alpha = .6, data = sum_dat)
+
   }
 
   if (!is.null(colour_var)) {
@@ -326,14 +332,14 @@ plot_parallel_coords <- function(p_dat,
 
 
 plot_parallel_coords_geneset <- function(gene_set = 'apm',
-                                         colour_var = 'response',
+                                         colour_var = 'clinical_response',
                                          facet_var = NULL, ...) {
   sum_dat <- prep_geneset_parallel_coords(gene_set = gene_set,
                                           colour_var = colour_var,
                                           facet_var = facet_var)
   p_dat <- danaher_scores.m[variable == gene_set]
-  sum_dat <- NULL
   p <- plot_parallel_coords(p_dat = p_dat, sum_dat = sum_dat,
+                            swarm_width = .1,
                             facet_var = facet_var,
                             colour_var = colour_var, title = gene_set,
                             ...)
