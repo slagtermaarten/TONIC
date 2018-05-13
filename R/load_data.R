@@ -13,38 +13,36 @@ my_test <- function(idx = 1) {
   }
 }
 
-timepoints <- c('baseline' = 'Baseline', 'post.induction' = 'Post-induction',
-                'on.nivo' = 'On nivo')
-timepoints_inv <- setNames(names(timepoints), timepoints)
-blood_timepoints <- auto_name(c(-2, 0, 6, 10, 12))
-## Marleen's ingrained way of ordering the projects
-treatment_arms <- c('Radiotherapy', 'Doxorubicin', 'Cyclophosphamide',
-                    'Cisplatin', 'No induction')
-## Ordering by clinical benefit and NanoString results
-treatment_arms <- c('No induction', 'Radiotherapy', 'Cyclophosphamide',
-                    'Cisplatin', 'Doxorubicin')
+my_test <- function(idx = 1) {
+  bool <- patient_labels[arm == 'Cyclophosphamide', .N] == 0
+  if (bool) {
+    print(idx)
+    browser()
+  }
+}
 
-arm_colors <- 
-  maartenutils::gen_color_vector('Royal1', 5) %>%
-  # `[`(c(3,4,5)) %>%
-  { c(darken(maartenutils::gen_color_vector('Zissou1', 1), 
-             factor = c(.9, 1.3)), .) } %>%
-  `[`(c(3,1,2,5,4)) %>%
-  setNames(treatment_arms) %>%
-  attr_pass('class', 'color_vector')
+# my_test <- function(idx = 1) {
+#   if (patient_labels[patient == 'pat_33', !is.na(arm)]) {
+#     print(idx)
+#     browser()
+#   }
+# }
 
-resp_colors <- maartenutils::gen_color_vector('Zissou1', 2) %>%
-  darken(factor = c(1.0, 1.2)) %>%
-  setNames(c('R', 'NR'))
-
-timepoint_colors <- maartenutils::gen_color_vector('Zissou1', 1) %>%
-  darken(factor = rev(c(.75, 1.0, 1.25))) %>%
-  setNames(timepoints)
+arm_test <- function(idx = 1) {
+  if (blood_adaptive[is.na(arm), .N] > 0) {
+    # browser()
+    patient_labels[patient == 'pat_33']
+    blood_adaptive[is.na(arm)]
+  }
+}
 
 ## A primary source of the most relevant clinical information
 patient_labels <- read.csv(file.path(p_root, 'data-raw/patient_labels.csv'),
                            dec = ',', sep = ';') %>% as.data.table %>%
   normalize_colnames()
+patient_labels[arm == 'Cyclofosfamide', arm := 'Cyclophosphamide']
+patient_labels[patient == 'pat_33']
+my_test(idx = 0)
 setnames(patient_labels, 'x', 'filename')
 setnames(patient_labels, gsub('\\.', '_', colnames(patient_labels)))
 maartenutils::set_dt_types(patient_labels,
@@ -187,10 +185,10 @@ if (T) {
 	# blood_adaptive[, arm := factor(arm, levels = treatment_arms)]
 	blood_adaptive[, blood_timepoint := factor(blood_timepoint,
                             levels = sort(unique(blood_timepoint)))]
-  blood_adaptive <- merge(blood_adaptive,
+  blood_adaptive <- controlled_merge(blood_adaptive,
     unique(patient_labels, by = 'patient')[, .(patient, arm, response,
-                                               clinical_response, tis_score)],
-    by = 'patient', all.x = T, all.y = F)
+                                               clinical_response, tis_score)])
+  arm_test(3)
 	# blood_adaptive
 	# dcast(blood_adaptive, formula = patient + arm + blood_adaptive ~ .,
 	#       value.var = 'sample_name')
@@ -336,12 +334,12 @@ maartenutils::set_dt_types(exp_levels,
 stopifnot(all(patient_labels[!is.na(filename), filename] %in% colnames(exp_levels)))
 
 
-danaher_scores <- read.csv(file.path(p_root,
-                                     'data-raw/danaher_geneset_scores.csv'),
-                    # verbose = T,
-                    dec = ',',
-                    sep = ';', skip = 0L) %>% as.data.table %>%
-  normalize_colnames()
+danaher_scores <- read.csv(file.path(p_root, 'data-raw', 
+                                     'danaher_geneset_scores.csv'),
+                           # verbose = T,
+                           dec = ',',
+                           sep = ';', skip = 0L) %>% as.data.table
+setnames(danaher_scores, tolower(colnames(danaher_scores)))
 
 ## Ensure everything's numeric
 setdiff(colnames(danaher_scores), c('patient', 'arm', 'response')) %>%
