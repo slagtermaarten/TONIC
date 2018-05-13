@@ -45,7 +45,6 @@ nivo, T-cell infiltration only on-nivo.
 ## Tumor
 
 ```{r, warning=FALSE, echo=FALSE, results='asis'}
-source('R/plotting_adaptive.R')
 res <- test_adaptive_association(timepoint = 'Baseline')
 print(knitr::kable(res))
 res <- test_adaptive_association(timepoint = 'Post-induction')
@@ -79,7 +78,6 @@ plot_single_timepoint_r_assocation(l_timepoint = 'On nivo',
 ## Blood
 
 ```{r, warning=FALSE, echo=FALSE, results='asis'}
-source('R/plotting_adaptive.R')
 res <- test_adaptive_association(timepoint = '-2')
 print(knitr::kable(res))
 res <- test_adaptive_association(timepoint = '0')
@@ -112,7 +110,6 @@ plot_single_timepoint_r_assocation(l_timepoint = '6',
 # Relationship between distribution and induction treatment & clinical response
 
 ```{r, warning=FALSE, echo=FALSE}
-# source('R/plotting_adaptive.R')
 plot_adaptive_FC(facet_var = 'arm', 
                  p_timepoints = c('Baseline', 'Post-induction', 'On nivo'),
                  var1 = 'sample_clonality', var2 = 'efron_thisted_estimator',
@@ -120,7 +117,6 @@ plot_adaptive_FC(facet_var = 'arm',
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
-# source('R/plotting_adaptive.R')
 plot_adaptive_FC(facet_var = 'arm', 
                  p_timepoints = c('Baseline', 'Post-induction'),
                  var1 = 'sample_clonality', var2 = 'efron_thisted_estimator',
@@ -145,7 +141,6 @@ plot_adaptive_FC(facet_var = 'arm',
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
-# source('R/plotting_adaptive.R')
 plot_adaptive_FC(facet_var = 'arm', 
                  p_timepoints = c('Baseline', 'Post-induction'),
                  var1 = 'sample_clonality', var2 = 'efron_thisted_estimator',
@@ -209,7 +204,28 @@ plot_parallel_adaptive(p_var = 'adaptive_t_cells', compartment = 'blood',
                        facet_var = NULL)
 ```
 
+The same but restricting to some time points for clarity: -2 (pre) and 6 (on
+nivo)
+
+```{r, warning=FALSE, echo=FALSE, fig.width = 4, fig.height = 6}
+source('R/plotting_nanostring.R')
+source('R/plotting_adaptive.R')
+plot_parallel_adaptive(p_var = 'sample_clonality', compartment = 'blood',
+                       facet_var = NULL, 
+                       allowed_timepoints = c(-2, 6))
+plot_parallel_adaptive(p_var = 'efron_thisted_estimator', compartment = 'blood',
+                       facet_var = NULL, 
+                       allowed_timepoints = c(-2, 6))
+plot_parallel_adaptive(p_var = 'adaptive_t_cells', compartment = 'blood',
+                       facet_var = NULL, 
+                       allowed_timepoints = c(-2, 6))
+```
+
+
+
 ```{r, fig.width = 7, fig.height = 3, warning=FALSE, echo=FALSE}
+source('R/plotting_nanostring.R')
+source('R/plotting_adaptive.R')
 plot_parallel_adaptive(p_var = 'efron_thisted_estimator', compartment = 'tumor',
                        facet_var = 'arm')
 plot_parallel_adaptive(p_var = 'sample_clonality', compartment = 'tumor', 
@@ -224,6 +240,21 @@ plot_parallel_adaptive(p_var = 'adaptive_t_cells', compartment = 'blood',
                        facet_var = 'arm')
 ```
 
+The arm of patient 33 is unknown to me, she's shown in the 'NA' arm
+
+```{r, fig.width = 7, fig.height = 3, warning=FALSE, echo=FALSE}
+plot_parallel_adaptive(p_var = 'efron_thisted_estimator', compartment = 'blood',
+                       facet_var = 'arm',
+                       allowed_timepoints = c(-2, 6))
+plot_parallel_adaptive(p_var = 'sample_clonality', compartment = 'blood',
+                       facet_var = 'arm',
+                       allowed_timepoints = c(-2, 6))
+plot_parallel_adaptive(p_var = 'adaptive_t_cells', compartment = 'blood',
+                       facet_var = 'arm',
+                       allowed_timepoints = c(-2, 6))
+```
+
+
 ```{r, eval = F, warning=FALSE, echo=FALSE}
 source('R/plotting_nanostring.R')
 cowplot::plot_grid(
@@ -235,7 +266,7 @@ cowplot::plot_grid(
   s_plot + remove_strip, ncol = 1, align = 'hv', rel_heights = c(.4, .4, .6))
 ```
 
-# Deltas in summary statistics
+# Deltas in summary statistics over time
 
 ```{r, warning=FALSE, echo=FALSE}
 plot_all_comps(f = compare_adaptive_summary_stats,
@@ -247,6 +278,9 @@ plot_all_comps(f = compare_adaptive_summary_stats,
 Effect of induction arm on these measures
 
 ```{r, eval = T, warning=FALSE, echo=FALSE}
+# graphics.off()
+source('R/plotting_nanostring.R')
+source('R/plotting_adaptive.R')
 plot_all_comps(f = compare_adaptive_summary_stats,
                colour_var = 'arm',
                x_var = 'arm',
@@ -256,13 +290,15 @@ plot_all_comps(f = compare_adaptive_summary_stats,
 Split out by clinical response, contrasts most pronounced in responders
 
 ```{r, warning=FALSE, echo=FALSE}
+source('R/plotting_nanostring.R')
+source('R/plotting_adaptive.R')
 plot_all_comps(f = compare_adaptive_summary_stats,
                colour_var = 'clinical_response',
                x_var = 'clinical_response',
                facet_var = 'arm')
 ```
 
-# FCs between timepoints shared between tumor and blood
+# Clone size FCs compared between tumor and blood
 
 ```{r, warning=FALSE, echo=FALSE, results = 'hide'}
 plot_tp_comp_FCs(tp1 = 'Baseline', tp2 = 'Post-induction', 
@@ -275,9 +311,12 @@ plot_tp_comp_FCs(tp1 = 'Baseline', tp2 = 'On nivo',
                  tp3 = '-2', tp4 = '12')
 ```
 
-# Direct comparison of tumor and blood
+# Direct comparison of clone sizes in tumor and blood
 
 ```{r, warning=FALSE, echo=FALSE, results = 'hide'}
+# devtools::load_all(file.path('~/libs', 'maartenutils'))
+source('R/plotting_nanostring.R')
+source('R/plotting_adaptive.R')
 plot_tp_comp_direct(tp1 = 'Baseline', tp2 = '-2')
 plot_tp_comp_direct(tp1 = 'Post-induction', tp2 = '0')
 plot_tp_comp_direct(tp1 = 'On nivo', tp2 = '6')
@@ -316,9 +355,6 @@ more so than the pesistence and expansion of already existing clones, which also
 occurs in non-responding patients.
 
 ```{r, tcr_chrono, warning=FALSE, echo=FALSE, fig.height = 4, fig.width = 4}
-source('R/plotting_nanostring.R')
-source('R/plotting_adaptive.R')
-
 #' Plot TCR chronological plots for all patients
 #'
 #'
@@ -335,4 +371,79 @@ plot_TCR_chronological_all <- function(p_var = 'normalized_frequency') {
 }
 
 plot_TCR_chronological_all()
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/plotting_nanostring.R')
+source('R/plotting_adaptive.R')
+analyze_top_clones <- function(p_var = 'normalized_frequency') {
+  read_adaptive_seqs(force_reload = F)
+  dtf <- rbindlist(
+    plyr::llply(arr[, naturalsort::naturalsort(auto_name(unique(patient)))], 
+              function(patient) {
+    p_title <- format_patient_title(patient)
+    print(p_title)
+    pat_arr <- prepare_TCR_chrono(patient = patient, 
+                                  p_var = p_var)
+    if (null_dat(pat_arr)) return(NULL)
+    pat_arr <- pat_arr[timepoint == 'On nivo']
+    if (null_dat(pat_arr)) return(NULL)
+    percentage_new_among_50th <- 
+      pat_arr %>%
+        { .[timepoint == 'On nivo'] } %>%
+        { .[order(value)] } %>%
+        { .[(cumsum(clone_N * value) / 
+            sum(clone_N * value, na.rm =T)) >= .5] } %>%
+        { .[, mean(shared_timepoints == 1)] }
+    if (is.nan(percentage_new_among_50th)) browser()
+    print(percentage_new_among_50th)
+    return(list('patient' = patient, 'frac_new' = percentage_new_among_50th))
+  }), fill = T)
+  dtf <- controlled_merge(dtf, patient_labels)
+  return(dtf)
+}
+sr(frac_new_clones <- analyze_top_clones())
+```
+
+## Composition of largest clones highly associated with clinical response
+
+Indeed, ordering the clones by size and computing the fraction of newly detected
+clones among the clones making up the top 50% of the TIL (roughly the top half
+of the plots shown above), we see much higher fractions on nivolumab in
+responders than in non-responders.
+
+```{r, warning=FALSE, echo=FALSE, fig.width = 3, fig.height = 3}
+facet_var = NULL
+new_var_name <- 'Fraction of T cells newly detected\namong top 50%'
+p <- ggplot(frac_new_clones,
+       aes_string(x = 'clinical_response', y = 'frac_new',
+                  fill = 'clinical_response')) +
+  geom_boxplot() +
+  ggbeeswarm::geom_quasirandom() +
+  ggpubr::stat_compare_means(label = 'p.signif') +
+  scale_fill_manual(name = '', values = resp_colors, guide = F) +
+  scale_y_continuous(name = new_var_name) +
+  xlab('Clinical response') + 
+  ggrepel::geom_label_repel(data = frac_new_clones[clinical_response == 'NR' & frac_new > .3],
+             aes(label = patient), fill = 'white', size = 2)
+print(p)
+```
+
+```{r, warning=FALSE, echo=FALSE, fig.width = 5, fig.height = 3}
+p + facet_grid(as.formula(sprintf('~ %s ', 'arm')))
+```
+
+Interestingly, this variable adds information over the sample clonality measure,
+as the two are not correlated. It also more robustly distinguish responders from
+non-responders, as shown below.
+
+```{r, warning=FALSE, echo=FALSE, fig.width = 3, fig.height = 3}
+ggplot(frac_new_clones, aes(x = sample_clonality, y = frac_new, 
+                            colour = clinical_response)) +
+  geom_point() +
+  theme(aspect.ratio = 1) +
+  scale_colour_manual(name = '',
+                      values = tonic_color_palettes[['clinical_response']]) +
+  xlab('Sample clonality') + 
+  ylab(new_var_name)
 ```

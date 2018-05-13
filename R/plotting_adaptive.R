@@ -1,3 +1,39 @@
+timepoints <- c('baseline' = 'Baseline', 'post.induction' = 'Post-induction',
+                'on.nivo' = 'On nivo')
+timepoints_inv <- setNames(names(timepoints), timepoints)
+blood_timepoints <- auto_name(c(-2, 0, 6, 10, 12))
+## Marleen's ingrained way of ordering the projects
+treatment_arms <- c('Radiotherapy', 'Doxorubicin', 'Cyclophosphamide',
+                    'Cisplatin', 'No induction')
+## Ordering by clinical benefit and NanoString results
+treatment_arms <- c('No induction', 'Radiotherapy', 'Cyclophosphamide',
+                    'Cisplatin', 'Doxorubicin')
+label_reps <- c('efron_thisted_estimator' = 'Repertoire size', 
+                'adaptive_t_cells' = 'Adaptive %T-cells',
+                'sample_clonality' = 'TCR clonality')
+
+arm_colors <- 
+  maartenutils::gen_color_vector('Royal1', 5) %>%
+  # `[`(c(3,4,5)) %>%
+  { c(darken(maartenutils::gen_color_vector('Zissou1', 1), 
+             factor = c(.9, 1.3)), .) } %>%
+  `[`(c(3,1,2,5,4)) %>%
+  setNames(treatment_arms) %>%
+  attr_pass('class', 'color_vector')
+
+resp_colors <- maartenutils::gen_color_vector('Zissou1', 2) %>%
+  darken(factor = c(1.0, 1.2)) %>%
+  setNames(c('R', 'NR'))
+
+timepoint_colors <- maartenutils::gen_color_vector('Zissou1', 1) %>%
+  darken(factor = rev(c(.75, 1.0, 1.25))) %>%
+  setNames(timepoints)
+
+tonic_color_palettes <- list('clinical_response' = resp_colors,
+                             'arm' = arm_colors,
+                             'timepoint' = timepoint_colors)
+
+
 plot_cor_mat <- function(tp = timepoints,
                          cormethod = 'spearman',
                          sig_level = c(.05, .0005, 000005)) {
@@ -31,7 +67,7 @@ plot_cor_mat <- function(tp = timepoints,
   colnames(p_dat) <- gsub('ca15_3', 'ca15.3', colnames(p_dat))
   colnames(p_dat) <- simple_cap(gsub('_', ' ', colnames(p_dat)),
     caplist = c('mm2', 'Ichao1', 'cells', 'TIS', 'score', 's', 'ng', 'LDH',
-                'CRP', 'TIL'))
+                'CRP', 'TIL'), cap_first_word_only = T)
 
   corrplot(cor(p_dat, method = cormethod),
            p.mat = cor.mtest(p_dat, method = cormethod)$p,
@@ -50,12 +86,14 @@ plot_cor_mat <- function(tp = timepoints,
            mar = c(0,0,6,0), # http://stackoverflow.com/a/14754408/54964
            title = sprintf('%s - %s',
                            paste(tp, collapse = ', '),
-                           simple_cap(cormethod)))
+                           simple_cap(cormethod, cap_first_word_only = T)))
 }
 
 
 plot_parallel_adaptive <- function(p_var = 'efron_thisted_estimator',
                                    facet_var = 'arm', compartment = 'tumor',
+                                   allowed_timepoints = c(timepoints, 
+                                                          blood_timepoints),
                                    ...) {
   compartment <- match.arg(compartment, choices = c('blood', 'tumor'))
   if (compartment == 'tumor') {
@@ -68,12 +106,21 @@ plot_parallel_adaptive <- function(p_var = 'efron_thisted_estimator',
                                 'arm', p_var), with = F]
   }
   setnames(p_dat, p_var, 'value')
-  p_dat <- p_dat[!is.na(value)]
+  p_dat <- p_dat[!is.na(value)] %>%
+    { .[get(timepoint_v) %in% allowed_timepoints] }
+  p_dat[, (timepoint_v) := droplevels(get(timepoint_v))]
+
+  sum_dat <- p_dat %>%
+    { .[, .('value' = median(value, na.rm = T), 
+            'patient' = 'median',
+            'clinical_response' = NA),
+        by = c(timepoint_v, facet_var)] }
 
   plot_parallel_coords(p_dat, facet_var = facet_var,
                        timepoint_v = timepoint_v,
+                       # sum_dat = sum_dat,
                        colour_var = 'clinical_response') +
-    scale_y_continuous(name = var_to_label(p_var)) +
+    scale_y_continuous(name = var_to_label(p_var, label_reps)) +
     ggtitle(sprintf('%s', compartment))
 }
 
@@ -221,9 +268,9 @@ plot_FC <- function(agg_tp,
   }
 
   s_plot <- s_plot +
-    scale_x_continuous(var_to_label(var1), trans = 'identity',
+    scale_x_continuous(var_to_label(var1, label_reps), trans = 'identity',
                        expand = c(0.1, 0.1)) +
-    scale_y_continuous(var_to_label(var2), trans = 'identity',
+    scale_y_continuous(var_to_label(var2, label_reps), trans = 'identity',
                        expand = c(0.1, 0.1)) +
     theme(legend.position = 'top', legend.direction = 'vertical') +
     gg_legend_alpha_cancel
@@ -359,7 +406,7 @@ test_adaptive_association <- function(measures = c('sample_clonality',
       return(NULL)
     }
 
-    dtf <- p_dat[, .('measure' = measure,
+    dtf <- p_dat[, .('measure' = var_to_label(measure, label_reps),
                      'p_val' = tryCatch(wilcox.test(as.formula(sprintf('%s ~ %s',
                                                               measure, y_var)),
                                            data = .SD)$p.val,
@@ -393,14 +440,18 @@ plot_single_timepoint_r_assocation <- function(
   l_timepoint = 'Baseline', facet_var = 'arm') {
   s_dat <- timepoint_s_dat(l_timepoint)
   lapply(measures, function(measure) {
+    y_label <- 
+      sprintf('%s - %s', var_to_label(measure, label_reps), l_timepoint)
     p <- ggplot(s_dat,
-           aes_string(x = 'clinical_response', y = measure,
-                      fill = 'clinical_response')) +
+                aes_string(x = 'clinical_response', y = measure,
+                           fill = 'clinical_response')) +
       geom_boxplot() +
-      ggpubr::stat_compare_means(label = 'p.signif') +
-      scale_fill_manual(name = '', values = resp_colors) +
-      scale_y_continuous(name = sprintf('%s at %s', var_to_label(measure),
-                                        l_timepoint)) +
+      ggbeeswarm::geom_quasirandom() +
+      ggpubr::stat_compare_means(label = 'p.signif', 
+                                 label.y = s_dat[, 1.2 * 
+                                                 max(get(measure), na.rm= T)]) +
+      scale_fill_manual(name = '', values = resp_colors, guide = F) +
+      scale_y_continuous(name = y_label) +
       xlab('Clinical response')
     if (!is.null(facet_var)) {
       p <- p + facet_grid(as.formula(sprintf('~ %s ', facet_var)))
@@ -423,27 +474,28 @@ plot_tp_comp_direct <- function(tp1 = 'Baseline', tp2 = '-2',
     t_dat <- arr[patient == parent.frame(3)$patient &
                  timepoint %in% c(tp1, tp2)]
 
-    p_dat <- merge(t_dat[timepoint == tp1,
-                   c(y_var, 'amino_acid')],
-                   t_dat[timepoint == tp2,
-                   c(y_var, 'amino_acid')],
+    p_dat <- merge(t_dat[timepoint == tp1, c(y_var, 'amino_acid'), with = F],
+                   t_dat[timepoint == tp2, c(y_var, 'amino_acid'), with = F],
                    all = TRUE, by = 'amino_acid')
 
     check_timepoint <- function(tp) {
-      if (grepl('-*\\d{1,2}', tp2)) return(sprintf('day %s', tp))
+      if (grepl('-*\\d{1,2}', tp)) return(sprintf('day %s', tp))
       else return(tp)
     }
     tp1 <- check_timepoint(tp1)
     tp2 <- check_timepoint(tp2)
-    max_val <- c(p_dat[, range(productive_frequency.x, na.rm = T)],
-      p_dat[, range(productive_frequency.y, na.rm = T)]) %>%
-    { max(.) }
+    max_val <- c(p_dat[, range(get(sprintf('%s.x', y_var)), na.rm = T)],
+                 p_dat[, range(get(sprintf('%s.y', y_var)), na.rm = T)]) %>%
+      { max(.) }
 
-    ggplot(p_dat, aes(x = productive_frequency.x, y = productive_frequency.y)) +
+    ggplot(p_dat, aes_string(x = sprintf('%s.x', y_var), 
+                             y = sprintf('%s.y', y_var))) +
       geom_count(alpha = .1) +
-      scale_x_continuous(name = sprintf('%s %s', var_to_label(y_var), tp1),
+      scale_x_continuous(name = sprintf('%s %s', 
+                                        var_to_label(y_var, label_reps), tp1),
                          limits = c(0, max_val)) +
-      scale_y_continuous(name = sprintf('%s %s', var_to_label(y_var), tp2),
+      scale_y_continuous(name = sprintf('%s %s', 
+                                        var_to_label(y_var, label_reps), tp2),
                          limits = c(0, max_val)) +
       geom_hline(yintercept = 0, color = 'gray20', linetype = 'dashed') +
       geom_vline(xintercept = 0, color = 'gray20', linetype = 'dashed') +
@@ -512,6 +564,21 @@ plot_tp_comp_FCs <- function(tp1 = 'Baseline', tp2 = 'Post-induction',
 }
 
 
+compute_x_label <- function(t_dat, x_var, facet_var) {
+  t_dat[!is.na(value), 'label' := sprintf('%s~(italic(n)==%d)',
+                                          gsub(' ', '~', get(x_var)), .N),
+        by = c(facet_var, x_var)]
+  if (x_var == 'arm') {
+    labels <- t_dat[, unique(label)]
+    labels_stripped <- t_dat[, gsub('~', ' ',
+                                    gsub('(.*)~\\(.*', '\\1', unique(label)))]
+    right_order <- labels[match(t_dat[, levels(arm)], labels_stripped)]
+    t_dat[, label := factor(label, levels = right_order)]
+  }
+  return(t_dat)
+}
+
+
 #' Compare Adaptive summary stats
 #'
 #'
@@ -528,31 +595,51 @@ compare_adaptive_summary_stats <- function(tp1 = 'Baseline',
   }, by = patient]
   setnames(t_dat, 'V1', 'value')
 
-  t_dat <- merge(t_dat[!is.na(value)], patient_labels, all.x = T, all.y = F) %>%
+  t_dat <- controlled_merge(t_dat[!is.na(value)], patient_labels) %>%
     unique(by = c('patient'))
 
   label_proc <- function(labels) {
     sapply(labels, function(lab) parse(text = lab))
   }
 
-  t_dat[!is.na(value), 'label' := sprintf('%s~(italic(n)==%d)',
-                                          gsub(' ', '~', get(x_var)), .N),
-        by = c(facet_var, x_var)]
-  if (x_var == 'arm') {
-    labels <- t_dat[, unique(label)]
-    labels_stripped <- t_dat[, gsub('~', ' ',
-                                    gsub('(.*)~\\(.*', '\\1', unique(label)))]
-    right_order <- labels[match(t_dat[, levels(arm)], labels_stripped)]
-    t_dat[, label := factor(label, levels = right_order)]
-  }
+  t_dat <- compute_x_label(t_dat, x_var, facet_var)
 
   p1 <- ggplot(t_dat[!is.na(label)],
                aes_string(x = 'label', y = 'value', fill = colour_var))
   p1 <- p1 + geom_boxplot()
   p1 <- p1 + ggbeeswarm::geom_quasirandom()
-  p1 <- p1 + ggpubr::stat_compare_means()
+  if (x_var == 'arm') {
+    if (F) {
+      p1 <- p1 + ggpubr::stat_compare_means(label.y = t_dat[, 1.2 * max(value)])
+      p1 <- p1 + ggpubr::stat_compare_means(aes(label = ..p.signif..),
+                                    # method = "t.test", 
+                                    ref.group = t_dat[arm == 'No induction', 
+                                                      unique(label)])
+    } else {
+      p1 <- p1 + ggpubr::stat_compare_means(label.y = t_dat[, 1.5 * max(value)])
+      pval <- ggpubr::compare_means(formula = value ~ arm, t_dat, 
+                                    method = "kruskal.test")$p
+      if (pval <= 0.05) {
+        my_comparisons <- 
+          lapply(t_dat[, setdiff(levels(arm), 'No induction')],
+                 function(x) t_dat[arm %in% c(x, 'No induction'), 
+                                   as.character(unique(label))])
+        p1 <- p1 + ggpubr::stat_compare_means(comparisons = my_comparisons, 
+                     label.y = t_dat[, (1 + seq_along(my_comparisons) * .1) * 
+                                     max(value)],
+                                              label = 'p.signif')
+      }
+    }
+  } else if (x_var == 'clinical_response') {
+    p1 <- p1 + ggpubr::stat_compare_means(label.y = t_dat[, 1.2 * max(value)])
+  }
+  p1 <- p1 + scale_fill_manual(name = '', 
+                               values = tonic_color_palettes[[colour_var]])
+  p1 <- p1 + scale_colour_manual(name = '', 
+                                 values = tonic_color_palettes[[colour_var]])
   p1 <- p1 + scale_y_continuous(name = sprintf('%s %s vs. %s',
-                                               var_to_label(comp_measure),
+                                               var_to_label(comp_measure,
+                                                            label_reps),
                                                tp2, tp1)) +
     scale_x_discrete(name = '', labels = label_proc) +
     rotate_x_labels(45) +
@@ -637,20 +724,21 @@ plot_all_comps <- function(f = compare_adaptive_summary_stats,
 }
 
 
-plot_TCR_chronological <- function(patient = 'pat_11',
-                                   timepoint_v = 'timepoint',
-                                   facet_var = NULL,
-                                   colour_var = 'shared_timepoints',
-                                   allowed_timepoints = timepoints,
-                                   # p_var = 'productive_frequency',
-                                   p_var = 'normalized_frequency',
-                                   compartment = 'tumor') {
+prepare_TCR_chrono <- function(patient = 'pat_11',
+                               timepoint_v = 'timepoint',
+                               facet_var = NULL,
+                               colour_var = 'shared_timepoints',
+                               allowed_timepoints = timepoints,
+                               # p_var = 'productive_frequency',
+                               p_var = 'normalized_frequency',
+                               compartment = 'tumor') {
   read_adaptive_seqs(force_reload = F)
   pat_arr <- unique(arr[patient %in% parent.frame(3)$patient &
                         get(timepoint_v) %in% allowed_timepoints,
                         .(adaptive_sample_name, amino_acid, productive_frequency,
                           normalized_frequency, timepoint)])
-  if (pat_arr[, uniqueN(timepoint)] == 1) return(NULL)
+  if (pat_arr[, uniqueN(timepoint)] == 1 && 
+      length(allowed_timepoints) > 1) return(NULL)
   if (null_dat(pat_arr)) return(NULL)
   pat_arr[, productive_frequency := sum(productive_frequency, na.rm = T),
           by = .(amino_acid, timepoint)]
@@ -690,11 +778,34 @@ plot_TCR_chronological <- function(patient = 'pat_11',
   pat_arr <- controlled_merge(pat_arr,
                               wide_dat[, .(amino_acid, cluster_ID, clone_N)])
   pat_arr <- pat_arr[shared_timepoints != 0]
-  size_breaks <- setNames(unlist(pat_arr[, .(min(clone_N), median(clone_N),
-                                    max(clone_N))]), NULL)
   pat_arr <- unique(pat_arr, by = c('cluster_ID', 'timepoint'))
+  return(pat_arr)
+}
+
+
+plot_TCR_chronological <- function(patient = 'pat_11',
+                                   timepoint_v = 'timepoint',
+                                   facet_var = NULL,
+                                   colour_var = 'shared_timepoints',
+                                   allowed_timepoints = timepoints,
+                                   # p_var = 'productive_frequency',
+                                   p_var = 'normalized_frequency',
+                                   compartment = 'tumor') {
+  pat_arr <- prepare_TCR_chrono(patient = patient, timepoint_v = timepoint_v,
+                                facet_var = facet_var, colour_var = colour_var,
+                                allowed_timepoints = allowed_timepoints,
+                                p_var = p_var, compartment = compartment)
+  if (null_dat(pat_arr)) return(NULL)
+
+  size_breaks <- setNames(unlist(pat_arr[, .(min(clone_N),
+                                             ceiling(mean(range(clone_N))), 
+                                             max(clone_N))]), NULL)
+
   cols <- gen_color_vector(n = 3, name = 'Zissou1') %>%
-    { .[1:pat_arr[, uniqueN(shared_timepoints)]] }
+    darken(c(1, 1.15, 1)) %>%
+    { .[1:pat_arr[, uniqueN(shared_timepoints)]] } %>%
+    setNames(NULL) %>%
+    attr_pass('class', 'color_vector')
 
   p <- plot_parallel_coords(pat_arr,
     facet_var = facet_var,
@@ -706,12 +817,15 @@ plot_TCR_chronological <- function(patient = 'pat_11',
     group_var = 'amino_acid',
     man_colors = cols,
     colour_var = colour_var) +
-    scale_y_continuous(name = var_to_label(p_var), trans = 'log10') +
-    scale_size_continuous(name = '# Clones', breaks = size_breaks) +
+    scale_y_continuous(name = var_to_label(p_var, label_reps), 
+                       trans = 'log10') +
+    scale_size_continuous(name = '# Clones', breaks = size_breaks,
+                          trans = 'identity', range = c(.5, 8)) +
     ggtitle(sprintf('%s', compartment)) +
     guides(
      size = guide_legend(order = 1),
-     colour = guide_legend(order = 2)
+     colour = guide_legend(order = 2),
+     fill = guide_legend(order = 2)
     )
   return(p)
 }

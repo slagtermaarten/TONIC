@@ -16,12 +16,108 @@ knitr::opts_knit$set(progress = TRUE, verbose = TRUE)
 source('R/init.R')
 ```
 
-Heatmaps with and without p-values
+# Parallel coordinates plots
 
-```{r, warning=FALSE, echo=FALSE, fig.width = 9, fig.height = 12}
+## Geneset level
+
+Which induction arms most strongly upregulate gene signatures associated with
+response?
+
+```{r, warning=FALSE, echo=FALSE}
 source('R/plotting_adaptive.R')
 source('R/plotting_nanostring.R')
 source('R/test_associations.R')
+colour_var = NULL
+colour_var = 'patient'
+colour_var = 'response'
+colour_var = 'arm'
+
+# debugonce(plot_parallel_coords)
+plots <- lapply(danaher_scores.m[, unique(variable)], function(x) {
+  p <- plot_parallel_coords_geneset(x, 
+                                    colour_var = colour_var,
+                                    facet_var = 'arm')
+  return(p)
+})
+print(plots)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+filename <- file.path(img_dir, sprintf('parallel_%s.pdf',
+                                       ifelse(is.null(colour_var), 'ungrouped',
+                                              colour_var)))
+
+maartenutils::plot_panel_layout(plots, ncol = 5, filename = filename,
+                                labels = NULL,
+                                w = 22, h = length(plots) / 5 * 9,
+                                label_size = 8)
+sys_file_open(filename)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/plotting_nanostring.R')
+
+gen_parallel_coord_plots <- 
+  function(facet_var = 'arm', colour_var = 'patient') {
+  plots <- lapply(danaher_scores.m[, auto_name(levels(variable))],
+                  function(gene_set) {
+                    browser()
+    sum_dat <- prep_geneset_parallel_coords(gene_set = gene_set,
+                                            colour_var = facet_var,
+                                            facet_var = facet_var)
+    p_dat <- danaher_scores.m[variable == gene_set]
+    p <- plot_parallel_coords(p_dat = p_dat, sum_dat = sum_dat,
+                              palette_name = 'FantasticFox',
+                              facet_var = facet_var,
+                              point_alpha = .6,
+                              colour_var = colour_var, title = gene_set) +
+      theme(legend.position = 'none')
+    return(p)
+  })
+
+  filename <- file.path(img_dir, sprintf('parallel_%s.pdf',
+                                         ifelse(is.null(colour_var), 'ungrouped',
+                                                colour_var)))
+  p <- maartenutils::plot_panel_layout(plots, ncol = 1, nrow = 4,
+                                       filename = filename,
+                                       labels = NULL,
+                                       w = 22, h = 25)
+
+  filename <- file.path(img_dir, sprintf('parallel_%s_highlighted.pdf',
+                                         ifelse(is.null(colour_var), 'ungrouped',
+                                                colour_var)))
+  p <- maartenutils::plot_panel_layout(
+    list(plots[['tis']], plots[['glycolytic.activity']]),
+    ncol = 1, nrow = 2,
+    filename = filename,
+    labels = NULL,
+    w = 22, h = 25 / 2)
+  return(plots)
+}
+
+# plots <- gen_parallel_coord_plots(facet_var = 'arm', colour_var = 'patient')
+plots <- gen_parallel_coord_plots(facet_var = 'arm', colour_var = 'response')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+devtools::load_all(file.path('~/libs', 'maartenutils'))
+library(grid)
+plot_panel_layout(lapply(sig_gene_sets, function(gs) {
+                           p <- plot_parallel_coords_geneset(gene_set = gs)
+                           if (gs != sig_gene_sets[1])
+                             p <- p + ggplot2::theme(legend.position = 'none')
+                           else
+                             p <- p + ggplot2::theme(legend.position = 'right')
+                           return(p)
+                         }),
+                  filename = file.path('plots', 'parallel_sig_signatures.pdf'),
+                  labels = NULL,
+                  w = 17.4, h = 25, ncol = 3)
+```
+
+# Heatmaps with and without p-values
+
+```{r, warning=FALSE, echo=FALSE, fig.width = 9, fig.height = 12}
 m <- rbindlist(lapply(auto_name(sig_gene_sets), function(gs) {
   test_gene_set_difference(gene_set = gs, 
                            tp1 = 'Baseline', 
@@ -54,7 +150,6 @@ print(p)
 invisible(m[, p_val := NA])
 pa <- plot_p_values_induction(m)
 print(pa)
-
 # ggsave(plot = p, filename = file.path(plot_dir,
 #                             'induction_fc_p_values_baseline_on_nivo.png'),
 #        width = 10, height = 13, units = 'cm')

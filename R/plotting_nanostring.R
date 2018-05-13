@@ -260,7 +260,7 @@ plot_parallel_coords <- function(p_dat,
                                  facet_var = NULL,
                                  size_var = NULL,
                                  timepoint_v = 'timepoint',
-                                 man_colors = resp_colors,
+                                 man_colors = tonic_color_palettes[[colour_var]],
                                  swarm_width = .2,
                                  unswarm_zero = F,
                                  point_alpha = .7,
@@ -269,9 +269,10 @@ plot_parallel_coords <- function(p_dat,
   if (!require('vipor')) {
     devtools::install_github('sherrillmix/vipor')
   }
-  p_dat[, x_coord := vipor::offsetX(value, width = swarm_width) +
+  p_dat <- p_dat[!is.na(value)]
+  p_dat[, 'x_coord' := vipor::offsetX(value, width = swarm_width) +
                      as.integer(get(timepoint_v)), 
-                   by = c(timepoint_v, facet_var)]
+        by = c(timepoint_v, facet_var)]
 
   if (unswarm_zero) {
     p_dat[value == 0, x_coord := as.integer(get(timepoint_v)),
@@ -290,17 +291,15 @@ plot_parallel_coords <- function(p_dat,
     geom_point(alpha = point_alpha) +
     geom_line(alpha = line_alpha) +
     # scale_x_discrete(name = '', labels = timepoints) +
-    scale_y_continuous(name = 'Gene expression score') +
+    ylab('Gene expression score') +
     ggtitle(title)
 
+  p <- p + scale_x_continuous(name = '', minor_breaks = c(),
+                              breaks = p_dat[, seq_along(levels(get(timepoint_v)))], 
+                              labels = p_dat[, levels(get(timepoint_v))])
   if (timepoint_v == 'timepoint') {
-    p <- p + scale_x_continuous(name = '', minor_breaks = c(),
-                                breaks = c(1, 2, 3), labels = timepoints)
     p <- p + rotate_x_labels(45)
   } else if (timepoint_v == 'blood_timepoint') {
-    p <- p + scale_x_continuous(name = '', minor_breaks = c(),
-                                breaks = seq_along(blood_timepoints), 
-                                labels = blood_timepoints)
   }
 
   if (!is.null(sum_dat)) {
@@ -333,6 +332,7 @@ plot_parallel_coords_geneset <- function(gene_set = 'apm',
                                           colour_var = colour_var,
                                           facet_var = facet_var)
   p_dat <- danaher_scores.m[variable == gene_set]
+  sum_dat <- NULL
   p <- plot_parallel_coords(p_dat = p_dat, sum_dat = sum_dat,
                             facet_var = facet_var,
                             colour_var = colour_var, title = gene_set,
@@ -357,7 +357,8 @@ prep_gene_parallel_coords <- function(gene = 'CD274',
   p_dat[, timepoint := factor(timepoint, levels = timepoints)]
   p_dat[, arm := factor(arm, levels = levels(arm)[c(4, 5, 2, 1, 3)])]
   ## Ensure response factor in correct order
-  stopifnot(p_dat[, all(levels(response) == c('CR', 'PR', 'SD', 'PD', ''))])
+  # p_dat[, levels(response)]
+  # stopifnot(p_dat[, all(levels(response) == c('CR', 'PR', 'SD', 'PD'))])
 
   sum_dat <- p_dat %>%
     { .[, .('value' = median(value, na.rm = T), 'patient' = 'median'),
@@ -372,12 +373,14 @@ plot_parallel_coords_single_gene <- function(gene = 'CD274',
 
   prep <- prep_gene_parallel_coords(gene = gene,
                                     colour_var = colour_var)
-  plot_parallel_coords(p_dat = prep[['p_dat']], sum_dat = prep[['sum_dat']],
+  plot_parallel_coords(p_dat = prep[['p_dat']], 
+                       sum_dat = prep[['sum_dat']],
                        colour_var = colour_var, title = gene, ...)
 }
 
 
-plot_p_values_induction <- function(m, size_var = '1/p_val') {
+plot_p_values_induction <- function(m, size_var = '1/p_val',
+                                    tp1 = timepoints[1], tp2 = timeoints[3]) {
   p <- ggplot(m, aes_string(x = 'arm', y = 'gene_set', fill = 'logFC',
                      size = size_var)) +
     geom_raster() +
@@ -398,7 +401,7 @@ plot_p_values_induction <- function(m, size_var = '1/p_val') {
     scale_y_discrete(name = '', expand = c(0, 0)) +
     scale_x_discrete(name = '', expand = c(0, 0)) +
     ggtitle(m[1, sprintf('%s vs. %s', tp1, tp2)]) +
-    theme(legend.position = 'right') +
+    theme(legend.position = 'right', legend.direction = 'vertical') +
     rotate_x_labels(45)
   return(p)
 }
