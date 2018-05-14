@@ -1,0 +1,185 @@
+#!/bin/zsh
+
+## Project utils - Maarten Slagter
+##
+## This file was designed to be used locally on a working machine to facilitate
+## the transfer of (code) files to and from a remote machine and to start jobs
+## both locally and remotely
+servers=('paranoid' 'void' 'medoid' 'steroid' 'coley')
+SERVER=$servers[5]
+REMOTEUNAME='m.slagter'
+PROOT="/Users/maartenslagter/Projects/TONIC/"
+export PROOT
+DATADIR=$PROOT/data-raw
+## Path of remote project root needs to equal local remote root - make
+## sym links if that's not the case
+REMOTEPROOT='/DATA/users/m.slagter/TONIC'
+SSHCOM="$REMOTEUNAME@$SERVER"
+NICEVAL=15
+FLAGS='-aviuzP'
+
+# Explanation of rsync flags
+# -a archive mode, same as -rlptgoD
+#    meaning: recursive, links, permissions, times, group, owner, preserve
+#    device-files, preserve special files
+# -v verbose
+# -i output a change-summary for all updates
+# -u update, skip files with a more recent mtime than source file
+# -z compress, reduce the amount of data being transmitted
+# -P partial progress, useful in case transfer gets interrupted
+
+# case "$PROOT/bin" in
+#   *$PATH*) ;;     # do nothing if $PATH already contains $PROOT/bin
+#   *) PATH=$PROOT/bin:$PATH ;;  # in every other case, add it to the front
+# esac
+GITSTATUSCOM='git --no-pager status | grep "modified"'
+GITSTATUSCOM='git --no-pager diff'
+
+case "$1" in
+    ctags|ct)
+        curdir=$(pwd)
+        echo "running ctags on R files under project root: $PROOT"
+        eval cd $PROOT
+        ctags **/*.R ~/libs/**/*.R
+        eval cd $curdir
+        ;;
+    checkload|cl)
+        for s in $servers; do
+          echo $s
+          ssh $REMOTEUNAME@$s "cat /proc/loadavg" | awk '{print $3}'
+        done
+        ;;
+    cleanup|cu|clean)
+        # Get rid of SURFDrive syncing errors
+        for f in **/*conflict*; do
+          rm $f
+        done
+        ;;
+    gitcommit|gc)
+        git log -n 1 --abbrev-commit | awk 'NR == 1 {print $2}'
+        ;;
+    remotehtop|rh)
+        FLAGS=$2
+        if [[ $FLAGS = '-a' ]]; then
+          COM="ssh -t $SSHCOM 'top'"
+        else
+          COM="ssh -t $SSHCOM 'top -u $REMOTEUNAME'"
+        fi
+        echo "evaluating: $COM"
+        eval $COM
+        ;;
+    runknit|rk)
+        $0 synccodedelete
+        FN="$REMOTEPROOT/ML.Rmd"
+        LOGFILE="~/${2:r}.log"
+        RUNCOM="nohup Rscript 'knitr::knit(\'$FN\')' > $LOGFILE 2>&1"
+        echo "Trying to run this command: ${RUNCOM}"
+        echo "Saving log to : ${LOGFILE}"
+        ;;
+    runremote|rr)
+        SC="$REMOTEPROOT/R/ifn_remote_analyses.R"
+        LF="${SC:t:r}.log"
+        COM="nohup nice -n $NICEVAL Rscript $SC > ~/$LF 2>&1 &"
+
+        if [[ "$2" == "-f" ]]; then
+          ssh -t $SSHCOM "tail -f ~/$LF"
+          exit
+        elif [[ "$2" == "-l" ]]; then
+          ssh -t $SSHCOM "less ~/$LF"
+          exit
+        else
+          $0 synccodedelete
+          echo "Will evaluate on $SERVER:\n$COM"
+          ssh $SSHCOM $COM
+          $0 rr -f
+        fi
+        ;;
+    stopR|sr|killr|kr)
+        if [[ "$2" == "-a" ]]; then
+          for server in $servers; do
+            echo $server
+            ssh $REMOTEUNAME@${server} "killall -r R -u $REMOTEUNAME"
+          done
+        else
+          echo "Killing all R processes on $SERVER"
+          ssh $SSHCOM "killall -r R -u $REMOTEUNAME"
+        fi
+        ;;
+    synccodedelete|scdc)
+        # First sync results, some of which are in maarten-analyses, so as not
+        # to delete them remotely if they're not present locally yet
+        # $0 stf fas_shared_analyses -d
+        eval "rsync $FLAGS ~/libs/maartenutils $SSHCOM:~/libs"
+        eval "rsync $FLAGS ~/libs/serializer $SSHCOM:~/libs"
+        eval "rsync $FLAGS ~/libs/GSEAgenesets $SSHCOM:~/libs"
+        eval "rsync $FLAGS $PROOT $SSHCOM:$REMOTEPROOT"
+        echo "\n\nFinished syncing code to remote\n\n"
+        ;;
+    syncfromfile|sff)
+        if [[ "$2" == "-d" ]]; then
+          eval remoteloc="$SSHCOM:$REMOTEPROOT/$3"
+          localloc="$PROOT/${3:h}"
+          args="--delete $@[4,-1]"
+          echo "WARNING: deleting extraneous source files"
+        else
+          # eval remoteloc="$SSHCOM:$REMOTEPROOT/$2"
+          # localloc="$PROOT/${2:h}"
+          head=${2/$PROOT/}
+          eval localloc="$PROOT${head:h}"
+          eval remoteloc="$REMOTEUNAME@$SERVER:$REMOTEPROOT/$head"
+          args="$@[3,-1]"
+        fi
+        echo "Syncing to local\nremote: $remoteloc\nlocal: $localloc"
+        echo "args: $args"
+
+        ## Create folder structure if not already present
+        # if [ ! -a $localloc ]; then
+        #   echo "Creating local structure $localloc"
+        #   mkdir -p "$localloc"
+        # fi
+        eval "rsync $FLAGS  $args --update $remoteloc $localloc"
+        echo "\n"
+        ;;
+    synctofile|stf)
+        head=${2/$PROOT/}
+        echo $head
+        localloc="$PROOT$head"
+        remoteloc="$REMOTEUNAME@$SERVER:$REMOTEPROOT/${head:h}"
+        echo "Syncing to to remote\nremote: $remoteloc\nlocal: $localloc"
+        DELETEFLAG=""
+        if [[ "$3" == "-d" ]]; then
+          DELETEFLAG="--delete"
+          echo "Deleting extraneous"
+        fi
+        eval "rsync $FLAGS $DELETFLAG $localloc $remoteloc"
+        ;;
+    syncdatadelete|sddc)
+        local ans
+        read -q "ans?Overwriting and deleting data_raw on server, \
+                 are you sure (y/n)?"
+        if [[ "$ans" == "y" ]]; then
+            print "\nOverwriting stuff"
+            eval rsync $FLAGS --exclude 'serveronly' \
+              --delete $PROOT/data-raw $SSHCOM:$REMOTEPROOT/
+        fi
+        ;;
+    syncrds|srds)
+        $0 sff "rds"
+        $0 sff "plots"
+        # $0 sff "stan_test"
+        # for f in *.stan; do
+        #   $0 sff $f
+        # done
+        ;;
+    publish_results|pbr)
+        cp ~/antigenic_space/maarten-analyses/knitr_output/tcrseq.html /Volumes/shared/Groups/Tonic/Data\ analyse/
+        ;;
+    *)
+        echo "Usage: ${0:t} (TODO"
+        ;;
+esac
+
+# vim: set ft=sh nowrap:
+# Update usage in vim:
+# g/.*|.*)$/y A
+# '<,'>s/)/|/g

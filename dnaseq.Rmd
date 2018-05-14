@@ -1,0 +1,79 @@
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+source('R/load_rna_dat.R')
+devtools::load_all('~/libs/GSEAgenesets')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+devtools::load_all(file.path('~/libs', 'maartenutils'))
+
+read_CONTRA <- function(patient = 'pat_1') {
+  rel_subs <-
+    patient_labels[patient == parent.frame(3)$patient & 
+                   timepoint == 'Baseline' &
+                   !is.na(dna_cf_number)]
+  if (nrow(rel_subs) == 0) return(NULL)
+  cf_number <- rel_subs[, dna_cf_number]
+  full_fn <- wes_table[tumor_cf == cf_number, 
+                       file.path(forge_mirror, 'contra', 'CNATable', 
+                                 contra_fn)]
+  if (length(full_fn) == 0) {
+    return(NULL)
+  }
+  contra <- suppressWarnings(tryCatch(fread(full_fn), 
+              error = function(e) { print(e); browser() }))
+  contra <- normalize_colnames(contra)
+}
+read_CONTRA(patient = 'pat_1')
+```
+
+
+```{r, warning=FALSE, echo=FALSE}
+read_VCF <- function(patient = 'pat_1') {  
+  ## Find corresponding CF
+  rel_subs <-
+    patient_labels[patient == parent.frame(3)$patient & 
+                   timepoint == 'Baseline' &
+                   !is.na(dna_cf_number)]
+  if (nrow(rel_subs) == 0) return(NULL)
+  cf_number <- rel_subs[, dna_cf_number]
+
+  browser(expr = length(cf_number) > 1)
+  browser(expr = wes_table[tumor_cf == cf_number, .N == 2])
+  full_fn <- 
+    wes_table[tumor_cf == cf_number, file.path(forge_mirror, 'calls', vcf_fn)]
+  if (length(full_fn) == 0) {
+    return(NULL)
+  }
+  vcf <- suppressWarnings(
+           tryCatch(fread(sprintf('grep SOMATIC %s', full_fn), fill = T), 
+           error = function(e) { print(e); browser() }))
+  vcf <- vcf[!grepl('^#|GERMLINE', 1)]
+  vcf <- vcf[!grepl('.*##.*', 1)]
+  vcf <- vcf[!grepl('.*GERMLINE.*', 1)]
+  setnames(vcf, toupper(LETTERS[seq_along(colnames(vcf))]))
+  vcf[, 'tlod' := as.numeric(gsub('.*TLOD=(\\d*\\.*\\d*);.*', '\\1', A))]
+  vcf[, 'nlod' := as.numeric(gsub('.*NLOD=(\\d*\\.*\\d*);.*', '\\1', A))]
+  # vcf <- vcf[tlod >= 40 & nlod <= 20]
+  vcf <- vcf[tlod >= 40]
+  return(vcf)
+}
+
+read_VCF(patient = 'pat_69')
+
+compute_mut_load <- function(patient = 'pat_1') {  
+  vcf <- read_VCF(patient = patient)
+  return(vcf[, .N])
+}
+
+patient_labels[, 'mut_load' := 
+               compute_mut_load(.SD[timepoint == 'Baseline', patient[1]]), 
+               by = patient]
+unique(patient_labels[, .(patient, mut_load)], by = 'patient')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+ggplot(patient_labels, aes(x = clinical_response, y = mut_load)) + 
+  geom_boxplot() +
+  scale_y_continuous(trans = 'log10')
+```
