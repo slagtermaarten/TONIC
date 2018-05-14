@@ -148,3 +148,18 @@ contra_fns[, 'tumor_cf' := gsub('.{4}_.{1,2}_(CF\\d{5})_.*',
 wes_table <- merge(contra_fns, vcf_table, all = T)
 rm(vcf_table)
 rm(contra_fns)
+
+
+#' Filter out patients that have dubious annotation
+#'
+#'
+filter_patients <- name <- function(p_dat, ...) { 
+  comb_vars <- as.character(...)
+  clinical_params <- c('response', 'clinical_response')
+  if (is.null(comb_vars)) return(p_dat)
+  if (any(comb_vars %in% clinical_params)) {
+    # resp_var <- comb_vars[which(comb_vars %in% clinical_params)]
+    p_dat <- p_dat[patient %nin% c('pat_63', 'pat_64')]
+  }
+  return(p_dat)
+}
