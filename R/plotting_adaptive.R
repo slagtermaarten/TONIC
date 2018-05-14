@@ -73,8 +73,8 @@ plot_parallel_adaptive <- function(p_var = 'efron_thisted_estimator',
   setnames(p_dat, p_var, 'value')
   p_dat <- p_dat[!is.na(value)] %>%
     { .[get(timepoint_v) %in% allowed_timepoints] }
-  p_dat[, (timepoint_v) := droplevels(get(timepoint_v))]
   p_dat <- filter_patients(p_dat, colour_var, facet_var)
+  p_dat[, (timepoint_v) := droplevels(get(timepoint_v))]
 
   sum_dat <- p_dat %>%
     { .[, .('value' = median(value, na.rm = T), 
@@ -83,6 +83,7 @@ plot_parallel_adaptive <- function(p_var = 'efron_thisted_estimator',
         by = c(timepoint_v, facet_var)] }
 
   plot_parallel_coords(p_dat, facet_var = facet_var,
+                       group_var = 'patient',
                        timepoint_v = timepoint_v,
                        # sum_dat = sum_dat,
                        colour_var = colour_var) +
@@ -121,6 +122,7 @@ prepare_adaptive_FC <- function(# facet_var = NULL,
                   'timepoint' = timepoints[2]),
             cbind(p_dat[, .(patient, 'FC' = get(sprintf('%s_13', lvar)))],
                   'timepoint' = timepoints[3]))
+    p_dat <- unique(p_dat[!is.na(FC)])
     setnames(p_dat, 'FC', lvar)
     return(p_dat)
   }
@@ -369,6 +371,8 @@ test_adaptive_association <- function(measures = c('sample_clonality',
   p_dat <- filter_patients(p_dat, y_var, facet_var)
   if (null_dat(p_dat)) return(NULL)
   comp_levels <- p_dat[, levels(get(y_var))]
+  if (is.null(comp_levels)) 
+    comp_levels <- p_dat[, unique(get(y_var))]
 
   res <- rbindlist(lapply(measures, function(measure) {
     if (measure %nin% colnames(p_dat)) {
@@ -783,6 +787,7 @@ plot_TCR_chronological <- function(patient = 'pat_11',
 
   p <- plot_parallel_coords(pat_arr,
     facet_var = facet_var,
+    filter_vals = F,
     size_var = 'clone_N',
     timepoint_v = timepoint_v,
     point_alpha = .5,

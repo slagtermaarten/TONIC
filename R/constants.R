@@ -22,9 +22,10 @@ arm_colors <-
   attr_pass('class', 'color_vector')
 
 ## Color scheme developed by Marleen and Leonie
-arm_colors <- c('No induction' =  '#ABAAAC', 'Radiation' = '#B51533',
+arm_colors <- c('No induction' =  '#ABAAAC', 'Radiotherapy' = '#B51533',
                 'Cyclophosphamide' = '#009343', 'Cisplatin' = '#982593', 
-                'Doxorubicin' = '#0996D8')
+                'Doxorubicin' = '#0996D8') %>%
+  attr_pass('class', 'color_vector')
 
 resp_colors <- maartenutils::gen_color_vector('Zissou1', 2) %>%
   darken(factor = c(1.0, 1.2)) %>%

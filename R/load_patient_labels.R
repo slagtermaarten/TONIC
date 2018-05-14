@@ -3,6 +3,32 @@ pacman::p_load(naturalsort)
 cond_rm('blood_adaptive')
 cond_rm('patient_labels')
 
+#' Filter out patients that have dubious annotation
+#'
+#'
+filter_patients <- name <- function(p_dat, ...) { 
+  comb_vars <- as.character(...)
+  clinical_params <- c('response', 'clinical_response', 'comb_time_resp')
+  if (is.null(comb_vars)) return(p_dat)
+  if (any(comb_vars %in% clinical_params)) {
+    # resp_var <- comb_vars[which(comb_vars %in% clinical_params)]
+    p_dat <- p_dat[patient %nin% c('pat_63', 'pat_64')]
+    for (varn in clinical_params) {
+      if (varn %in% colnames(p_dat)) {
+        N <- p_dat[is.na(get(varn)), .N]
+        if (N > 0) {
+          messagef('Removing %d donors due to absence of %s', N, varn)
+          p_dat <- p_dat[!is.na(get(varn))]
+        }
+      }
+    }
+  }
+  pres_cols <- 
+    intersect(colnames(p_dat), c('patient', 'timepoint', 'blood_timepoint',
+                                 'filename', 'adaptive_sample_name'))
+  return(unique(p_dat, by = pres_cols))
+}
+
 source('R/patient_label_merge_tests.R')
 
 tonic_cleanup <- function(dtf) {
@@ -53,6 +79,7 @@ if (T) {
   clinical_annotation[, study_id := NULL]
   clinical_annotation[, response_bin := NULL]
   clinical_annotation[, response := NULL]
+  clinical_annotation[, timepoint := 'Baseline']
   # stopifnot(length(intersect(colnames(clinical_annotation),
   #                            colnames(patient_labels))) <= 1)
   merge_tests(idx = 0.5)
@@ -60,9 +87,17 @@ if (T) {
   ## As this is and should be the last merging step, no omics data is available
   ## for patients that would be added by this step (i.e. patient 17)
   patient_labels <- controlled_merge(patient_labels, 
+                                     clinical_annotation,
+                                     # clinical_annotation[, .(arm, patient,
+                                     #                         ca15_3,
+                                     #                         cd8_mm2,
+                                     #                         s_til,
+                                     #                         ldh,
+                                     #                         pd_l1_tumor,
+                                     #                         pd_l1_immunoinfiltrate,
+                                     #                         who_performance_status)], 
                                      clean_up_f = tonic_cleanup,
-                                     clinical_annotation, 
-                                     by_cols = 'patient', all.x = T,
+                                     by_cols = c('patient', 'timepoint'), all.x = T,
                                      all.y = T,
                                      dup_priority = 'a')
   merge_tests(idx = 0.75)
@@ -121,9 +156,9 @@ if (F) {
     ## Select last columns containing patient_id and RECIST labels
     { rev(.)[, c(2, 3)] } %>%
     { .[!is.na(patient.id)] } %>%
-    setnames(., c('response', 'patient')) %>%
-    ## Take out patients with dubious responses
-    { .[!patient %in% c(61, 63, 64)] }
+    setnames(., c('response', 'patient'))
+    # ## Take out patients with dubious responses
+    # { .[!patient %in% c(61, 63, 64)] }
   response_data[, patient := as.character(paste0('pat_', patient))]
   patient_labels[, response := NULL]
   patient_labels[, patient := as.character(patient)]
@@ -145,10 +180,11 @@ if (T) {
 
   homogenize_arms <- function(vec) {
     vec <- tolower(vec)
+    # vec[vec == 'cyclofosfamide'] = 'cyclophosphamide'
     vec[vec == 'rt'] = 'radiotherapy'
     vec[vec == 'cis'] = 'cisplatin'
     vec[vec == 'doxorubicin'] = 'doxo'
-    vec[vec == 'doxorubicine'] = 'dox'
+    vec[vec == 'doxorubicine'] = 'doxo'
     reps <- setNames(c('No induction', 'Radiotherapy', 'Cyclophosphamide',
                        'Cisplatin', 'Doxorubicin'), 
                      c('no induction', 'radiotherapy', 'cyclofosfamide',
@@ -172,7 +208,6 @@ if (T) {
 							timepoints[as.integer(gsub('N15TON-(\\d)', '\\1', tijdspunt))])]
 
   ## Not all patients have all three time points assayed
-  # tumor_adaptive[patient == 'pat_33']
   # tumor_adaptive[, .N, by = patient]
 	# patient_labels[, class(patient)]
 	# patient_labels[, class(timepoint)]
@@ -183,6 +218,9 @@ if (T) {
   merge_tests(idx = 3)
   # tumor_adaptive[patient == 'pat_66']
   # patient_labels[patient == 'pat_66']
+  ## TODO pat_33 is not merged properly
+  tumor_adaptive[patient == 'pat_33']
+  patient_labels[patient == 'pat_33']
 	patient_labels <- controlled_merge(patient_labels, tumor_adaptive,
                                      by_cols = c('patient', 'timepoint'),
                                      dup_priority = 'f', all = T, 
@@ -226,9 +264,11 @@ if (T) {
 	blood_adaptive <- adaptive_sample_annotation[, 10:16]
 	blood_adaptive <- blood_adaptive[!is.na(sample_name),
 								 .('adaptive_sample_name' = sample_name,
-                   arm, 'patient' = paste0('pat_', study_id_1),
+                   'arm' = induction_arm_1, 
+                   'patient' = paste0('pat_', study_id_1),
 									 'blood_timepoint' = tijdspunt_in_weken)]
-	# blood_adaptive[, arm := factor(arm, levels = treatment_arms)]
+  blood_adaptive[, arm := factor(homogenize_arms(arm), 
+                                 levels = treatment_arms)]
 	blood_adaptive[, blood_timepoint := factor(blood_timepoint,
                             levels = sort(unique(blood_timepoint)))]
   merge_tests(idx = 5)

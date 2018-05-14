@@ -31,8 +31,8 @@ plot_cor_mat()
 ## Separating by timepoint does not change these correlations for the Adapative
 ## data, as expected
 plot_cor_mat(tp = 'Baseline')
-plot_cor_mat(tp = 'Post-induction')
-plot_cor_mat(tp = 'On nivo')
+# plot_cor_mat(tp = 'Post-induction')
+# plot_cor_mat(tp = 'On nivo')
 ```
 
 # Single timepoint summary statistic associations
@@ -62,6 +62,9 @@ plot_single_timepoint_r_assocation(l_timepoint = 'Post-induction',
                                    facet_var = NULL)
 plot_single_timepoint_r_assocation(l_timepoint = 'On nivo', 
                                    facet_var = NULL)
+```
+
+```{r, warning=FALSE, echo=FALSE}
 ```
 
 The same comparisons but split up by induction arm
@@ -110,6 +113,8 @@ plot_single_timepoint_r_assocation(l_timepoint = '6',
 # Relationship between distribution and induction treatment & clinical response
 
 ```{r, warning=FALSE, echo=FALSE}
+source('R/plotting_adaptive.R')
+source('R/plotting_nanostring.R')
 plot_adaptive_FC(facet_var = 'arm', 
                  p_timepoints = c('Baseline', 'Post-induction', 'On nivo'),
                  var1 = 'sample_clonality', var2 = 'efron_thisted_estimator',
@@ -232,15 +237,18 @@ plot_parallel_adaptive(p_var = 'sample_clonality', compartment = 'tumor',
                        facet_var = 'arm')
 plot_parallel_adaptive(p_var = 'adaptive_t_cells', compartment = 'tumor', 
                        facet_var = 'arm')
-plot_parallel_adaptive(p_var = 'efron_thisted_estimator', compartment = 'blood',
+```
+
+```{r, fig.width = 7, fig.height = 3, warning=FALSE, echo=FALSE}
+# debugonce(plot_parallel_adaptive)
+plot_parallel_adaptive(p_var = 'efron_thisted_estimator', 
+                       compartment = 'blood',
                        facet_var = 'arm')
 plot_parallel_adaptive(p_var = 'sample_clonality', compartment = 'blood',
                        facet_var = 'arm')
 plot_parallel_adaptive(p_var = 'adaptive_t_cells', compartment = 'blood',
                        facet_var = 'arm')
 ```
-
-The arm of patient 33 is unknown to me, she's shown in the 'NA' arm
 
 ```{r, fig.width = 7, fig.height = 3, warning=FALSE, echo=FALSE}
 plot_parallel_adaptive(p_var = 'efron_thisted_estimator', compartment = 'blood',
@@ -339,8 +347,6 @@ measure based on the amplification of reference gene primers rather than DNA
 absorbance)." 
 
 ```{r, warning=FALSE, echo=FALSE}
-source('R/plotting_nanostring.R')
-source('R/plotting_adaptive.R')
 plot_TCR_chronological(patient = 'pat_11', 
                        p_var = 'productive_frequency') + 
   ggtitle('Not normalised for T cell infiltration')
@@ -369,7 +375,6 @@ plot_TCR_chronological_all <- function(p_var = 'normalized_frequency') {
     else return(p + ggtitle(p_title))
   })
 }
-
 plot_TCR_chronological_all()
 ```
 
@@ -399,9 +404,10 @@ analyze_top_clones <- function(p_var = 'normalized_frequency') {
     print(percentage_new_among_50th)
     return(list('patient' = patient, 'frac_new' = percentage_new_among_50th))
   }), fill = T)
-  dtf <- controlled_merge(dtf, patient_labels)
+  dtf <- controlled_merge(dtf, patient_labels[timepoint == 'On nivo'])
   return(dtf)
 }
+# clear_object(frac_new_clones, sr = sr)
 sr(frac_new_clones <- analyze_top_clones())
 ```
 
@@ -414,28 +420,36 @@ responders than in non-responders.
 
 ```{r, warning=FALSE, echo=FALSE, fig.width = 3, fig.height = 3}
 facet_var = NULL
-new_var_name <- 'Fraction of T cells newly detected\namong top 50%'
+new_var_name <- 'Fraction of T cell clones newly detected\namong top 50%'
+# frac_new_clones[, as.integer(clinical_response)]
+frac_new_clones[, 'x_coord' := vipor::offsetX(frac_new, width = .4) + as.integer(clinical_response)] 
+
 p <- ggplot(frac_new_clones,
-       aes_string(x = 'clinical_response', y = 'frac_new',
+       aes_string(x = 'x_coord', y = 'frac_new',
                   fill = 'clinical_response')) +
-  geom_boxplot() +
+  geom_boxplot(outlier.size = 0) +
   ggbeeswarm::geom_quasirandom() +
   ggpubr::stat_compare_means(label = 'p.signif') +
   scale_fill_manual(name = '', values = resp_colors, guide = F) +
   scale_y_continuous(name = new_var_name) +
+  scale_x_continuous(name = '', breaks = c(1, 2), 
+                     labels = frac_new_clones[, levels(clinical_response)]) +
   xlab('Clinical response') + 
-  ggrepel::geom_label_repel(data = frac_new_clones[clinical_response == 'NR' & frac_new > .3],
+  
+  ggrepel::geom_label_repel(data = frac_new_clones[clinical_response == 'NR' &
+                            frac_new >= frac_new_clones[clinical_response == 'R', min(frac_new)]],
              aes(label = patient), fill = 'white', size = 2)
 print(p)
 ```
 
 ```{r, warning=FALSE, echo=FALSE, fig.width = 5, fig.height = 3}
 p + facet_grid(as.formula(sprintf('~ %s ', 'arm')))
+frac_new_clones[patient == 'pat_48']
+frac_new_clones[frac_new > .59]
 ```
 
-Interestingly, this variable adds information over the sample clonality measure,
-as the two are not correlated. It also more robustly distinguish responders from
-non-responders, as shown below.
+This variable adds a little bit of information over the sample clonality
+measure, as the two are only weakly correlated. 
 
 ```{r, warning=FALSE, echo=FALSE, fig.width = 3, fig.height = 3}
 ggplot(frac_new_clones, aes(x = sample_clonality, y = frac_new, 

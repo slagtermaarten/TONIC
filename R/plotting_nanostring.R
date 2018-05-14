@@ -235,14 +235,18 @@ prep_geneset_parallel_coords <- function(gene_set = 'apm',
   # p_dat[, table(arm, variable, timepoint)]
   # p_dat[, table(timepoint)]
   # setnames(p_dat, 'variable', 'gene_set')
+
   ## Only compute medians for factor combinations with sufficient patients
-  by_vars <- c('timepoint', colour_var, facet_var)
+  by_vars <- setdiff(c('timepoint', colour_var, facet_var),
+                     c('clinical_response', 'response'))
+  # danaher_scores.m[, table(variable)]
   allowed <- danaher_scores.m[!is.na(value) & variable == gene_set] %>%
-                       .[, .('N' = uniqueN(patient)), by = by_vars] %>%
-                       .[N > 1]
+    { .[, .('N' = uniqueN(patient)), by = by_vars] } %>%
+    { .[N > 1] }
   setkeyv(danaher_scores.m, by_vars)
 
-  sum_dat <- filter_patients(danaher_scores.m[allowed], colour_var, facet_var)
+  sum_dat <- filter_patients(danaher_scores.m[allowed][variable %in% gene_set], 
+                             colour_var, facet_var)
 
   # danaher_scores.m[allowed][!is.na(value)][variable == gene_set][arm == 'Cisplatin']
   sum_dat <- sum_dat[variable == gene_set] %>%
@@ -269,12 +273,15 @@ plot_parallel_coords <- function(p_dat,
                                  unswarm_zero = F,
                                  point_alpha = .7,
                                  line_alpha = point_alpha / 2 * 1,
+                                 filter_vals = T,
                                  title = '') {
   if (!require('vipor')) {
     devtools::install_github('sherrillmix/vipor')
   }
   p_dat <- p_dat[!is.na(value)]
-  p_dat <- filter_patients(p_dat, colour_var, group_var, facet_var, size_var)
+  if (filter_vals) {
+    p_dat <- filter_patients(p_dat, colour_var, group_var, facet_var, size_var)
+  }
   p_dat[, 'x_coord' := vipor::offsetX(value, width = swarm_width) +
                      as.integer(get(timepoint_v)), 
         by = c(timepoint_v, facet_var)]
@@ -315,8 +322,7 @@ plot_parallel_coords <- function(p_dat,
     }
     p <- p + geom_point(aes_string(group = facet_var), shape = 21,
                         size = 4, alpha = .8, colour = 'black',
-                        data = sum_dat, size = 2) +
-             geom_line(aes(group = NULL), alpha = .6, data = sum_dat)
+                        data = sum_dat, size = 2)
 
   }
 
@@ -343,7 +349,9 @@ plot_parallel_coords_geneset <- function(gene_set = 'apm',
                                           colour_var = colour_var,
                                           facet_var = facet_var)
   p_dat <- filter_patients(danaher_scores.m[variable == gene_set], 
-                           colour_var, facet_var)
+                           colour_var, facet_var) %>%
+    { .[naturalsort::naturalorder(timepoint)] } %>%
+    { .[naturalsort::naturalorder(patient)] }
   p <- plot_parallel_coords(p_dat = p_dat, sum_dat = sum_dat,
                             swarm_width = .1,
                             facet_var = facet_var,

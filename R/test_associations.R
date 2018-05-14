@@ -36,7 +36,7 @@ test_gene_set_association <- function(gene_set = 'tis', timepoint = 'On nivo',
   p_dat <- danaher_scores.m[variable %in% gene_set]
   p_dat <- p_dat[as.character(timepoint) == parent.frame(3)$timepoint]
   p_dat <- p_dat[as.character(patient) %in% patient_ids] 
-  p_dat <- filter_patients(p_dat, y_var, facet_var)
+  # p_dat <- filter_patients(p_dat, y_var, facet_var)
   if (null_dat(p_dat) || p_dat[, all(is.na(value))]) {
     return(NULL)
   }
