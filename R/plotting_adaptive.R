@@ -56,6 +56,7 @@ plot_cor_mat <- function(tp = timepoints,
 
 plot_parallel_adaptive <- function(p_var = 'efron_thisted_estimator',
                                    facet_var = 'arm', compartment = 'tumor',
+                                   colour_var = 'clinical_response',
                                    allowed_timepoints = c(timepoints, 
                                                           blood_timepoints),
                                    ...) {
@@ -73,6 +74,7 @@ plot_parallel_adaptive <- function(p_var = 'efron_thisted_estimator',
   p_dat <- p_dat[!is.na(value)] %>%
     { .[get(timepoint_v) %in% allowed_timepoints] }
   p_dat[, (timepoint_v) := droplevels(get(timepoint_v))]
+  p_dat <- filter_patients(p_dat, colour_var, facet_var)
 
   sum_dat <- p_dat %>%
     { .[, .('value' = median(value, na.rm = T), 
@@ -83,7 +85,7 @@ plot_parallel_adaptive <- function(p_var = 'efron_thisted_estimator',
   plot_parallel_coords(p_dat, facet_var = facet_var,
                        timepoint_v = timepoint_v,
                        # sum_dat = sum_dat,
-                       colour_var = 'clinical_response') +
+                       colour_var = colour_var) +
     scale_y_continuous(name = var_to_label(p_var, label_reps)) +
     ggtitle(sprintf('%s', compartment))
 }
@@ -138,6 +140,8 @@ prepare_adaptive_FC <- function(# facet_var = NULL,
     { unique(., by = 'patient') } %>%
     { merge(agg_tp, ., by = c('patient'), all.y = T) }
 
+  agg_tp <- filter_patients(agg_tp, facet_var)
+
   ## Restore this variable as this may have been incorrectly merged
   agg_tp[, comb_time_resp := sprintf('%s-%s', timepoint, clinical_response)]
   agg_tp <- agg_tp[!comb_time_resp == 'NA-NR']
@@ -191,6 +195,7 @@ plot_FC <- function(agg_tp,
                     var1 = 'sample_clonality',
                     var2 = 'efron_thisted_estimator') {
   if (is.null(agg_tp)) return(NULL)
+  agg_tp <- filter_patients(agg_tp, facet_var, colour_var)
   s_plot <- ggplot(agg_tp, aes_string(x = var1, y = var2,
                                       group = 'patient')) +
     geom_hline(yintercept = 0, color = 'gray20', linetype = 'dashed') +
@@ -361,6 +366,7 @@ test_adaptive_association <- function(measures = c('sample_clonality',
   stopifnot(timepoint %in% c(timepoints, blood_timepoints))
   s_dat <- timepoint_s_dat(timepoint)
   p_dat <- s_dat[as.character(patient) %in% patient_ids]
+  p_dat <- filter_patients(p_dat, y_var, facet_var)
   if (null_dat(p_dat)) return(NULL)
   comp_levels <- p_dat[, levels(get(y_var))]
 
@@ -403,6 +409,7 @@ plot_single_timepoint_r_assocation <- function(
                'adaptive_t_cells'),
   l_timepoint = 'Baseline', facet_var = 'arm') {
   s_dat <- timepoint_s_dat(l_timepoint)
+  s_dat <- filter_patients(s_dat, 'clinical_response')
   lapply(measures, function(measure) {
     y_label <- 
       sprintf('%s - %s', var_to_label(measure, label_reps), l_timepoint)
@@ -529,8 +536,10 @@ plot_tp_comp_FCs <- function(tp1 = 'Baseline', tp2 = 'Post-induction',
 
 
 compute_x_label <- function(t_dat, x_var, facet_var) {
-  t_dat[!is.na(value), 'label' := sprintf('%s~(italic(n)==%d)',
-                                          gsub(' ', '~', get(x_var)), .N),
+  t_dat <- filter_patients(t_dat, x_var, facet_var)
+  t_dat[!is.na(value), 
+        'label' := sprintf('%s~(italic(n)==%d)', 
+                           gsub(' ', '~', get(x_var)), .N),
         by = c(facet_var, x_var)]
   if (x_var == 'arm') {
     labels <- t_dat[, unique(label)]
@@ -566,6 +575,7 @@ compare_adaptive_summary_stats <- function(tp1 = 'Baseline',
     sapply(labels, function(lab) parse(text = lab))
   }
 
+  t_dat <- filter_patients(t_dat, x_var, colour_var, facet_var)
   t_dat <- compute_x_label(t_dat, x_var, facet_var)
 
   p1 <- ggplot(t_dat[!is.na(label)],
