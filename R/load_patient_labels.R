@@ -1,70 +1,17 @@
 pacman::p_load(readxl)
 pacman::p_load(naturalsort)
-
 cond_rm('blood_adaptive')
 cond_rm('patient_labels')
 
-merge_tests <- function(idx = 1) {
-  if (patient_labels[, uniqueN(arm) > 1, by = patient][, any(V1)]) {
-    print('prob 1')
-    browser()
-  }
+source('R/patient_label_merge_tests.R')
 
-  if (patient_labels[patient %in% c('pat_64', 64), .N < 3]) {
-    print('prob 1.5')
-    browser()
-  }
-
-  if (patient_labels[arm == 'Cyclophosphamide', .N] == 0) {
-    print('prob 2')
-    print(idx)
-    browser()
-  }
-
-  if (exists('blood_adaptive') && 'arm' %in% colnames(blood_adaptive) &&
-      blood_adaptive[is.na(arm), .N] > 0) {
-    print('prob 3')
-    blood_adaptive[is.na(arm)]
-    browser()
-  }
-
-  if (patient_labels[patient == 'pat_17' & is.na(arm), .N] > 0) {
-    patient_labels[patient == 'pat_17']
-    patient_labels[patient == 'pat_17', .N]
-    print('prob 4')
-    browser()
-  }
-
-  if (patient_labels[patient == 'pat_NA', .N > 0]) {
-    patient_labels[patient == 'pat_NA']
-    print('prob 5')
-    browser()
-  }
-
-  if ('adaptive_sample_name' %in% colnames(patient_labels) &&
-      patient_labels[grepl('B', adaptive_sample_name), .N] > 0) {
-    print('prob 6')
-    patient_labels[grepl('B', adaptive_sample_name)]
-    browser()
-  }
-
-  if (exists('blood_adaptive') && 
-      blood_adaptive[grepl('T', adaptive_sample_name), .N] > 0) {
-    print('prob 7')
-    browser()
-  }
-
-  bool <- filter_patients(patient_labels, 'clinical_response') %>%
-    filter(timepoint == 'On nivo' & is.na(clinical_response)) %>%
-    { .[, .N > 0] }
-  if (bool) {
-    print('prob 8')
-    filter_patients(patient_labels, 'clinical_response') %>%
-      filter(timepoint == 'On nivo' & is.na(clinical_response))
-    browser()
-  }
+tonic_cleanup <- function(dtf) {
+  if (null_dat(dtf)) return(NULL)
+  dtf[, response := zoo::na.locf(response), by = patient]
+  dtf[, clinical_response := zoo::na.locf(clinical_response), 
+      by = patient]
+  return(dtf)
 }
-
 
 ## A primary source of the most relevant clinical information
 patient_labels <- read.csv(file.path(p_root, 'data-raw/patient_labels.csv'),
@@ -82,22 +29,61 @@ patient_labels[, patient := paste0('pat_', patient)]
 merge_tests(idx = 0)
 # stopifnot(patient_labels[is.na(arm), .N <= 3])
 
+if (T) {
+  ## A second, more elaborate overview of clinical parameters
+  clinical_annotation <- read.csv(file.path(p_root,
+                           'data-raw/180222_clinical_data_all_patients.csv'),
+                           dec = ',', sep = ';') %>% as.data.table %>%
+    normalize_colnames()
+  setnames(clinical_annotation, gsub('\\.', '_', colnames(clinical_annotation)))
+  setnames(clinical_annotation, gsub('_+', '_', colnames(clinical_annotation)))
+  setnames(clinical_annotation, gsub('_$', '', colnames(clinical_annotation)))
+  clinical_annotation[, 'patient' := paste0('pat_', study_id)]
+  clinical_annotation[, cd8_mm2 := gsub(',', '.', cd8_mm2)]
+  clinical_annotation[, stil := gsub(',', '.', stil)]
+  setnames(clinical_annotation, 'stil', 's_til')
+  maartenutils::set_dt_types(clinical_annotation,
+                             c('cd8_mm2' = 'numeric', 's_til' = 'numeric'))
+  clinical_annotation[induction_therapy == 'Cyclofosfamide',
+                      induction_therapy := 'Cyclophosphamide']
+  clinical_annotation[, arm := factor(induction_therapy, 
+                                      levels = treatment_arms)]
+  clinical_annotation[, induction_therapy := NULL]
+  clinical_annotation <- clinical_annotation[patient != 'pat_NA']
+  clinical_annotation[, study_id := NULL]
+  clinical_annotation[, response_bin := NULL]
+  clinical_annotation[, response := NULL]
+  # stopifnot(length(intersect(colnames(clinical_annotation),
+  #                            colnames(patient_labels))) <= 1)
+  merge_tests(idx = 0.5)
+  ## Only try nd fill missing values, don't add new patients.
+  ## As this is and should be the last merging step, no omics data is available
+  ## for patients that would be added by this step (i.e. patient 17)
+  patient_labels <- controlled_merge(patient_labels, 
+                                     clean_up_f = tonic_cleanup,
+                                     clinical_annotation, 
+                                     by_cols = 'patient', all.x = T,
+                                     all.y = T,
+                                     dup_priority = 'a')
+  merge_tests(idx = 0.75)
+}
+
 
 if (T) {
   ## 2018-05-13 15:51
   ## A third addition to the patient_labels object, placed before other merging
   ## steps in order to maximize data coverage (i.e. filling up NA fields)
   ann_corrections <-
-    read_excel(file.path(data_dir, 'sample_annotation_corrections.xlsx')) %>%
+    read_excel(file.path(data_dir, 'sample_annotation_corrections.xlsx'),
+               na = c('', 'NA')) %>%
     as.data.table %>%
     maartenutils::normalize_colnames()
-  ann_corrections[response == 'NA', response := NA]
   ann_corrections[!is.na(response), 'clinical_response' := 
                   ifelse(response %in% c('PR', 'CR'), 'R', 'NR')]
-  ann_corrections[is.na(response), clinical_response := NA]
   ann_corrections[, clinical_response := factor(clinical_response, 
                                                 levels = c('NR', 'R'))]
   patient_labels <- controlled_merge(patient_labels, ann_corrections, all = T,
+                                     clean_up_f = tonic_cleanup,
                                      dup_priority = 'f')
   patient_labels <- patient_labels[patient != 'pat_NA']
   merge_tests(1)
@@ -106,7 +92,8 @@ if (T) {
 if (T) {
   ## Merge DNA Seq CF numbers
 	dna_seq_cfs <-
-		read_excel(file.path(data_dir, 'Samples_WES_TONICstageI_baseline.xlsx')) %>%
+		read_excel(file.path(data_dir, 'Samples_WES_TONICstageI_baseline.xlsx'),
+               na = c('', 'NA')) %>%
 		as.data.table %>%
 		maartenutils::normalize_colnames()
   dna_seq_cfs[, 'patient' := paste0('pat_', study_id)]
@@ -119,6 +106,7 @@ if (T) {
                      dna_seq_cfs[sample_type == 'Tumor', 
                         .(cf_number, patient, timepoint = 'Baseline')],
                      all = T,
+                     clean_up_f = tonic_cleanup,
                      dup_priority = 'f',
                      by_cols = c('patient', 'timepoint'))
   merge_tests(idx = 2)
@@ -148,7 +136,8 @@ if (T) {
 	## Merge Adaptive TCR abundance measures
 	## First clean up data...
 	adaptive_sample_annotation <-
-		read_excel(file.path(data_dir, 'SampleManifest_adaptive.xlsx')) %>%
+		read_excel(file.path(data_dir, 'SampleManifest_adaptive.xlsx'),
+               na = c('', 'NA')) %>%
 		as.data.table %>%
 		maartenutils::normalize_colnames()
 	setnames(adaptive_sample_annotation,
@@ -181,17 +170,23 @@ if (T) {
 											 'patient' = paste0('pat_', study_id),
 											 'timepoint' =
 							timepoints[as.integer(gsub('N15TON-(\\d)', '\\1', tijdspunt))])]
+
   ## Not all patients have all three time points assayed
+  # tumor_adaptive[patient == 'pat_33']
   # tumor_adaptive[, .N, by = patient]
 	# patient_labels[, class(patient)]
 	# patient_labels[, class(timepoint)]
 	# tumor_adaptive[, class(timepoint)]
 	# tumor_adaptive[, class(patient)]
+
 	## Then merge adaptive sample IDs...
   merge_tests(idx = 3)
+  # tumor_adaptive[patient == 'pat_66']
+  # patient_labels[patient == 'pat_66']
 	patient_labels <- controlled_merge(patient_labels, tumor_adaptive,
                                      by_cols = c('patient', 'timepoint'),
-                                     dup_priority = 'f')
+                                     dup_priority = 'f', all = T, 
+                                     clean_up_f = tonic_cleanup)
   merge_tests(idx = 4)
   # stopifnot(patient_labels[is.na(arm), .N <= 3])
 	if (F) {
@@ -241,16 +236,9 @@ if (T) {
     unique(patient_labels, by = 'patient')[, .(patient, arm, response,
                                                clinical_response, tis_score)],
                                      dup_priority = 'f',
+                                     clean_up_f = tonic_cleanup,
                                      all.x = T, by_cols = 'patient')
   merge_tests(idx = 6)
-	# blood_adaptive
-	# dcast(blood_adaptive, formula = patient + arm + blood_adaptive ~ .,
-	#       value.var = 'sample_name')
-	# dcast(blood_adaptive, formula = patient + arm + blood_adaptive ~ sample_name)
-	# dcast(blood_adaptive, formula = . ~ patient + arm + blood_adaptive,
-	#       drop = T, fill = NA)
-	# patient_labels <- merge(patient_labels, blood_adaptive,
-	#                         by = c('patient'))
 
   ## ... Finally merge summary stats
   tmp <- read_tsv(file = file.path(data_dir, 'AdaptiveAllDiversity.txt')) %>%
@@ -273,12 +261,14 @@ if (T) {
 	patient_labels <- controlled_merge(patient_labels, 
                                      tmp[grepl('T', adaptive_sample_name)], 
                                      dup_priority = 'f',
+                                     clean_up_f = tonic_cleanup,
                                      by_cols = 'adaptive_sample_name',
 													           all = T)
   merge_tests(idx = 7)
   blood_adaptive <- controlled_merge(blood_adaptive, 
                                      tmp[grepl('B', adaptive_sample_name)], 
                                      dup_priority = 'f',
+                                     clean_up_f = tonic_cleanup,
                                      by_cols = 'adaptive_sample_name',
 													           all = T)
   merge_tests(idx = 8)
@@ -288,7 +278,7 @@ if (T) {
 		as.data.table %>%
 		maartenutils::normalize_colnames()
   tmp[, total_t_cells := NULL]
-  # tmp[order(-fraction_productive_of_cells_mass_estimate)]
+
   ## This is Fraction T/B Cells of Nucleated Cells Estimate
   setnames(tmp, 'fraction_productive_of_cells_mass_estimate',
            'adaptive_t_cells')
@@ -297,11 +287,13 @@ if (T) {
 	patient_labels <- controlled_merge(patient_labels, 
                                      tmp[grepl('T', adaptive_sample_name)], 
                                      dup_priority = 'f',
+                                     clean_up_f = tonic_cleanup,
                                      by_cols = 'adaptive_sample_name',
 													           all = T)
   merge_tests(idx = 9)
   blood_adaptive <- controlled_merge(blood_adaptive, 
                                      tmp[grepl('B', adaptive_sample_name)], 
+                                     clean_up_f = tonic_cleanup,
                                      dup_priority = 'f',
                                      by_cols = 'adaptive_sample_name',
 													           all = T)
@@ -321,14 +313,13 @@ manual_clinical_corrections <- function(dtf) {
   dtf[, arm := factor(arm, levels = treatment_arms)]
   return(dtf)
 }
+merge_tests(idx = 10.1)
 patient_labels <- manual_clinical_corrections(patient_labels)
 patient_labels[, 'timepoint_number' := match(timepoint, timepoints)]
 patient_labels[, timepoint := factor(timepoint, levels = timepoints)]
 patient_labels <- patient_labels[patient != 'pat_NA']
 patient_labels[, clinical_response := factor(clinical_response, 
                                              levels = c('NR', 'R'))]
-# stopifnot(patient_labels[is.na(arm), .N <= 3])
-
 blood_adaptive <- manual_clinical_corrections(blood_adaptive)
 
 if (T) {
@@ -348,46 +339,6 @@ if (T) {
   # plot_palette(comb_time_resp_palette)
   patient_labels[, comb_time_resp := factor(comb_time_resp, levels = levs$comb)]
   cond_rm(levs)
-}
-
-if (T) {
-  ## A second, more elaborate overview of clinical parameters
-  clinical_annotation <- read.csv(file.path(p_root,
-                           'data-raw/180222_clinical_data_all_patients.csv'),
-                           dec = ',', sep = ';') %>% as.data.table %>%
-    normalize_colnames()
-  setnames(clinical_annotation, gsub('\\.', '_', colnames(clinical_annotation)))
-  setnames(clinical_annotation, gsub('_+', '_', colnames(clinical_annotation)))
-  setnames(clinical_annotation, gsub('_$', '', colnames(clinical_annotation)))
-  clinical_annotation[, 'patient' := paste0('pat_', study_id)]
-  clinical_annotation[, cd8_mm2 := gsub(',', '.', cd8_mm2)]
-  clinical_annotation[, stil := gsub(',', '.', stil)]
-  setnames(clinical_annotation, 'stil', 's_til')
-  maartenutils::set_dt_types(clinical_annotation,
-                             c('cd8_mm2' = 'numeric', 's_til' = 'numeric'))
-  clinical_annotation[induction_therapy == 'Cyclofosfamide',
-                      induction_therapy := 'Cyclophosphamide']
-  # clinical_annotation[, table(induction_therapy)]
-  clinical_annotation[, induction_therapy := factor(induction_therapy,
-                                                    levels = treatment_arms)]
-  clinical_annotation[, 'response_bin' := as.integer(response %in% c('CR', 'PR'))]
-  clinical_annotation <- clinical_annotation[patient != 'pat_NA']
-  clinical_annotation[, study_id := NULL]
-  clinical_annotation[, response_bin := NULL]
-  clinical_annotation[, induction_therapy := NULL]
-  clinical_annotation[, response := NULL]
-  stopifnot(length(intersect(colnames(clinical_annotation),
-                             colnames(patient_labels))) <= 1)
-  merge_tests(idx = 10.5)
-  ## Only try nd fill missing values, don't add new patients.
-  ## As this is and should be the last merging step, no omics data is available
-  ## for patients that would be added by this step (i.e. patient 17)
-  patient_labels <- controlled_merge(patient_labels, 
-                                     clinical_annotation, 
-                                     by_cols = 'patient', all.x = T,
-                                     all.y = F,
-                                     dup_priority = 'f')
-  merge_tests(idx = 11)
 }
 
 if (F) {
@@ -410,7 +361,10 @@ if (F) {
   patient_labels[patient == 'pat_64']
   patient_labels[patient == 'pat_69']
   patient_labels[patient == 'pat_73']
+  patient_labels[patient %in% c('pat_69', 'pat_73') & is.na(arm), .N]
 }
+
+merge_tests(idx = 12)
 
 if (F) {
   write_tsv(patient_labels, '~/Downloads/TONIC_pat_labels.tsv')
