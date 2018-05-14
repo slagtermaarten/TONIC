@@ -36,6 +36,7 @@ merge_tests <- function(idx = 1) {
   }
 
   if (patient_labels[patient == 'pat_NA', .N > 0]) {
+    patient_labels[patient == 'pat_NA']
     print('prob 5')
     browser()
   }
@@ -52,11 +53,17 @@ merge_tests <- function(idx = 1) {
     print('prob 7')
     browser()
   }
-}
 
-# patient_labels[, arm := zoo::na.locf(arm, fromLast = T), by = patient]
-# patient_labels[, arm := zoo::na.locf(arm, fromLast = F), by = patient]
-# patient_labels[is.na(arm)]
+  bool <- filter_patients(patient_labels, 'clinical_response') %>%
+    filter(timepoint == 'On nivo' & is.na(clinical_response)) %>%
+    { .[, .N > 0] }
+  if (bool) {
+    print('prob 8')
+    filter_patients(patient_labels, 'clinical_response') %>%
+      filter(timepoint == 'On nivo' & is.na(clinical_response))
+    browser()
+  }
+}
 
 
 ## A primary source of the most relevant clinical information
@@ -66,13 +73,13 @@ patient_labels <- read.csv(file.path(p_root, 'data-raw/patient_labels.csv'),
 patient_labels[arm == 'Cyclofosfamide', arm := 'Cyclophosphamide']
 # patient_labels[patient == 'pat_33']
 # patient_labels[patient == 'pat_17']
-merge_tests(idx = 0)
 setnames(patient_labels, 'x', 'filename')
-setnames(patient_labels, gsub('\\.', '_', colnames(patient_labels)))
 maartenutils::set_dt_types(patient_labels,
                            c('mean_log2_hk' = 'numeric',
                              'tis_score' = 'numeric'))
+patient_labels <- patient_labels[!is.na(patient)]
 patient_labels[, patient := paste0('pat_', patient)]
+merge_tests(idx = 0)
 # stopifnot(patient_labels[is.na(arm), .N <= 3])
 
 
@@ -84,6 +91,12 @@ if (T) {
     read_excel(file.path(data_dir, 'sample_annotation_corrections.xlsx')) %>%
     as.data.table %>%
     maartenutils::normalize_colnames()
+  ann_corrections[response == 'NA', response := NA]
+  ann_corrections[!is.na(response), 'clinical_response' := 
+                  ifelse(response %in% c('PR', 'CR'), 'R', 'NR')]
+  ann_corrections[is.na(response), clinical_response := NA]
+  ann_corrections[, clinical_response := factor(clinical_response, 
+                                                levels = c('NR', 'R'))]
   patient_labels <- controlled_merge(patient_labels, ann_corrections, all = T,
                                      dup_priority = 'f')
   patient_labels <- patient_labels[patient != 'pat_NA']
@@ -177,7 +190,7 @@ if (T) {
 	## Then merge adaptive sample IDs...
   merge_tests(idx = 3)
 	patient_labels <- controlled_merge(patient_labels, tumor_adaptive,
-                                     by_cols = c('patient', 'timepoint', 'arm'),
+                                     by_cols = c('patient', 'timepoint'),
                                      dup_priority = 'f')
   merge_tests(idx = 4)
   # stopifnot(patient_labels[is.na(arm), .N <= 3])
@@ -192,20 +205,18 @@ if (T) {
 																			 naturalsort(unique(patient))]
 		patient_labels[patient %in% missing_patients]
 		patient_labels[cf_number %in% missing_cfs]
-	}
 
-  # patient_labels[, clinical_response := zoo::na.locf(clinical_response,
-  #                                                    fromLast = F),
-  #                by = patient]
-  # patient_labels[, clinical_response := zoo::na.locf(clinical_response,
-  #                                                    fromLast = T),
-  #                by = patient]
-  # patient_labels[, clinical_response := zoo::na.locf(clinical_response,
-  #                                                    fromLast = F),
-  #                by = patient]
-  # patient_labels[is.na(clinical_response)]
+    # patient_labels[, clinical_response := zoo::na.locf(clinical_response,
+    #                                                    fromLast = F),
+    #                by = patient]
+    # patient_labels[, clinical_response := zoo::na.locf(clinical_response,
+    #                                                    fromLast = T),
+    #                by = patient]
+    # patient_labels[, clinical_response := zoo::na.locf(clinical_response,
+    #                                                    fromLast = F),
+    #                by = patient]
+    # patient_labels[is.na(clinical_response)]
 
-	if (F) {
 		## Fill missing values
 		patient_labels[is.na(clinical_response), unique(patient)]
 		patient_labels[is.na(arm)]
@@ -230,7 +241,7 @@ if (T) {
     unique(patient_labels, by = 'patient')[, .(patient, arm, response,
                                                clinical_response, tis_score)],
                                      dup_priority = 'f',
-                                     all = T)
+                                     all.x = T, by_cols = 'patient')
   merge_tests(idx = 6)
 	# blood_adaptive
 	# dcast(blood_adaptive, formula = patient + arm + blood_adaptive ~ .,
@@ -379,7 +390,7 @@ if (T) {
   merge_tests(idx = 11)
 }
 
-if (T) {
+if (F) {
   ## Check Leonie's remarks
   setkey(patient_labels, patient)
   setkey(blood_adaptive, patient)
@@ -399,6 +410,9 @@ if (T) {
   patient_labels[patient == 'pat_64']
   patient_labels[patient == 'pat_69']
   patient_labels[patient == 'pat_73']
+}
+
+if (F) {
   write_tsv(patient_labels, '~/Downloads/TONIC_pat_labels.tsv')
   write_tsv(blood_adaptive, '~/Downloads/TONIC_blood_pat_labels.tsv')
 }
