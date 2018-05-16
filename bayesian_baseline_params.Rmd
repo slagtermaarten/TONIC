@@ -47,7 +47,7 @@ patient_labels[, .(patient, induction_therapy, performance_status,
 colnames(patient_labels)
 # patient_labels[patient == 'pat_31']
 ## Exclude patient 26, the MMR patient
-patient_labels <- patient_labels[-which.max(time_progression_random__weeks)]
+patient_labels <- patient_labels[-which.max(time_progression_random_weeks)]
 # patient_labels[which.max(time_progression_random__weeks)]
 
 # clear_object('brm_tonic', sr)
