@@ -24,8 +24,8 @@ forge_mirror <- file.path(data_dir, 'forge', 'userdata',
                           'sLpLDXtXQNrqruxTWwnV2GSuNVSSGAdgP60YoQzR', 
                           'TONIC_stage1_WES')
 # source('R/read_xlsx.R')
-source('R/load_patient_labels.R')
 source('R/constants.R')
+source('R/load_patient_labels.R')
 source('R/load_data.R')
 source('R/load_cache.R')
 

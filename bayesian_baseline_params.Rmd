@@ -9,6 +9,7 @@ knitr::opts_chunk$set(message = FALSE, cache = F, cache.lazy = F,
                       cache.comments = F, autodep = T, warning = FALSE, 
                       echo = TRUE, error = FALSE)
 knitr::opts_knit$set(progress = TRUE, verbose = TRUE)
+source('R/init.R')
 ```
 
 The relatively small patient numbers per induction arm render the TONIC study
@@ -21,53 +22,19 @@ similarly control for baseline covariates in NanoString signature fold change
 analysis. Do potential confounders increase the likelihood of showing a large
 fold change?
 
-```{r, init, eval = T, warning=FALSE, echo=FALSE}
-source('R/init.R')
-## Read data
-#{
-patient_labels <- read.csv(file.path(p_root, 'data-raw',
-                                     '180212_clinical_data_all_patients.csv'),
-                           dec = ',', sep = ';') %>% as.data.table %>%
-  normalize_colnames()
-setnames(patient_labels, gsub('\\.', '_', colnames(patient_labels)))
-maartenutils::set_dt_types(patient_labels,
-                           c('mean_log2_hk' = 'numeric',
-                             'tis_score' = 'numeric'))
-patient_labels[, patient := paste0('pat_', study_id)]
-patient_labels[is.na(patient)]
-patient_labels[, table(patient)]
-patient_labels <- patient_labels[1:67]
-names(patient_labels)
-base::grep(x = names(patient_labels), pattern = 'til')
-patient_labels[, 'performance_status' := droplevels(performance_status)]
-patient_labels[, table(performance_status)]
-
-patient_labels[, .(patient, induction_therapy, performance_status,
-                   response_rate, pd_l1_immuuninfiltrate)]
-colnames(patient_labels)
-# patient_labels[patient == 'pat_31']
-## Exclude patient 26, the MMR patient
-patient_labels <- patient_labels[-which.max(time_progression_random_weeks)]
-# patient_labels[which.max(time_progression_random__weeks)]
-
-# clear_object('brm_tonic', sr)
-# clear_all_objects(sr = sr)
-```
-
-
 ```{r, warning=FALSE, echo=FALSE}
-source('R/init.R')
-```
+graphics.off()
 
-```{r, warning=FALSE, echo=FALSE}
+# debugonce(prepare_nano_bivariates)
 test_confounding <- function(x_var = 'Baseline',
-                             x_label = 'Baseline expression level',
-                             tp1 = 'Baseline', tp2 = 'Post-induction',
+                             x_label = var_to_label(x_var, label_reps),
+                             tp1 = 'Baseline', 
+                             tp2 = 'Post-induction',
                              feature = 'tis') {
-  c_dat_exp <- prepare_nano_bivariates(x_var = tp1,
-                                       y_var = tp2,
+  c_dat_exp <- prepare_nano_bivariates(x_var = tp1, y_var = tp2,
                                        colour_var = 'arm') %>%
-    merge(clinical_annotation, by = 'patient')
+    controlled_merge(clinical_annotation, by_cols = 'patient', 
+                     all.x = T, all.y = F)
 
   ggplot(c_dat_exp[variable == feature], aes_string(x = x_var, y = "logfc")) +
     geom_point() +
@@ -84,20 +51,19 @@ plot_confounding_panel <- function(tp1 = 'Baseline', tp2 = 'Post-induction',
     test_confounding(x_var = sprintf('`%s`', tp1),
                      x_label = sprintf('%s expression level', tp1),
                      tp1 = tp1, tp2 = tp2, feature = feature),
-    test_confounding(x_var = 'ca15_3', x_label = 'Baseline CA15.3',
+    test_confounding(x_var = 'ca15_3', 
                      tp1 = tp1, tp2 = tp2, feature = feature),
-    test_confounding(x_var = 's_til', x_label = 'Baseline stromal TIL [%]',
+    test_confounding(x_var = 's_til', 
                      tp1 = tp1, tp2 = tp2, feature = feature),
     test_confounding(x_var = 'pd_l1_immunoinfiltrate',
-                     x_label = 'Baseline PD-L1 [%]',
                      tp1 = tp1, tp2 = tp2, feature = feature),
     ncol = 1)
 }
 
 # plot_confounding_panel(tp1 = 'Baseline', tp2 = 'Post-induction',
 #                        feature = 'tis')
-# plot_confounding_panel(tp1 = 'Baseline', tp2 = 'On nivo',
-#                        feature = 'tis')
+plot_confounding_panel(tp1 = 'Baseline', tp2 = 'On nivo',
+                       feature = 'tis')
 # plot_confounding_panel(tp1 = 'Post-induction', tp2 = 'On nivo',
 #                        feature = 'tis')
 ```
@@ -351,3 +317,4 @@ p <- plot_panel_layout(list(
   #                     offset_val = 2,
   #                     variables = c('Doxorubicin', 'Cisplatin', 'No.induction'))),
 ```
+

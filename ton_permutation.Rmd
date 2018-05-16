@@ -46,6 +46,7 @@ Baseline vs. post-induction
 source('R/init.R')
 library(grid)
 
+graphics.off()
 p <- ton_percentile_comparison_of_fc(N_reps = 5e4, 
                                      gene_sets = sig_gene_sets,
                                      tp1 = 'Baseline', 

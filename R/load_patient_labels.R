@@ -23,10 +23,14 @@ filter_patients <- name <- function(p_dat, ...) {
       }
     }
   }
-  pres_cols <- 
-    intersect(colnames(p_dat), c('patient', 'timepoint', 'blood_timepoint',
-                                 'filename', 'adaptive_sample_name'))
-  return(unique(p_dat, by = pres_cols))
+  if (F) {
+    pres_cols <- 
+      intersect(colnames(p_dat), c('patient', 'arm', 'timepoint', 
+                                   'blood_timepoint',
+                                   'filename', 'adaptive_sample_name'))
+    p_dat <- unique(p_dat, by = pres_cols)
+  }
+  return(p_dat)
 }
 
 source('R/patient_label_merge_tests.R')

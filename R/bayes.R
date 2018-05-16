@@ -9,6 +9,10 @@ brms_settings <- list('family' = bernoulli(),
                       'warmup' = 1000, 'iter' = 3e3, 'chains' = 4,
                       'control' = list(adapt_delta = 0.95))
 
+brms_fc_settings <- list('family' = gaussian(),
+                         'warmup' = 1000, 'iter' = 3e3, 'chains' = 4,
+                         'control' = list(adapt_delta = 0.95))
+
 run_brm <- function(p_dat, instance_name, save_RDS = T) {
   brm_tonic <- brm(formula = value ~ 1 + (timepoint | arm),
                    data = p_dat, family = gaussian(),
@@ -116,19 +120,25 @@ posterior_histogram <- function(brms_object = brm_tonic,
                                 offset_val = 1,
                                 group_name = 'induction_therapy',
                                 param_capture = '.*\\[(.*),Intercept\\]',
+                                x_lab = 'Contribution to response probability',
+                                cols = NULL,
                                 variables = c('Doxorubicin', 'Cisplatin')) {
   ## Subselect group variables
   p_names <- names(brms_object$fit@sim$samples[[1]])
   p_names <- grep(param_capture, p_names, value = T)
   p_names <- setNames(p_names, 
-                      # gsub('\\.', ' ', 
-                           tolower(gsub(param_capture, '\\1', p_names)))
+                      tolower(gsub(param_capture, '\\1', p_names)))
   if (all(sapply(variables, is.null))) 
     variables <- names(p_names)
-  cols <- setNames(gen_color_vector(name = 'Royal1', 
-                                    n = length(p_names)), names(p_names))
-
-  p_dat <- as.data.frame(extract_params(brms_object, p_names[variables]))
+  if (is.null(cols)) {
+    cols <- setNames(gen_color_vector(name = 'Royal1', 
+                                      n = length(p_names)), 
+                     names(p_names))
+  }
+  cols <- setNames(cols, gsub(' ', '\\.', tolower(names(cols))))
+  
+  p_dat <- as.data.frame(extract_params(brms_object, 
+                                        p_names[tolower(variables)]))
   comp_val <- setdiff(1:length(p_names), offset_val)[1]
   prop_low <- mean(p_dat[, offset_val] < p_dat[, comp_val])
   N_samples <- max(1e3, nrow(p_dat))
@@ -137,13 +147,11 @@ posterior_histogram <- function(brms_object = brm_tonic,
   p_dat <- as.data.table(p_dat)
   p_dat <- remove_outliers(p_dat, by_cols = 'variable', test_cols = 'value')
 
-  p <- ggplot(filter(p_dat, variable %in% variables),
-         aes(x = value, fill = variable)) +
+  p <- ggplot(filter(p_dat, variable %in% tolower(variables)),
+              aes(x = value, fill = variable, y=..density..)) +
     geom_histogram(alpha = .3, position = 'identity', binwidth = .2) +
-    # scale_x_continuous(trans = 'log10') +
-    scale_x_continuous(trans = 'identity',
-                       name = 'Contribution to response probability') +
-    theme(legend.position = 'right')
+    scale_x_continuous(trans = 'identity', name = x_lab) +
+    theme(legend.position = 'right', legend.direction = 'vertical')
 
   p <- p + geom_vline(data = medians,
                       mapping = aes(xintercept = med, colour = variable),
@@ -156,7 +164,7 @@ posterior_histogram <- function(brms_object = brm_tonic,
                       y = interpolate_in_gg_range(plot = p, axis = 'y', 
                                                   degree = .9), 
                       x = interpolate_in_gg_range(plot = p, axis = 'x', 
-                                                  degree = .1), 
+                                                  degree = .05), 
                       parse = T,
                       hjust = 0, 
                       size = text_size,
@@ -167,7 +175,12 @@ posterior_histogram <- function(brms_object = brm_tonic,
                                       gsub(' ', '~', variables[comp_val]), 
                                       prop_low))
   }
-  p <- p + annotate(geom = 'text', y = 1100, x = p_dat[, min(value)], 
+
+  p <- p + annotate(geom = 'text', 
+                    y = interpolate_in_gg_range(plot = p, axis = 'y', 
+                                                degree = .98), 
+                    x = interpolate_in_gg_range(plot = p, axis = 'x', 
+                                                degree = .05), 
                     parse = F,
                     hjust = 0, 
                     size = text_size,

@@ -62,23 +62,24 @@ prepare_test_gene_set_difference <- function(gene_set = sig_gene_sets[1],
                                              tp1 = 'Baseline',
                                              tp2 = 'On nivo') {
   ## Select relevant data
-  data_subs <- danaher_scores.m[variable %in% gene_set] %>%
+  data_subs <- danaher_scores.m[variable %in% parent.frame(3)$gene_set] %>%
     { .[timepoint %in% c(tp1, tp2)] } %>%
     { .[!is.na(value)] } %>%
     filter_patients(facet_var)
-
-
+  
   ## Determine which pats are sufficiently covered for statistical testing
   allowed_pats <- data_subs %>%
     { .[, .N, by = c('patient')] } %>%
     { .[N == length(gene_set) * 2, patient] }
+
+  stopifnot(length(allowed_pats) > 0)
 
   ## This is required for Ton's approach
   ## In case of multiple gene sets, reduce to median gene set score for each
   ## patient and timepoint combination
   if (length(gene_set) > 1) {
     data_subs <- 
-      data_subs[, .(arm, response, 'variable' = 'median', 
+      data_subs[, .(arm, 'variable' = 'median', 
                     'value' = median(value, na.rm = T)), 
                 by = .(patient, timepoint)] %>% unique
   }

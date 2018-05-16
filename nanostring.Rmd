@@ -46,8 +46,16 @@ print(plots)
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
+source('R/plotting_adaptive.R')
+source('R/plotting_nanostring.R')
+source('R/test_associations.R')
+# debugonce(plot_parallel_coords_geneset)
+# debugonce(plot_parallel_coords)
 for (sig in c('tis', 'ifn.gamma', 'cytotoxicity')) {
-  plot_parallel_coords_geneset(sig, colour_var = colour_var, facet_var = 'arm')
+  plot_parallel_coords_geneset(sig, colour_var = colour_var, 
+                               median_line_alpha = .8,
+                               point_alpha = .35,
+                               facet_var = 'arm')
   ggsave(file = file.path(plot_dir, sprintf('%s_parallel_coords.png', sig)), 
          width = 19, height = 10, units = 'cm')
 }
@@ -204,11 +212,11 @@ ggsave(plot = p, filename = file.path(plot_dir,
 
 ```{r, warning=FALSE, echo=FALSE, fig.width = 9, fig.height = 12}
 invisible(m[, p_val := NA])
-pa <- plot_p_values_induction(m)
+pa <- plot_p_values_induction(filter(m, arm != 'All arms'))
 print(pa)
-# ggsave(plot = p, filename = file.path(plot_dir,
-#                             'induction_fc_p_values_baseline_post_induction.png'),
-#        width = 10, height = 13, units = 'cm')
+ggsave(plot = pa, filename = file.path(plot_dir,
+                            'induction_fc_p_values_baseline_post_induction.png'),
+       width = 10, height = 13, units = 'cm')
 ```
 
 ```{r, warning=FALSE, echo=FALSE, fig.width = 9, fig.height = 12}
@@ -228,8 +236,11 @@ ggsave(plot = p, filename = file.path(plot_dir,
 
 ```{r, warning=FALSE, echo=FALSE, fig.width = 9, fig.height = 12}
 invisible(m[, p_val := NA])
-pa <- plot_p_values_induction(m)
+pa <- plot_p_values_induction(filter(m, arm != 'All arms'))
 print(pa)
+ggsave(plot = pa, filename = file.path(plot_dir,
+                            'induction_fc_p_values_baseline_on_nivo.png'),
+       width = 10, height = 13, units = 'cm')
 # ggsave(plot = p, filename = file.path(plot_dir,
 #                             'induction_fc_p_values_baseline_on_nivo.png'),
 #        width = 10, height = 13, units = 'cm')

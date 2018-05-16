@@ -64,9 +64,6 @@ plot_single_timepoint_r_assocation(l_timepoint = 'On nivo',
                                    facet_var = NULL)
 ```
 
-```{r, warning=FALSE, echo=FALSE}
-```
-
 The same comparisons but split up by induction arm
 
 ```{r, warning=FALSE, echo=FALSE, fig.width = 5, fig.height = 4}
@@ -156,6 +153,29 @@ plot_adaptive_FC(facet_var = 'arm',
 plot_adaptive_FC(facet_var = 'arm', 
                  p_timepoints = c('Baseline', 'On nivo'),
                  var1 = 'sample_clonality', var2 = 'efron_thisted_estimator',
+                 colour_var = 'timepoint')
+```
+
+The same, but not coloring by clinical response and showing %TIL instead
+
+```{r, spider1, warning=FALSE, echo=FALSE}
+plot_adaptive_FC(facet_var = 'arm', 
+                 p_timepoints = c('Baseline', 'Post-induction', 'On nivo'),
+                 var1 = 'sample_clonality', var2 = 'adaptive_t_cells',
+                 colour_var = 'timepoint')
+```
+
+```{r, spider2, warning=FALSE, echo=FALSE}
+plot_adaptive_FC(facet_var = 'arm', 
+                 p_timepoints = c('Baseline', 'Post-induction'),
+                 var1 = 'sample_clonality', var2 = 'adaptive_t_cells',
+                 colour_var = 'timepoint')
+```
+
+```{r, spider3, warning=FALSE, echo=FALSE}
+plot_adaptive_FC(facet_var = 'arm', 
+                 p_timepoints = c('Baseline', 'On nivo'),
+                 var1 = 'sample_clonality', var2 = 'adaptive_t_cells',
                  colour_var = 'timepoint')
 ```
 
@@ -311,12 +331,9 @@ plot_all_comps(f = compare_adaptive_summary_stats,
 ```{r, warning=FALSE, echo=FALSE, results = 'hide'}
 plot_tp_comp_FCs(tp1 = 'Baseline', tp2 = 'Post-induction', 
                  tp3 = '-2', tp4 = '0')
-plot_tp_comp_FCs(tp1 = 'Baseline', tp2 = 'On nivo', 
-                 tp3 = '-2', tp4 = '6')
-plot_tp_comp_FCs(tp1 = 'Baseline', tp2 = 'On nivo', 
-                 tp3 = '-2', tp4 = '10')
-plot_tp_comp_FCs(tp1 = 'Baseline', tp2 = 'On nivo', 
-                 tp3 = '-2', tp4 = '12')
+plot_tp_comp_FCs(tp1 = 'Baseline', tp2 = 'On nivo', tp3 = '-2', tp4 = '6')
+plot_tp_comp_FCs(tp1 = 'Baseline', tp2 = 'On nivo', tp3 = '-2', tp4 = '10')
+plot_tp_comp_FCs(tp1 = 'Baseline', tp2 = 'On nivo', tp3 = '-2', tp4 = '12')
 ```
 
 # Direct comparison of clone sizes in tumor and blood

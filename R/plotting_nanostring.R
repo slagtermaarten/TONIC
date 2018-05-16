@@ -1,20 +1,3 @@
-resp_colors <- setNames(
-  maartenutils::darken(rev(gen_color_vector(name = 'Zissou1', n = 2)),
-  c(1.2, 1.0)),
-  c('R', 'NR'))
-# plot_palette(resp_colors)
-
-## Labels for timepoints 1, 2 and 3
-timepoint_labels <- c('baseline', 'post_induction', 'on_nivo')
-
-## More human readable labels for plotting purposes
-axis_subs <- c('tp1' = 'Baseline', 'tp2' = 'Post-induction',
-               'tp3' = 'On-nivo',
-               'baseline' = 'Baseline', 'post.induction' = 'Post-induction',
-               'on.nivo' = 'On-nivo',
-               'post_induction' = 'Post-induction',
-               'on_nivo' = 'On-nivo')
-
 single_gene_timepoint_comp <- function(gene_symbol = 'CD274',
                                        timepoints = c(1, 2)) {
   allowed_patients <- patient_labels[timepoint %in% timepoints,
@@ -146,13 +129,14 @@ prepare_nano_bivariates <- function(x_var = 'Baseline',
                                     y_var = 'Post-induction',
                                     colour_var = 'arm') {
   p_dat <- danaher_scores.m %>%
-                 .[!is.na(value) & (timepoint == x_var | timepoint == y_var)]
-  p_dat <- filter_patients(p_dat, colour_var, 'response')
+    { .[!is.na(value) & (timepoint == x_var | timepoint == y_var)] }
+  p_dat <- filter_patients(p_dat, colour_var, 'clinical_response')
   allowed_comps <- p_dat[, .(.N == 2), by = c('patient', 'variable')] %>%
-                     .[V1 == T, .(patient, variable)] %>% unique
+    { .[V1 == T, .(patient, variable)] } %>%
+    unique
   setkeyv(p_dat, c('patient', 'variable'))
   p_dat <- dcast(p_dat[allowed_comps],
-                 formula = patient + arm + response + variable ~ timepoint)
+                 formula = patient + arm + clinical_response + variable ~ timepoint)
   p_dat[ , 'logfc' := (get(y_var) + 1) - (get(x_var) + 1)]
   p_dat[, uniqueN(patient)]
   p_dat <- p_dat[apply(p_dat, 1, function(x) !any(is.na(x)))]
@@ -225,17 +209,6 @@ plot_PCA_axes <- function(dat, tp, color_var = '', labellings) {
 prep_geneset_parallel_coords <- function(gene_set = 'apm',
                                          colour_var = 'response',
                                          facet_var = NULL) {
-  ## Subselect 'complete' patients
-  # allowed_comps <- danaher_scores.m[!is.na(value) & !is.na(response)] %>%
-  #   { .[, (.N == 3), by = c('patient', 'variable')] } %>%
-  #   { .[V1 == T, .(patient, variable)] } %>% unique
-  # setkeyv(danaher_scores.m, c('patient', 'variable'))
-  # p_dat <- danaher_scores.m[allowed_comps]
-  # p_dat[, lapply(.SD, class)]
-  # p_dat[, table(arm, variable, timepoint)]
-  # p_dat[, table(timepoint)]
-  # setnames(p_dat, 'variable', 'gene_set')
-
   ## Only compute medians for factor combinations with sufficient patients
   by_vars <- setdiff(c('timepoint', colour_var, facet_var),
                      c('clinical_response', 'response'))
@@ -245,7 +218,7 @@ prep_geneset_parallel_coords <- function(gene_set = 'apm',
     { .[N > 1] }
   setkeyv(danaher_scores.m, by_vars)
 
-  sum_dat <- filter_patients(danaher_scores.m[allowed][variable %in% gene_set], 
+  sum_dat <- filter_patients(danaher_scores.m[allowed][variable %in% gene_set],
                              colour_var, facet_var)
 
   # danaher_scores.m[allowed][!is.na(value)][variable == gene_set][arm == 'Cisplatin']
@@ -273,6 +246,7 @@ plot_parallel_coords <- function(p_dat,
                                  unswarm_zero = F,
                                  point_alpha = .7,
                                  line_alpha = point_alpha / 2 * 1,
+                                 median_line_alpha = .8,
                                  filter_vals = T,
                                  title = '') {
   if (!require('vipor')) {
@@ -283,7 +257,7 @@ plot_parallel_coords <- function(p_dat,
     p_dat <- filter_patients(p_dat, colour_var, group_var, facet_var, size_var)
   }
   p_dat[, 'x_coord' := vipor::offsetX(value, width = swarm_width) +
-                     as.integer(get(timepoint_v)), 
+                     as.integer(get(timepoint_v)),
         by = c(timepoint_v, facet_var)]
 
   if (unswarm_zero) {
@@ -307,7 +281,7 @@ plot_parallel_coords <- function(p_dat,
     ggtitle(title)
 
   p <- p + scale_x_continuous(name = '', minor_breaks = c(),
-                              breaks = p_dat[, seq_along(levels(get(timepoint_v)))], 
+                              breaks = p_dat[, seq_along(levels(get(timepoint_v)))],
                               labels = p_dat[, levels(get(timepoint_v))])
   if (timepoint_v == 'timepoint') {
     p <- p + rotate_x_labels(45)
@@ -315,13 +289,18 @@ plot_parallel_coords <- function(p_dat,
   }
 
   if (!is.null(sum_dat)) {
-    sum_dat[, 'x_coord' := as.integer(get(timepoint_v)), 
+    sum_dat[, 'x_coord' := as.integer(get(timepoint_v)),
             by = c(timepoint_v, facet_var)]
     if (colour_var %nin% colnames(sum_dat)) {
       sum_dat[, (colour_var) := NA]
     }
     p <- p + geom_point(aes_string(group = facet_var), shape = 21,
-                        size = 4, alpha = .8, colour = 'black',
+                        size = 4, alpha = median_line_alpha, colour = 'black',
+                        fill = 'black',
+                        data = sum_dat, size = 2)
+    p <- p + geom_line(aes_string(group = facet_var), shape = 21,
+                        size = 3, alpha = median_line_alpha,
+                        lineend = 'round', colour = 'black',
                         data = sum_dat, size = 2)
 
   }
@@ -348,14 +327,16 @@ plot_parallel_coords_geneset <- function(gene_set = 'apm',
   sum_dat <- prep_geneset_parallel_coords(gene_set = gene_set,
                                           colour_var = colour_var,
                                           facet_var = facet_var)
-  p_dat <- filter_patients(danaher_scores.m[variable == gene_set], 
+  p_dat <- filter_patients(danaher_scores.m[variable == gene_set],
                            colour_var, facet_var) %>%
     { .[naturalsort::naturalorder(timepoint)] } %>%
     { .[naturalsort::naturalorder(patient)] }
-  p <- plot_parallel_coords(p_dat = p_dat, sum_dat = sum_dat,
+  p <- plot_parallel_coords(p_dat = p_dat,
+                            sum_dat = sum_dat,
                             swarm_width = .1,
                             facet_var = facet_var,
-                            colour_var = colour_var, title = gene_set,
+                            colour_var = colour_var,
+                            title = gene_set,
                             ...)
   return(p)
 }
@@ -394,14 +375,15 @@ plot_parallel_coords_single_gene <- function(gene = 'CD274',
 
   prep <- prep_gene_parallel_coords(gene = gene,
                                     colour_var = colour_var)
-  plot_parallel_coords(p_dat = prep[['p_dat']], 
+  plot_parallel_coords(p_dat = prep[['p_dat']],
                        sum_dat = prep[['sum_dat']],
                        colour_var = colour_var, title = gene, ...)
 }
 
 
 plot_p_values_induction <- function(m, size_var = '1/p_val',
-                                    tp1 = timepoints[1], tp2 = timeoints[3]) {
+                                    tp1 = timepoints[1],
+                                    tp2 = timeoints[3]) {
   p <- ggplot(m, aes_string(x = 'arm', y = 'gene_set', fill = 'logFC',
                      size = size_var)) +
     geom_raster() +
