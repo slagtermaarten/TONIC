@@ -1,0 +1,59 @@
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+source('R/load_rna_dat.R')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+fn <- file.path('data-raw', 'CIBERSORT.Output_Job1.csv')
+cibersort <- fread(fn) %>% normalize_colnames()
+setnames(cibersort, 'input_sample', 'cf_number')
+colnames(cibersort) <- gsub('_\\(tregs\\)', '', colnames(cibersort))
+cibersort <-
+  controlled_merge(cibersort, rna_sample_annotation[, .(cf_number, patient,
+                                                      timepoint, arm,
+                                                      clinical_response)],
+                 by_cols = 'cf_number')
+# cibersort[, timepoint := factor(timepoint, levels = timepoints)]
+cibersort[, timepoint := droplevels(timepoint)]
+cibersort[is.na(clinical_response), clinical_response := 'NA']
+str(cibersort)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+hist(cibersort[, p_value], xlab = 'P-value (lower is better)',
+     main = 'CIBERSORT p-values')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+cell_columns <- colnames(cibersort)[2:23]
+cibersort_m <- melt(cibersort[, c(cell_columns, 'patient', 'timepoint', 'arm',
+                                  'clinical_response'), with = F],
+                    id.vars = c('patient', 'timepoint', 'arm', 
+                                'clinical_response'),
+                    variable.name = 'celltype')
+# head(cibersort_m)
+
+## Validate all scores are to be interpreted as proportional values
+cibersort_m[, sum(value), by = .(patient, timepoint)][, eps(V1, 1)]
+```
+
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+library(ggrepel)
+source('R/plotting_nanostring.R')
+devtools::load_all(file.path('~/libs', 'maartenutils'))
+
+lapply(cibersort_m[, as.character(unique(celltype))], function(ct) {
+  p <- plot_parallel_coords(cibersort_m[celltype == ct],
+                            facet_var = 'arm',
+                            swarm_width = .2,
+                            filter_vals = F,
+                            colour_var = 'clinical_response') +
+    ylab('Celltype fraction of total') +
+    ggplot2::theme(axis.ticks.x = element_blank()) +
+    ggtitle(simple_cap(ct))
+  fn <- file.path('plots', sprintf('cibersort_%s.pdf', ct))
+  ggsave(p, filename = fn, width = 17.4, height = 12, units = 'cm')
+})
+```
+
