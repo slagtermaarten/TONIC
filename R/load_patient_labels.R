@@ -82,8 +82,14 @@ if (T) {
   clinical_annotation <- clinical_annotation[patient != 'pat_NA']
   clinical_annotation[, study_id := NULL]
   clinical_annotation[, response_bin := NULL]
-  clinical_annotation[, response := NULL]
   clinical_annotation[, timepoint := 'Baseline']
+  clinical_annotation[, 'clinical_response' := 
+                      ifelse(is.na(response) | response == 'NA', 'NA', 
+                             ifelse(response %in% c('CR', 'PR'), 'R', 'NR'))]
+  # clinical_annotation[patient %in% c('pat_50', 'pat_64'), 
+  #                     .(patient, clinical_response)]
+  # clinical_annotation[, response := NULL]
+  # clinical_annotation[patient == 'pat_50']
   # stopifnot(length(intersect(colnames(clinical_annotation),
   #                            colnames(patient_labels))) <= 1)
   merge_tests(idx = 0.5)
@@ -104,6 +110,8 @@ if (T) {
                                      by_cols = c('patient', 'timepoint'), all.x = T,
                                      all.y = T,
                                      dup_priority = 'a')
+  patient_labels[patient %in% c('pat_50', 'pat_64'), 
+                 .(patient, clinical_response, response)]
   merge_tests(idx = 0.75)
 }
 
@@ -355,6 +363,9 @@ manual_clinical_corrections <- function(dtf) {
   dtf[, response := factor(response, levels = c('PD', 'SD', 'PR', 'CR'))]
   dtf[arm == 'Cyclofosfamide',  arm := 'Cyclophosphamide']
   dtf[, arm := factor(arm, levels = treatment_arms)]
+  dtf[patient == 'pat_64', clinical_response := NA]
+  dtf[patient == 'pat_64', response := NA]
+  # patient_labels[patient == 'pat_64', .(patient, response, clinical_response)]
   return(dtf)
 }
 merge_tests(idx = 10.1)
@@ -376,8 +387,8 @@ if (T) {
   levs$timepoint <- factor(levs$timepoint, levels = timepoints)
   levs$comb <- apply(levs, 1, paste, collapse = '-')
   levs$cf <- (1.3^(as.integer(levs$timepoint) - 2))
-  levs$color <- maartenutils::lighten(c(rep(resp_colors[1], 3),
-                                       rep(resp_colors[2], 3)),
+  levs$color <- maartenutils::lighten(c(rep(resp_colors[2], 3),
+                                       rep(resp_colors[1], 3)),
                                      (1.4^(as.integer(levs$timepoint) - 2)))
   comb_time_resp_palette <- setNames(levs$color, levs$comb)
   # plot_palette(comb_time_resp_palette)
@@ -409,6 +420,30 @@ if (F) {
 }
 
 merge_tests(idx = 12)
+
+if (T) {
+  hla_types <-
+    read_excel(file.path(data_dir, 'haplotyping_TONIC_rna_Steven.xlsx'),
+               na = c('', 'NA')) %>%
+    as.data.table %>%
+    maartenutils::normalize_colnames() 
+  setnames(hla_types, gsub('\\(|\\)', '', colnames(hla_types)))
+  setnames(hla_types, 'study_id', 'patient')
+  hla_types[, patient := sprintf('pat_%s', patient)]
+  patient_labels <- 
+    controlled_merge(patient_labels, hla_types[, .(patient, hla_haplotype_rna)])
+  patient_labels[, c('A1', 'A2', 'B1', 'B2', 'C1', 'C2') := 
+                 tstrsplit(hla_haplotype_rna, ', ')]
+  unique_hlas <- patient_labels[, {
+    vec <- strsplit(.SD[, hla_haplotype_rna[1]], ', ')[[1]]
+    .('unique_HLAs' = ifelse(is.na(vec), as.integer(NA), uniqueN(vec)))
+  }, by = patient] %>% unique
+  patient_labels <- controlled_merge(patient_labels, unique_hlas)
+  patient_labels[, hla_haplotype_rna := NULL]
+  merge_tests(idx = 13)
+}
+
+
 
 if (F) {
   write_tsv(patient_labels, '~/Downloads/TONIC_pat_labels.tsv')
