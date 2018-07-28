@@ -4,76 +4,242 @@ source('R/load_rna_dat.R')
 devtools::load_all('~/libs/GSEAgenesets')
 ```
 
+# VC inconsistencies
+
+
+           tumor   normal
+    Pat 33 CF15398 CF16621
+    Pat 69 CF15397 CF16678
+
+    Correct labelling probably is
+
+    patient tumor_sample normal_sample
+    Pat 33 CF15397 CF16621
+    Pat 69 CF15398 CF16678
+
+
 ```{r, warning=FALSE, echo=FALSE}
 devtools::load_all(file.path('~/libs', 'maartenutils'))
-
-read_CONTRA <- function(patient = 'pat_1') {
-  rel_subs <-
-    patient_labels[patient == parent.frame(3)$patient & 
-                   timepoint == 'Baseline' &
-                   !is.na(dna_cf_number)]
-  if (nrow(rel_subs) == 0) return(NULL)
-  cf_number <- rel_subs[, dna_cf_number]
-  full_fn <- wes_table[tumor_cf == cf_number, 
-                       file.path(forge_mirror, 'contra', 'CNATable', 
-                                 contra_fn)]
-  if (length(full_fn) == 0) {
-    return(NULL)
-  }
-  contra <- suppressWarnings(tryCatch(fread(full_fn), 
-              error = function(e) { print(e); browser() }))
-  contra <- normalize_colnames(contra)
-}
-read_CONTRA(patient = 'pat_1')
+fh <- filter_VCF(patient = 'pat_69')
+fh[1, 'checked' := 'confirmed_somatic']
+fh[2, 'checked' := 'confirmed_somatic']
+fh[30, 'checked' := 'confirmed_germline_swap']
+fh[134, 'checked' := 'confirmed_somatic']
+fh[202, 'checked' := 'confirmed_somatic']
+fh[208, 'checked' := 'confirmed_germline_swap']
+fh[3253, 'checked' := 'confirmed_somatic']
+fh[6793, 'checked' := 'confirmed_germline_swap']
+fh[3966, 'checked' := 'confirmed_germline_swap']
+fh[234, 'checked' := 'confirmed_somatic']
+fh[234, .(CHROM, POS)]
+sample(fh[, grep('rs', ID)])[1]
 ```
 
+```{r, warning=FALSE, echo=FALSE}
+patient_labels[, mut_load]
+
+# clear_object(seq_stat_overview, sr = sr)
+source('R/seq_stat_overview.R')
+
+seq_stat_overview[mut_load > 1000]
+# plot(seq_stat_overview[, .(mut_load_ranked, weighted_gen_SCNA_score)])
+```
+
+## Older stuff
 
 ```{r, warning=FALSE, echo=FALSE}
-read_VCF <- function(patient = 'pat_1') {  
-  ## Find corresponding CF
-  rel_subs <-
-    patient_labels[patient == parent.frame(3)$patient & 
-                   timepoint == 'Baseline' &
-                   !is.na(dna_cf_number)]
-  if (nrow(rel_subs) == 0) return(NULL)
-  cf_number <- rel_subs[, dna_cf_number]
+source('R/read_DNASeq.R')
 
-  browser(expr = length(cf_number) > 1)
-  browser(expr = wes_table[tumor_cf == cf_number, .N == 2])
-  full_fn <- 
-    wes_table[tumor_cf == cf_number, file.path(forge_mirror, 'calls', vcf_fn)]
-  if (length(full_fn) == 0) {
-    return(NULL)
-  }
-  vcf <- suppressWarnings(
-           tryCatch(fread(sprintf('grep SOMATIC %s', full_fn), fill = T), 
-           error = function(e) { print(e); browser() }))
-  vcf <- vcf[!grepl('^#|GERMLINE', 1)]
-  vcf <- vcf[!grepl('.*##.*', 1)]
-  vcf <- vcf[!grepl('.*GERMLINE.*', 1)]
-  setnames(vcf, toupper(LETTERS[seq_along(colnames(vcf))]))
-  vcf[, 'tlod' := as.numeric(gsub('.*TLOD=(\\d*\\.*\\d*);.*', '\\1', A))]
-  vcf[, 'nlod' := as.numeric(gsub('.*NLOD=(\\d*\\.*\\d*);.*', '\\1', A))]
-  # vcf <- vcf[tlod >= 40 & nlod <= 20]
-  vcf <- vcf[tlod >= 40]
-  return(vcf)
-}
-
-read_VCF(patient = 'pat_69')
-
-compute_mut_load <- function(patient = 'pat_1') {  
-  vcf <- read_VCF(patient = patient)
+compute_mut_load <- function(patient = 'pat_1') {
+  vcf <- filter_VCF(patient = patient)
   return(vcf[, .N])
 }
 
-patient_labels[, 'mut_load' := 
-               compute_mut_load(.SD[timepoint == 'Baseline', patient[1]]), 
+patient_labels[, 'mut_load' :=
+               compute_mut_load(.SD[timepoint == 'Baseline', patient[1]]),
                by = patient]
+
+stopifnot(
+  patient_labels[!is.na(cf_number) & timepoint == 'Baseline', uniqueN(patient)] ==
+  patient_labels[!is.na(mut_load), uniqueN(patient)])
+
 unique(patient_labels[, .(patient, mut_load)], by = 'patient')
 ```
 
+Investigate some exceptionally highly mutated tumors (are these artefacts?)
+
 ```{r, warning=FALSE, echo=FALSE}
-ggplot(patient_labels, aes(x = clinical_response, y = mut_load)) + 
+source('R/read_DNASeq.R')
+
+compute_rs_frac <- function(patient = 'pat_69') {
+  vcf <- filter_VCF(patient)
+  if (is.null(vcf)) return(NULL)
+  rs_frac <- vcf[, length(grep('rs', ID))] / nrow(vcf)
+  if (rs_frac > .8)
+  return(rs_frac)
+}
+
+patient_labels[, 'rs_frac' :=
+               compute_rs_frac(.SD[timepoint == 'Baseline', patient[1]]),
+               by = patient]
+
+ggplot(patient_labels[timepoint == 'Baseline'],
+       aes(x = mut_load, y = rs_frac)) + geom_point()
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/read_DNASeq.R')
+# sapply(patient_labels[rs_frac > .8 & mut_load > 100, patient], filter_VCF)
+patient_labels[timepoint == 'Baseline' & rs_frac > .8 & mut_load > 10,
+               .(patient, cf_number, mut_load, rs_frac)] %>% unique
+```
+
+```{r, warning=FALSE, echo=FALSE}
+patient_labels[rs_frac > .8,  mut_load := NA]
+ggplot(patient_labels, aes(x = clinical_response, y = mut_load)) +
   geom_boxplot() +
   scale_y_continuous(trans = 'log10')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/read_DNASeq.R')
+view_sequenza(patient = 'pat_26', timepoint = 'Baseline')
+view_sequenza(patient = 'pat_69', timepoint = 'Baseline')
+```
+
+# Mutation overview
+
+```{r, parsingjunk, eval = F, warning=FALSE, echo=FALSE}
+# all_effects <- fh[1, 'effect' := tstrsplit(ANN, ';')[12], by = 1:nrow(fh)]
+# all_effects <- fh[1, 'effect' := tstrsplit(ANN, ';')[12]]
+# all_effects <- fh[, 'effect' := strsplit(strsplit(ANN, ',')[[1]], '\\;')[[11]], by = 1:nrow(fh)]
+# all_effects <- fh[, 'effect' := 
+#                   strsplit(strsplit(strsplit(ANN, ',')[[1]], '\\;')[[11]],
+#                               '\\|')[[2]], by = 1:nrow(fh)]
+# all_effects <- lapply(unlist(fh[1, strsplit(ANN, ',')]), function(x)
+#                       strsplit(x, '\\|')[[1]])
+# all_effects <- rbindlist(all_effects)
+# effects_table <- rbindlist(lapply(all_effects, function(x) {
+#                                     list('variant_classification' = x[2],
+#                                          'severity' = x[3]) }))
+# ANN_parsed <- strsplit(unlist(fh[, strsplit(ANN, ',')]), '\\|')
+```
+
+## TP53
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/read_DNASeq.R')
+positions <- data.table('chromosome' = c('15', '15', '17'),
+                        'gene_symbol' = c('B2M', 'B2M', 'TP53'),
+                        'ensg' = c('ENSG00000166710', 'ENSG00000273686', 
+                                   'ENSG00000141510'),
+                        'variant_classification' = c('B2M', 'B2M', 'TP53'),
+                        'start_position' = c(44711547, 44711547, 7669609),
+                        'end_position' = c(44716342, 44716342, 7676594))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+tp53_positions <- positions[3]
+tp53_gene_dat <- combine_all_aberrations(tp53_positions)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+tp53_gene_dat[, mutated[1], by = patient][, table(V1)]
+tp53_gene_dat[is.na(mutated), unique(patient)]
+tp53_gene_dat[!is.na(mutated), unique(patient)]
+tp53_gene_dat[naturalorder(patient)]
+saveRDS(tp53_gene_dat, 'rds/tp53_gene_dat.rds')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+tp53_gene_dat[, table(variant_classification)]
+tp53_gene_dat[patient == 'pat_33']
+tp53_gene_dat[patient == 'pat_25']
+tp53_gene_dat[naturalorder(patient), .N, by = patient]
+
+write_tsv(tp53_gene_dat, 
+          path = file.path('rds', 'TP53_mutation_list_TONIC.tsv'))
+# tp53_gene_dat[, .N, by = patient]
+```
+
+## B2M
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/read_DNASeq.R')
+b2m_positions <- positions[1:2]
+b2m_gene_dat <- combine_all_aberrations(b2m_positions)
+saveRDS(b2m_gene_dat, 'rds/b2m_gene_dat.rds')
+```
+
+No enrichment for total B2M mutation among non-responders. Neither an enrichment
+for B2M LOH among non-responders. Nor is there an indication for higher local CN
+estimates.
+
+```{r, warning=FALSE, echo=FALSE}
+# table_dat <- unique(b2m_gene_dat, by = 'patient')
+table_dat <- b2m_gene_dat[!is.na(CNt)]
+table_dat$LOH <- grepl('LOH', table_dat$variant_classification)
+table_dat$LOH[is.na(table_dat$variant_classification)] <- NA
+table('B2M_mut' = table_dat$mutated, table_dat$clinical_response) %>%
+  { print(.); fisher.test(.) }
+table('LOH' = grepl('LOH', table_dat$variant_classification), 
+      'clinical_response' = table_dat$clinical_response) %>%
+  { print(.); fisher.test(.) }
+table('loss' = grepl('loss', table_dat$variant_classification), 
+      'clinical_response' = table_dat$clinical_response) %>%
+  { print(.); fisher.test(.) }
+# table_dat %>% arrange(desc(clinical_response))
+
+ggplot(table_dat, aes(x = clinical_response, y = CNt)) +
+  geom_boxplot()
+ggplot(table_dat, aes(x = clinical_response, y = CNt, fill = LOH)) +
+  geom_boxplot()
+```
+
+```{r, warning=FALSE, echo=FALSE}
+b2m_gene_dat[!is.na(CNt)][patient == 'pat_65']
+```
+
+## MMR involved genes
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/read_DNASeq.R')
+# debugonce(intersect_sequenza)
+# debugonce(filter_var_list)
+# gene_dat <- combine_all_aberrations(c('B2M'))
+gene_dat <- combine_all_aberrations(c('MLH1', 'MLH3', 'MSH2', 'MSH3', 'MSH6',
+                                      'PMS1', 'PMS2'))
+gene_dat[, table(variant_classification)]
+
+unique(gene_dat, by = 'patient')[, table(mutated)]
+```
+
+# Stransky plots
+
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/plotting_adaptive.R')
+source('R/read_DNASeq.R')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+library(GenVisR)
+vignette(package = "GenVisR")
+```
+
+# DNASeq stats
+
+```{r, warning=FALSE, echo=FALSE}
+## Patient with LOH and two variants interfering internally with the polypeptide
+## structure
+source('R/read_DNASeq.R')
+# compute_vcf_stats('pat_25')
+ov <- compute_DNASeq_stats()
+```
+
+```{r, warning=FALSE, echo=FALSE}
+## T-cell infiltration overview
+source('R/plotting_adaptive.R')
+source('R/read_DNASeq.R')
+plot_cor_mat()
 ```

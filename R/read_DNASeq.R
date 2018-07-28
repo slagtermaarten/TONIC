@@ -37,9 +37,10 @@ lookup_DNA_cf <- function(patient = 'pat_69', timepoint = 'Baseline') {
 lookup_WES_fn <- function(patient = 'pat_65', timepoint = 'Baseline') {
   cf_number <- lookup_DNA_cf(patient = patient, timepoint = timepoint)
   if (is.null(cf_number)) return(NULL)
-  browser(expr = wes_table[tumor_cf == cf_number, .N == 2])
+  # browser(expr = wes_tabpe[tumor_cf == cf_number, .N == 2])
   full_fn <-
     wes_table[tumor_cf == cf_number, file.path(forge_mirror, 'calls', vcf_fn)]
+  full_fn <- unique(full_fn)
   return(full_fn)
 }
 
@@ -96,7 +97,7 @@ filter_VCF <- function(patient = 'pat_1', timepoint = 'Baseline',
   # })
   # vcf[, (info_field_tags) := tstrsplit(INFO, '\\;')]
 
-  # vcf[, 'ensg' := gsub('(ENSG=\\d*)', '\\1', INFO)]
+  # vcf[, 'gene_id' := gsub('(ENSG=\\d*)', '\\1', INFO)]
   return(vcf)
 }
 
@@ -111,7 +112,7 @@ read_VCF_less <- function(patient = 'pat_1', timepoint = 'Baseline') {
 read_sequenza <- function(patient = 'pat_69', timepoint = 'Baseline') {
   l_cf_number <- lookup_DNA_cf(patient = patient, timepoint = timepoint)
   if (is.null(l_cf_number)) return(NULL)
-  full_fn <- tryCatch(wes_table[tumor_cf == l_cf_number, sequenza_fn], 
+  full_fn <- tryCatch(wes_table[tumor_cf == l_cf_number, unique(sequenza_fn)], 
                       error = function(e) { print(e); browser() }) 
   if (is.null(full_fn) || length(full_fn) == 0) 
     return(NULL)
@@ -152,20 +153,26 @@ intersect_sequenza <- function(patient = 'pat_69',
   setnames(fh, c('start_pos', 'end_pos'), seg_names)
   fh[, 'donor_id' := patient]
   coordinates[, donor_id := patient]
+  # setnames(fh, 'hugo_symbol', 'variant_classification')
+  fh[, variant_classification := 'missense_mutation']
   fh <- tryCatch(fasanalysis::merge_muts_SNP6(muts = coordinates, fh,
                                               pos_col = seg_names,
                                               merge_cols = colnames(fh)), 
                  error = function(e) { print(e); browser() }) 
-  setnames(fh, 'variant_classification', 'hugo_symbol')
+  # setnames(fh, 'variant_classification', 'hugo_symbol')
   fh[, 'gain_or_loss' := ifelse(CNt > 2, 'gain', ifelse(CNt == 2, '', 'loss'))]
-  fh[, 'variant_classification' := sprintf('%s %s', gain_or_loss, 
+  fh[CNt == 0, 'gain_or_loss' := 'complete loss']
+  fh[CNt > 0, 'variant_classification' := sprintf('%s %s', gain_or_loss, 
                                            ifelse(LOH, 'LOH', ''))]
+  fh[CNt == 0, 'variant_classification' := gain_or_loss]
   fh[, variant_classification := gsub('^ ', '', variant_classification)]
   fh[, variant_classification := gsub('\\s{2,}', ' ', variant_classification)]
   fh[, variant_classification := ifelse(variant_classification == '', '',
                             sprintf('chrom %s', variant_classification))]
   setnames(fh, 'donor_id', 'patient')
   setcolorder(fh, c('patient', setdiff(colnames(fh), 'patient')))
+  fh <- fh[!is.na(seg_start)]
+  fh <- clean_columns('', fh, c('snp6_amp', 'coverage'))
   return(fh)
 }
 
@@ -174,6 +181,7 @@ intersect_sequenza <- function(patient = 'pat_69',
 #'
 #' @param fh, object of class \code{data.table} returned by filter_VCF
 annotate_effects <- function(fh) {
+  if (null_dat(fh)) return(NULL)
   ##INFO=<ID=ANN,Number=.,Type=String,Description="Functional
   ## annotations: 'Allele | Annotation | Annotation_Impact | Gene_Name |
   ## Gene_ID | Feature_Type | Feature_ID | Transcript_BioType | Rank |
@@ -211,12 +219,14 @@ annotate_effects <- function(fh) {
 filter_var_list <- function(l_patient, 
                             # gs_search = paste(positions[, unique(gene_symbol)], 
                                      # collapse = '|')) {
-                            gs_search = paste(positions[, unique(ensg)], 
+                            gs_search = paste(positions[, unique(gene_id)], 
                                               collapse = '|')) {
   messagef('Filtering VCF for %s', l_patient)
   fh <- filter_VCF(patient = l_patient, read_annotated = T)
   if (is.null(fh)) { return(NULL) }
   ## Pre filter variants using regex
+  # fh[, INFO]
+  # fh <- fh[grepl('TKTL1', INFO)]
   fh <- fh[grepl(gs_search, INFO)]
   if (null_dat(fh)) { return(NULL) }
   fh <- annotate_effects(fh)
@@ -232,35 +242,52 @@ filter_var_list <- function(l_patient,
 #' Combine all aberrations for all patients in a user specified set of genes
 #'
 #'
-combine_all_aberrations <- function(positions) {
+combine_all_aberrations <- function(gene_symbols = 'B2M') {
+  messagef('Quering gene locations...')
+  ensg_mapping <- fread(file.path(p_root, 'salmon_rna',
+                                  'ensembl86_ensg_to_symbol.tsv'))
+  ensg_mapping[, 'variant_classification' := hugo_symbol]
+  ensg_mapping <- ensg_mapping[hugo_symbol %in% gene_symbols, ]
+  ensg_mapping[, c('start_position', 'end_position') := 
+               list(min(start_position), max(end_position)), by = gene_id]
+  positions <- unique(ensg_mapping, by = 'gene_id')
+  browser(expr = all(!gene_symbols %in% positions[, unique(hugo_symbol)]),
+          text = 'Not all genes found')
+
   message('Filtering CNAs...')
   str_pres <- rbindlist(lapply(patient_labels[, unique(patient)], 
                                 function(l_patient) {
       intersect_sequenza(patient = l_patient, 
                          coordinates = positions)
-    })) %>%
+    }), fill = T) %>%
     controlled_merge(patient_labels[, .(patient, clinical_response, arm)]) %>%
     { .[naturalorder(patient), ] }
 
   message('Filtering VCFs...')
-  l_gs_search <- paste(positions[, unique(ensg)], collapse = '|')
-  mut_pres <- rbindlist(lapply(patient_labels[, unique(patient)],
-                               filter_var_list, gs_search = l_gs_search))
-  ## Pat 6, 9, 13, 15, 19 no VCFs
+  # l_gs_search <- paste(positions[, unique(gene_id)], collapse = '|')
+  l_gs_search <- paste(gene_symbols, collapse = '|')
+  mut_pres <- rbindlist(lapply(patient_labels[, unique(naturalsort(patient))],
+                               filter_var_list, gs_search = l_gs_search), 
+                        fill = T)
+  if (nrow(mut_pres) > 0) {
+    mut_pres <- mut_pres[hugo_symbol %in% positions$hugo_symbol, 
+                         .(patient, arm, clinical_response, hugo_symbol, 
+                           variant_classification, effect, ID)]
+  } else {
+    mut_pres <- NULL
+  }
 
   gene_dat <- rbind(
-    str_pres[hugo_symbol %in% positions$gene_symbol, 
+    str_pres[hugo_symbol %in% positions$hugo_symbol, 
             .(patient, arm, clinical_response, hugo_symbol, 
-              variant_classification)],
-    mut_pres[hugo_symbol %in% positions$gene_symbol, 
-             .(patient, arm, clinical_response, hugo_symbol, 
-               variant_classification)]
-  ) %>% { .[naturalorder(patient)] }
+              variant_classification, CNt, A, B)],
+    mut_pres, fill = T) %>% { .[naturalorder(patient)][order(hugo_symbol)] }
 
   setkey(gene_dat, patient)
   ## Make sure all patients are represented
   gene_dat <- gene_dat[patient_labels[, naturalsort(unique(patient))]]
   gene_dat[, 'mutated' := any(variant_classification != ''), by = patient]
+  gene_dat <- unique(gene_dat)
   return(gene_dat)
 }
 
