@@ -145,6 +145,7 @@ test_gene_set_difference <- function(gene_set = sig_gene_sets[1],
   return(tst)
 }
 
+
 if (T) {
   t_dat <- test_gene_set_association(
     gene_set = danaher_scores.m[, levels(variable)], timepoint = 'On nivo')

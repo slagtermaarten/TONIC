@@ -10,6 +10,11 @@ timepoint_colors <- maartenutils::gen_color_vector('Zissou1', 1) %>%
   setNames(timepoints)
 
 blood_timepoints <- auto_name(c(-2, 0, 6, 10, 12))
+blood_timepoints_subs <- setNames(blood_timepoints, 
+                                  c(timepoints, 'On nivo 2', 'On nivo 3'))
+blood_timepoints_subs_inv <- setNames(c(timepoints, 'On nivo 2', 'On nivo 3'),
+                                      blood_timepoints)
+
 ## Marleen's ingrained way of ordering the projects
 treatment_arms <- c('Radiotherapy', 'Doxorubicin', 'Cyclophosphamide',
                     'Cisplatin', 'No induction')
@@ -54,9 +59,10 @@ resp_colors <- maartenutils::gen_color_vector('Zissou1', 2) %>%
   attr_pass('class', 'color_vector')
 
 resp_colors <- 
-  maartenutils::darken(rev(gen_color_vector(name = 'Zissou1', n = 2)),
-                       c(1.2, 1.0)) %>%
-  setNames(c('R', 'NR')) %>%
+  maartenutils::darken(c(rev(gen_color_vector(name = 'Zissou1', n = 2)),
+                         'grey70'),
+                       c(1.2, 1.0, 1.0)) %>%
+  setNames(c('R', 'NR', 'NA')) %>%
   attr_pass('class', 'color_vector')
 # plot(resp_colors)
 

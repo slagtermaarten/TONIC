@@ -288,6 +288,17 @@ combine_all_aberrations <- function(gene_symbols = 'B2M') {
   gene_dat <- gene_dat[patient_labels[, naturalsort(unique(patient))]]
   gene_dat[, 'mutated' := any(variant_classification != ''), by = patient]
   gene_dat <- unique(gene_dat)
+  messagef('%f of patients aberrated for gene%s: %s',
+           unique(gene_dat, by = 'patient')[, mean(mutated, na.rm = T)],
+           ifelse(length(gene_symbols) > 1, 's', ''),
+           paste(gene_symbols, collapse = ', '))
+
+  rm_white <- function(x) gsub('^\\s*|\\s*$', '', x)
+  messagef('%s', 
+           apply(gene_dat[, .N, by = variant_classification], 1, 
+                 function(x) sprintf('%s: %s', rm_white(x[[1]]), 
+                                     rm_white(x[[2]]))) %>%
+           paste(collapse = ', '))
   return(gene_dat)
 }
 

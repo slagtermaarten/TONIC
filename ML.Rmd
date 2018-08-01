@@ -136,5 +136,4 @@ head(rf_default$pred)
 
 plot.roc(rf_default$pred$obs[selectedIndices],
          rf_default$pred$M)
-
 ```

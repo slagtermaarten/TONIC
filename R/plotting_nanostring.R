@@ -256,9 +256,13 @@ plot_parallel_coords <- function(p_dat,
   if (filter_vals) {
     p_dat <- filter_patients(p_dat, colour_var, group_var, facet_var, size_var)
   }
+  p_dat[, vipor::offsetX(value, width = swarm_width)]
+  p_dat[, as.integer(get(timepoint_v))]
+  stopifnot(p_dat[, class(get(timepoint_v))] == 'factor')
   p_dat[, 'x_coord' := vipor::offsetX(value, width = swarm_width) +
                      as.integer(get(timepoint_v)),
         by = c(timepoint_v, facet_var)]
+  stopifnot(p_dat[, mean(is.na(x_coord))] < 1)
 
   if (unswarm_zero) {
     p_dat[value == 0, x_coord := as.integer(get(timepoint_v)),
@@ -295,11 +299,11 @@ plot_parallel_coords <- function(p_dat,
       sum_dat[, (colour_var) := NA]
     }
     p <- p + geom_point(aes_string(group = facet_var), shape = 21,
-                        size = 4, alpha = median_line_alpha, colour = 'black',
+                        size = 3, alpha = median_line_alpha, colour = 'black',
                         fill = 'black',
                         data = sum_dat, size = 2)
     p <- p + geom_line(aes_string(group = facet_var), shape = 21,
-                        size = 3, alpha = median_line_alpha,
+                        size = 2, alpha = median_line_alpha,
                         lineend = 'round', colour = 'black',
                         data = sum_dat, size = 2)
 
@@ -390,8 +394,8 @@ plot_p_values_induction <- function(m, size_var = '1/p_val',
     geom_point() +
     rotate_x_labels(rotate_labels = 90) +
     scale_fill_gradient2(name = 'Log2 FC',
-                         low = scales::muted('red'),
-                         high = scales::muted('blue'),
+                         low = scales::muted('blue'),
+                         high = scales::muted('red'),
                          # limits = c(0, 1),
                          na.value = 'white') +
     scale_size_continuous(name = 'Unadjusted p-value',

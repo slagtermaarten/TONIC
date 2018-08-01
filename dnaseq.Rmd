@@ -129,18 +129,14 @@ view_sequenza(patient = 'pat_69', timepoint = 'Baseline')
 
 ```{r, warning=FALSE, echo=FALSE}
 source('R/read_DNASeq.R')
-positions <- data.table('chromosome' = c('15', '15', '17'),
-                        'gene_symbol' = c('B2M', 'B2M', 'TP53'),
-                        'ensg' = c('ENSG00000166710', 'ENSG00000273686', 
-                                   'ENSG00000141510'),
-                        'variant_classification' = c('B2M', 'B2M', 'TP53'),
-                        'start_position' = c(44711547, 44711547, 7669609),
-                        'end_position' = c(44716342, 44716342, 7676594))
-```
-
-```{r, warning=FALSE, echo=FALSE}
-tp53_positions <- positions[3]
-tp53_gene_dat <- combine_all_aberrations(tp53_positions)
+# positions <- data.table('chromosome' = c('15', '15', '17'),
+#                         'gene_symbol' = c('B2M', 'B2M', 'TP53'),
+#                         'ensg' = c('ENSG00000166710', 'ENSG00000273686', 
+#                                    'ENSG00000141510'),
+#                         'variant_classification' = c('B2M', 'B2M', 'TP53'),
+#                         'start_position' = c(44711547, 44711547, 7669609),
+#                         'end_position' = c(44716342, 44716342, 7676594))
+tp53_gene_dat <- combine_all_aberrations('TP53')
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
@@ -166,8 +162,7 @@ write_tsv(tp53_gene_dat,
 
 ```{r, warning=FALSE, echo=FALSE}
 source('R/read_DNASeq.R')
-b2m_positions <- positions[1:2]
-b2m_gene_dat <- combine_all_aberrations(b2m_positions)
+b2m_gene_dat <- combine_all_aberrations(c('B2M'))
 saveRDS(b2m_gene_dat, 'rds/b2m_gene_dat.rds')
 ```
 
@@ -176,6 +171,7 @@ for B2M LOH among non-responders. Nor is there an indication for higher local CN
 estimates.
 
 ```{r, warning=FALSE, echo=FALSE}
+b2m_gene_dat <- readRDS('rds/b2m_gene_dat.rds')
 # table_dat <- unique(b2m_gene_dat, by = 'patient')
 table_dat <- b2m_gene_dat[!is.na(CNt)]
 table_dat$LOH <- grepl('LOH', table_dat$variant_classification)
@@ -206,12 +202,8 @@ b2m_gene_dat[!is.na(CNt)][patient == 'pat_65']
 source('R/read_DNASeq.R')
 # debugonce(intersect_sequenza)
 # debugonce(filter_var_list)
-# gene_dat <- combine_all_aberrations(c('B2M'))
-gene_dat <- combine_all_aberrations(c('MLH1', 'MLH3', 'MSH2', 'MSH3', 'MSH6',
-                                      'PMS1', 'PMS2'))
-gene_dat[, table(variant_classification)]
-
-unique(gene_dat, by = 'patient')[, table(mutated)]
+gene_dat <- combine_all_aberrations(c('MLH1', 'MLH3', 'MSH2', 'MSH3', 
+                                      'MSH6', 'PMS1', 'PMS2'))
 ```
 
 # Stransky plots

@@ -129,7 +129,44 @@ read_adaptive_seqs <- function(force_reload = F) {
   return(invisible())
 }
 
-vcfs <- list.files(file.path(forge_mirror, 'calls'), pattern = '.vcf$') 
+read_annotated_bloodadaptive_seqs <- function(force_reload = F) {
+  if (exists('arr_merged', envir = globalenv()) && !force_reload) {
+    return(invisible()) 
+  }
+  read_adaptive_seqs(force_reload = F)
+  arr_merged <- arr[, {
+    av_tps <- .SD[, unique(timepoint)]
+    if (!any(blood_timepoints %in% av_tps) && any(timepoints %in% av_tps)) {
+      .(NA)
+    }
+     
+    t1 <- .SD[timepoint %in% blood_timepoints]
+    t2 <- .SD[timepoint %in% timepoints, .(amino_acid, timepoint, normalized_frequency)] 
+    setnames(t2, 
+             c('timepoint', 'normalized_frequency'), 
+             ## The first denotes the timepoint at which the blood TCR was
+             ## detected intatumorally, the second the magnitude with which this
+             ## happened
+             c('it_timepoint', 'it_normalized_frequency'))
+    merge(t1, t2, all.x = T, all.y = F, allow.cartesian = T)
+  }, by = patient]
+
+  arr_merged[, it_timepoints := NULL]
+  system.time(arr_merged[order(it_timepoint), 
+              'it_timepoints' := paste(unique(it_timepoint), collapse = ' - '), 
+              # 'it_timepoints' := as.list(as.integer(it_timepoint)),
+              by = .(patient, amino_acid)])
+
+  arr_merged[stringr::str_length(it_timepoints) > 30]
+  # arr_merged[patient == 'pat_14' & amino_acid == 'CA*SSQAYSYNSPLHF']
+  # arr[patient == 'pat_15' & amino_acid == 'CADRDEPLREQFF']
+  assign('arr_merged', arr_merged, envir = globalenv())
+
+  return(invisible())
+}
+
+
+vcfs <- list.files(file.path(forge_mirror, 'calls'), pattern = 'combined.vcf$') 
 vcf_table <- data.table(vcf_fn = vcfs)
 vcf_table[, 'tumor_cf' := gsub('.{2}_.{4}_.{1,2}_(CF\\d{5})_.*', 
                                '\\1', vcf_fn)]
@@ -148,3 +185,33 @@ contra_fns[, 'tumor_cf' := gsub('.{4}_.{1,2}_(CF\\d{5})_.*',
 wes_table <- merge(contra_fns, vcf_table, all = T)
 rm(vcf_table)
 rm(contra_fns)
+
+sequenza_fns <- list.files(file.path(forge_mirror, 'sequenza_plots', 'seqres'), 
+                           pattern = 'segments.txt$') 
+sequenza_fns <- data.table(sequenza_fn = sequenza_fns)
+sequenza_fns[, 'tumor_cf' := gsub('.{1,2}_(CF\\d{5})_.*', '\\1', sequenza_fn)]
+sequenza_fns[, sequenza_fn := file.path(forge_mirror, 'sequenza_plots', 'seqres', sequenza_fn)]
+wes_table <- controlled_merge(wes_table, sequenza_fns, dup_priority = 'b')
+rm(sequenza_fns)
+
+
+read_cibersort <- function(fn = file.path('data-raw', 'CIBERSORT.Output_Job2.csv')) {
+  cibersort <- fread(fn) %>% normalize_colnames()
+  setnames(cibersort, 'input_sample', 'cf_number')
+  colnames(cibersort) <- gsub('_\\(tregs\\)', '', colnames(cibersort))
+  cibersort[, cf_number := tolower(cf_number)]
+  cibersort <-
+    controlled_merge(cibersort, rna_sample_annotation[, .(cf_number, patient,
+                                                        timepoint)],
+                   by_cols = 'cf_number')
+  cibersort <-
+    controlled_merge(cibersort, 
+                     rna_sample_annotation[, .(patient, arm, clinical_response)],
+                     by_cols = 'patient')
+  # cibersort[, timepoint := factor(timepoint, levels = timepoints)]
+  cibersort[, timepoint := droplevels(timepoint)]
+  cibersort[, cf_number := NULL]
+  # cibersort[is.na(clinical_response), clinical_response := 'NA']
+  return(cibersort)
+}
+

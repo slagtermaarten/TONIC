@@ -55,7 +55,7 @@ and further specify exact parameters.
 ```{r, warning=FALSE, echo=FALSE}
 # source('R/test_associations.R')
 # debugonce(prepare_test_gene_set_difference)
-
+tp1 = 'Baseline'; tp2 = 'On nivo'
 prep_comp_data <- function(tp1 = 'Baseline', tp2 = 'On nivo') {
   dtf <- prepare_test_gene_set_difference(gene_set = sig_gene_sets, 
                                           tp1 = tp1,
@@ -64,10 +64,11 @@ prep_comp_data <- function(tp1 = 'Baseline', tp2 = 'On nivo') {
   dtf <- controlled_merge(dtf, patient_labels[, .(patient, s_til, ca15_3)], 
                           by_cols = 'patient') %>%
     { .[complete.cases(.), ] }
+  return(dtf)
 }
 
-dtf <- prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction')
 dtf <- prep_comp_data(tp1 = 'Baseline', tp2 = 'On nivo')
+dtf <- prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction')
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
@@ -79,31 +80,44 @@ explore_confounder <- function(conf_var = 's_til') {
   p1 <- ggplot(dtf, aes_string(x = conf_var, y = 'FC', colour = 'arm')) + 
     scale_colour_manual(name = '', values = tonic_color_palettes[['arm']]) +
     geom_point() +
-    scale_y_continuous(name = sprintf('log2 Fold change between %s and %s\nin the median of response-associated genesets scores', 
-                                      tp1, tp2)) +
+    scale_y_continuous(name = sprintf('log2 Fold change between %s and %s\nin the median of response-associated genesets scores', tp1, tp2)) +
     scale_x_continuous(name = var_to_label(conf_var, label_reps)) +
     ggplot2::theme(legend.position = 'left', legend.direction = 'vertical',
                    aspect.ratio = 1)
   ggMarginal(p1, groupColour = TRUE, groupFill = TRUE, type = 'histogram')
 }
 explore_confounder('s_til')
-explore_confounder('ca15_3')
+# explore_confounder('ca15_3')
 ```
 
 # Regression modelling of the observed FCs
 
-
 ```{r, brm1, warning=FALSE, echo=FALSE}
 source('R/bayes.R')
 brm_fc <- do.call('brm', 
-                  c(list(formula = bf(FC ~ (1 | arm), nl = F), 
+                  c(list(formula = bf(FC ~ 1 + (1 | arm), nl = F), 
                          data = dtf, family = gaussian()),
+                         # prior = c(
+                         #   prior(student_t(3, 0, 10), "sd_g_Intercept"),
+                         #   prior(student_t(3, 0, 10), "sd")
+                         # ),
                          brms_settings[c('warmup', 'iter', 
                                          'chains', 'control')]))
 print(brm_fc)
 ```
 
-```{r, brm2, warning=FALSE, echo=FALSE}
+```{r, warning=FALSE, echo=FALSE}
+posterior_samples(brm_fc, "b")
+get_prior(FC ~ 0 + (0 + intercept | arm), data = dtf, family = gaussian())
+get_prior(FC ~ 0 + intercept, data = dtf, family = gaussian())
+```
+
+```{r, warning=FALSE, echo=FALSE}
+pp_check(brm_fc)
+plot(brm_fc)
+```
+
+```{r, eval = F, brm2, warning=FALSE, echo=FALSE}
 # source('R/bayes.R')
 # devtools::load_all(file.path('~/libs', 'maartenutils'))
 # debugonce(posterior_histogram)
@@ -114,6 +128,7 @@ brm_fc_stil <- do.call('brm',
                                               'chains', 'control')]))
 print(brm_fc_stil)
 ```
+
 
 Comparing the leave-one-out-cross-validation performance, the simpler model
 taking along just treatment arm actually prevails. This is not unexpected given
@@ -137,13 +152,41 @@ Doxorubicin is ~80%. I haven't done other comparisons yet, should I compare all
 induction arms to the No induction arm?
 
 ```{r, warning=FALSE, echo=FALSE, fig.width = 14/2.54, fig.height = 10/2.54}
+source('R/bayes.R')
+# brm_fc
+p_names <- names(brm_fc$fit@sim$samples[[1]])
+
 posterior_histogram(brms_object = brm_fc,
                     name = 'Model: Induction therapy',
+                    binwidth = .05,
                     cols = tonic_color_palettes[['arm']],
                     x_lab = 'Contribution to FC',
-                    variables = c('Doxorubicin', 'Cisplatin', 'No.induction')) +
+                    # variables = c('Doxorubicin', 'Cisplatin', 'No.induction')) +
+                    variables = gsub(' ', '\\.', treatment_arms)) + 
   theme(legend.position = 'right') + 
   ggtitle('Baseline model')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+p <- stanplot(brm_fc, pars = '^r_.*(arm)', type = 'intervals') + theme_ms()
+p <- p + scale_y_discrete(limits = rev(grep('r_arm', 
+                                        names(brm_fc$fit@sim$samples[[1]]), 
+                                        value = T)), 
+                          labels = rev(treatment_arms))
+p <- p + xlab('Arm FC relative to all patients (log2)')
+print(p)
+fn <- file.path(img_dir, 'bayesian_FC_intercepts.pdf')
+ggsave(plot = p, file = fn,
+       width = 7, height = 10, units = 'cm')
+sys_file_open(fn)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+dtf <- extract_params(brm_fc, 
+               params = grep('r_arm', names(brm_fc$fit@sim$samples[[1]]), 
+                             value = T))
+lapply(dtf, function(x) quantile(x, probs = c(0.025, .975)))
+lapply(dtf, function(x) quantile(x, probs = c(0.05, .95)))
 ```
 
 ```{r, warning=FALSE, echo=FALSE, fig.width = 14/2.54, fig.height = 10/2.54}
@@ -154,4 +197,34 @@ posterior_histogram(brms_object = brm_fc_stil,
                     variables = c('Doxorubicin', 'Cisplatin', 'No.induction')) +
   theme(legend.position = 'right') +
   ggtitle('Expanded model')
+```
+
+
+
+```{r, warning=FALSE, echo=FALSE}
+compute_bayesian_p_val <- function(brms_object = brm_fc,
+                                   name = '', 
+                                   offset_val = 1,
+                                   group_name = 'induction_therapy',
+                                   param_capture = '.*\\[(.*),Intercept\\]',
+                                   x_lab = 'Contribution to response probability',
+                                   cols = NULL,
+                                   variables = c('Doxorubicin', 'Cisplatin')) {
+  ## Subselect group variables
+  p_names <- names(brms_object$fit@sim$samples[[1]])
+  p_names <- grep(param_capture, p_names, value = T)
+  p_names <- setNames(p_names, 
+                      tolower(gsub(param_capture, '\\1', p_names)))
+  if (all(sapply(variables, is.null))) 
+    variables <- names(p_names)
+  
+  p_dat <- as.data.frame(extract_params(brms_object, p_names))
+  comp_vals <- setdiff(1:length(p_names), offset_val)
+  setNames(sapply(comp_vals, function(comp_val) 
+           mean(p_dat[, offset_val] < p_dat[, comp_val])),
+           names(p_names)[comp_vals])
+  sapply(setNames(comp_vals, names(p_names)[comp_vals]), 
+         function(x) quantile(p_dat[, x], probs = c(.025, .5, .975)))
+}
+compute_bayesian_p_val()
 ```

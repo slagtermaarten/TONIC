@@ -172,7 +172,7 @@ plot_gene_set <- function(gs = NULL,
                 annCol = ann_col,
                 # annColors = ann_colors,
                 filename = fn,
-                main = simple_cap(paste0(tolower(gs_name), fn_extra)))
+                main = tonic_cap(paste0(tolower(gs_name), fn_extra)))
   sys_file_open(fn)
 }
 
@@ -272,9 +272,6 @@ compute_leading_edge_gene_scores <- function(res, fdr_thresh = .25) {
   }), fill = T) %>%
   controlled_merge(patient_labels[, .(patient, arm, clinical_response)],
                    by = 'patient')
-  ## Only keep scores for arms that passed the FDR threshold
-  dtf <- dtf[as.character(gsea_arm) == 'All arms' |
-             as.character(gsea_arm) == as.character(arm)]
   dtf[, 'value' := gs_score]
   return(dtf)
 }
@@ -282,35 +279,51 @@ compute_leading_edge_gene_scores <- function(res, fdr_thresh = .25) {
 
 #' Plot parallel coordinates of leading edge gene sets
 #'
-#'
-plot_leading_edge_gene_scores <- function(dtf, res_name = 'paired') {
+#' @param allow_nonsensical Only plot scores for gene set-arm combinations that
+#' passed the FDR threshold
+plot_leading_edge_gene_scores <- function(dtf, res_name = 'paired',
+                                          allow_nonsensical = F) {
+
+  if (!allow_nonsensical) {
+    dtf <- dtf[as.character(gsea_arm) == 'All arms' |
+               as.character(gsea_arm) == as.character(arm)]
+  }
   plots <- dtf %>% 
     unique(by = c('gsea_arm', 'gene_set')) %>%
     dplyr::mutate(gsea_arm = as.character(gsea_arm)) %>%
     pmap(function(gene_set, gsea_arm, ...) {
       gs <- gene_set
       l_arm <- gsea_arm
-      p_dat <- dtf[as.character(gene_set) == as.character(gs) &
-                   as.character(gsea_arm) == as.character(l_arm)]
-      if (l_arm == 'All arms') {
-        facet_var <- NULL
-      } else {
-        facet_var <- 'arm'
-      }
-      if (gsea_name == 'paired') {
+      p_dat <- dtf[as.character(gene_set) == gs &
+                   as.character(gsea_arm) == l_arm]
+      # if (!allow_nonsensical) {
+        if (l_arm == 'All arms') {
+          facet_var <- NULL
+        } else {
+          facet_var <- 'arm'
+        }
+      # } else {
+      #   facet_var <- 'arm'
+      # }
+      if (grepl('(?<!un)paired', res_name, perl = T)) {
         allowed_pats <- p_dat[, .N == 2, by = patient][V1 == T, patient]
         p_dat <- p_dat[patient %in% allowed_pats]
       }
+      emph_labels <- rep('plain', 5)
+      emph_labels[which(p_dat[, levels(arm)] == l_arm)] <- 'bold'
       plot_parallel_coords(p_dat = p_dat,
                            colour_var = 'clinical_response',
                            facet_var = facet_var) +
-        ggtitle(sprintf('%s', simple_cap(tolower(gs))))
+        ggtitle(sprintf('%s - %s', tonic_cap(gene_set), gsea_arm)) +
+        ## Emphasize the arm in which the leading edge genes are defined
+        ## Not working ATM
+        theme(strip.text = element_text(face = emph_labels))
     })
 
   plot_panel_layout(plots, 
                     filename = sprintf('plots2/leading_edge_gene_scores_%s.pdf',
                                        res_name),
-                    ncol = 3, nrow = 3)
+                    ncol = 1, nrow = 3, labels = NULL)
 }
 
 

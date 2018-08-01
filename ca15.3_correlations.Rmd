@@ -141,7 +141,7 @@ plot_dist <- function(dtf = comb_dat[timepoint == 'Baseline'],
                           fill = 'type')) +
     geom_histogram(binwidth = .01, color = 'black', position = 'stack') +
     scale_fill_manual(name = '', values = mycols) +
-    xlab(sprintf('%s correlation coefficient', simple_cap(cor_measure))) +
+    xlab(sprintf('%s correlation coefficient', tonic_cap(cor_measure))) +
     ylab('Relative frequency') +
     theme(legend.position = 'top')
 

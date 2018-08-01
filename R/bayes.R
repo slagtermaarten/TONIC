@@ -120,6 +120,7 @@ posterior_histogram <- function(brms_object = brm_tonic,
                                 offset_val = 1,
                                 group_name = 'induction_therapy',
                                 param_capture = '.*\\[(.*),Intercept\\]',
+                                binwidth = .1,
                                 x_lab = 'Contribution to response probability',
                                 cols = NULL,
                                 variables = c('Doxorubicin', 'Cisplatin')) {
@@ -139,17 +140,18 @@ posterior_histogram <- function(brms_object = brm_tonic,
   
   p_dat <- as.data.frame(extract_params(brms_object, 
                                         p_names[tolower(variables)]))
-  comp_val <- setdiff(1:length(p_names), offset_val)[1]
-  prop_low <- mean(p_dat[, offset_val] < p_dat[, comp_val])
+  # comp_val <- setdiff(1:length(p_names), offset_val)[1]
+  # prop_low <- mean(p_dat[, offset_val] < p_dat[, comp_val])
+  prop_low <- NULL
   N_samples <- max(1e3, nrow(p_dat))
   p_dat <- melt(p_dat[sample(1:nrow(p_dat))[1:N_samples], ], formula = ~ .)
   medians <- p_dat %>% group_by(variable) %>% summarise('med' = median(value))
   p_dat <- as.data.table(p_dat)
-  p_dat <- remove_outliers(p_dat, by_cols = 'variable', test_cols = 'value')
+  # p_dat <- remove_outliers(p_dat, by_cols = 'variable', test_cols = 'value')
 
   p <- ggplot(filter(p_dat, variable %in% tolower(variables)),
               aes(x = value, fill = variable, y=..density..)) +
-    geom_histogram(alpha = .3, position = 'identity', binwidth = .2) +
+    geom_histogram(alpha = .3, position = 'identity', binwidth = binwidth) +
     scale_x_continuous(trans = 'identity', name = x_lab) +
     theme(legend.position = 'right', legend.direction = 'vertical')
 

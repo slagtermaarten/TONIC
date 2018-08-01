@@ -1,7 +1,28 @@
-plot_cor_mat <- function(tp = timepoints,
+#' Cross data type correlation matrix
+#'
+#'
+plot_cor_mat <- function(tp = 'Baseline',
                          cormethod = 'spearman',
                          sig_level = c(.05, .0005, 000005)) {
   library(corrplot)
+
+  patient_labels <- controlled_merge(patient_labels, seq_stat_overview)
+  cibersort <- read_cibersort()
+  cibersort[, rmse := NULL]
+  cibersort[, p_value := NULL]
+  cibersort_celltypes <- setdiff(colnames(cibersort), c('patient', 'timepoint'))
+  setnames(cibersort, cibersort_celltypes, 
+           sprintf('cibersort_%s', cibersort_celltypes))
+  patient_labels <- controlled_merge(patient_labels, cibersort,
+                                     by_cols = c('patient', 'timepoint'))
+  # patient_labels[, .( t_cells_cd8,
+  #                      t_cells_cd4_naive,
+  #                      t_cells_cd4_memory_resting,
+  #                      t_cells_cd4_memory_activated,
+  #                      t_cells_follicular_helper,
+  #                      t_cells_regulatory,
+  #                      neutrophils)]
+
   p_dat <-
     patient_labels[, .(timepoint,
                        tis_score,
@@ -9,36 +30,60 @@ plot_cor_mat <- function(tp = timepoints,
                        adaptive_t_cells,
                        sample_amount_ng,
                        cd8_mm2,
+                       cibersort_t_cells_cd8,
+                       cibersort_t_cells_cd4_naive,
+                       cibersort_t_cells_cd4_memory_resting,
+                       cibersort_t_cells_cd4_memory_activated,
+                       cibersort_t_cells_follicular_helper,
+                       cibersort_t_cells_regulatory,
+                       cibersort_neutrophils,
                        pd_l1_tumor,
                        pd_l1_immunoinfiltrate,
                        ca15_3,
                        ldh,
                        crp,
                        s_til,
+                       mut_load,
+                       DD_rank,
+                       gen_SCNA_score,
+                       weighted_gen_SCNA_score,
+                       perc_LOH,
+                       weighted_perc_LOH,
                        ichao1,
                        observed_richness,
                        efron_thisted_estimator,
                        daley_smith_estimator)] %>%
-    as.data.frame() %>%
+    as.data.frame 
+
+  p_dat <- p_dat %>%
     dplyr::filter(timepoint %in% tp) %>%
     dplyr::select(-timepoint) %>%
+    # { .[, apply(., 2, function(x) all(!is.na(x))), ] } %>%
     { .[apply(., 1, function(x) all(!is.na(x))), ] } %>%
     as.matrix
+
+  print(dim(p_dat))
 
   ## Format column names a bit
   colnames(p_dat) <- gsub('^s_', 'stromal ', colnames(p_dat))
   colnames(p_dat) <- gsub('pd_l1', 'PD-L1', colnames(p_dat))
   colnames(p_dat) <- gsub('ca15_3', 'ca15.3', colnames(p_dat))
-  colnames(p_dat) <- simple_cap(gsub('_', ' ', colnames(p_dat)),
-    caplist = c('mm2', 'Ichao1', 'cells', 'TIS', 'score', 's', 'ng', 'LDH',
-                'CRP', 'TIL'), cap_first_word_only = T)
+  colnames(p_dat) <- gsub('mut', 'mut.', colnames(p_dat))
+  colnames(p_dat) <- gsub('t_cell', 'T cell', colnames(p_dat))
+  colnames(p_dat) <- gsub('gen', 'gen.', colnames(p_dat))
+  colnames(p_dat) <- tonic_cap(gsub('_', ' ', colnames(p_dat)), 
+                               cap_first_word_only = T)
+
+  p_mat <- cor.mtest(p_dat, method = cormethod)$p
+  p_mat <- matrix(p.adjust(p_mat, method = 'fdr'), 
+                  nrow = nrow(p_mat), byrow = T)
 
   corrplot(cor(p_dat, method = cormethod),
-           p.mat = cor.mtest(p_dat, method = cormethod)$p,
+           p.mat = p_mat,
            addrect = 6,
            tl.col = 'gray40',
            pch.col = 'white',
-           pch.cex = .9,
+           pch.cex = .6,
            # order = 'AOE',
            order = "hclust",
            # tl.pos = 'ld',
@@ -50,7 +95,7 @@ plot_cor_mat <- function(tp = timepoints,
            mar = c(0,0,6,0), # http://stackoverflow.com/a/14754408/54964
            title = sprintf('%s - %s',
                            paste(tp, collapse = ', '),
-                           simple_cap(cormethod, cap_first_word_only = T)))
+                           tonic_cap(cormethod, cap_first_word_only = T)))
 }
 
 
@@ -502,7 +547,8 @@ format_patient_title <- function(patient) {
 #'
 #'
 get_FC_fn <- function(patient, tp1, tp2, tp3, tp4, y_var = '') {
-  file.path(rds_dir, 'FCs', sprintf('%s_FCs_%s_%s_%s%s.rds',
+  # list.files(file.path(rds_dir, 'FCs'))
+  file.path(rds_dir, 'FCs', sprintf('%s_FCs_%s_%s_%s_%s.rds',
                                     patient, tp1, tp2, tp3, tp4,
                                     ifelse(y_var == '', '', 
                                            sprintf('_%s', y_var))))
@@ -514,9 +560,8 @@ get_FC_fn <- function(patient, tp1, tp2, tp3, tp4, y_var = '') {
 #'
 plot_tp_comp_FCs <- function(tp1 = 'Baseline', tp2 = 'Post-induction',
                              tp3 = '-2', tp4 = '0', 
-                             y_var = 'normalized_frequency') {
-  read_adaptive_seqs()
-
+                             y_var = 'normalized_frequency', 
+                             tcr_subset = NULL) {
   plyr::llply(arr[, naturalsort::naturalsort(auto_name(unique(patient)))],
               function(patient) {
     fn <- get_FC_fn(patient, tp1, tp2, tp3, tp4, y_var)
@@ -524,6 +569,19 @@ plot_tp_comp_FCs <- function(tp1 = 'Baseline', tp2 = 'Post-induction',
       FCs <- readRDS(fn)
     } else {
       return(NULL)
+    }
+
+    ## 2018-06-18 14:52 added it turns out this is not what I need as no TCRs
+    ## are filtered out.
+    if (!is.null(tcr_subset)) {
+      if (tcr_subset == 'til_baseline') {
+        FCs <- 
+          controlled_merge(FCs, 
+                           arr[timepoint == 'Baseline' & 
+                               patient == parent.frame(3)$patient,
+                               .(timepoint, patient, normalized_frequency)])
+        FCs <- FCs[normalized_frequency > 0]
+      }
     }
 
     ggplot(FCs, aes(x = exp1, y = exp2)) + geom_count(alpha = .1) +
@@ -609,7 +667,9 @@ compare_adaptive_summary_stats <- function(tp1 = 'Baseline',
       }
     }
   } else if (x_var == 'clinical_response') {
-    p1 <- p1 + ggpubr::stat_compare_means(label.y = t_dat[, 1.2 * max(value)])
+    p1 <- p1 + ggpubr::stat_compare_means(label.y = t_dat[, 1.5 * max(value)])
+    p1 <- p1 + ggpubr::stat_compare_means(label.y = t_dat[, 1.2 * max(value)],
+                                          comparisons = t_dat[, unique(label)])
   }
   p1 <- p1 + scale_fill_manual(name = '', 
                                values = tonic_color_palettes[[colour_var]])
@@ -707,30 +767,40 @@ prepare_TCR_chrono <- function(patient = 'pat_11',
                                facet_var = NULL,
                                colour_var = 'shared_timepoints',
                                allowed_timepoints = timepoints,
+                               cluster_tcrs = T,
                                # p_var = 'productive_frequency',
                                p_var = 'normalized_frequency',
                                compartment = 'tumor') {
-  read_adaptive_seqs(force_reload = F)
-  pat_arr <- unique(arr[patient %in% parent.frame(3)$patient &
-                        get(timepoint_v) %in% allowed_timepoints,
-                        .(adaptive_sample_name, amino_acid, productive_frequency,
-                          normalized_frequency, timepoint)])
+  
+  if (compartment == 'tumor') {
+    read_adaptive_seqs(force_reload = F)
+    pat_arr <- unique(arr[patient %in% parent.frame(3)$patient &
+                          get(timepoint_v) %in% allowed_timepoints,
+                          .(adaptive_sample_name, amino_acid, productive_frequency,
+                            normalized_frequency, timepoint)])
+  } else if (compartment == 'blood') {
+    read_annotated_bloodadaptive_seqs(force_reload = F)
+    pat_arr <- arr_merged[patient %in% parent.frame(3)$patient &
+                          get(timepoint_v) %in% allowed_timepoints] %>%
+      unique(by = c('amino_acid', 'timepoint')) 
+      # { .[!is.na(it_timepoints) & it_timepoints != 'NA'] }
+  }
+  if (null_dat(pat_arr)) return(NULL)
   if (pat_arr[, uniqueN(timepoint)] == 1 && 
       length(allowed_timepoints) > 1) return(NULL)
-  if (null_dat(pat_arr)) return(NULL)
   pat_arr[, productive_frequency := sum(productive_frequency, na.rm = T),
           by = .(amino_acid, timepoint)]
   pat_arr[, normalized_frequency := sum(normalized_frequency, na.rm = T),
           by = .(amino_acid, timepoint)]
   pat_arr <- unique(pat_arr)
-  # pat_arr[amino_acid %in% 'CSVQGAGTEAFF']
-  # pat_arr[amino_acid %in% 'CSVPDPLGNTEAFF']
+  if (null_dat(pat_arr)) return(NULL)
 
   setkey(pat_arr, amino_acid, timepoint)
   subs <- expand.grid('amino_acid' = pat_arr[, unique(amino_acid)],
                       'timepoint' = pat_arr[, unique(timepoint)]) %>%
     as.data.table
   # subs[, .N, by = amino_acid][N != length(timepoints)]
+  ## Ensure each timepoints-TCR combination is represented in the data
   pat_arr <- pat_arr[subs, ]
 
   # pat_arr[amino_acid %in% pat_arr[, .N, by = amino_acid][N != 3, amino_acid]] %>%
@@ -738,25 +808,52 @@ prepare_TCR_chrono <- function(patient = 'pat_11',
   #   { .[, .N == 0] } %>%
   #   stopifnot()
 
-  pat_arr[, timepoint := factor(timepoint, levels = timepoints)]
+  pat_arr[, timepoint := factor(timepoint, 
+                                levels = c(timepoints, blood_timepoints))]
   pat_arr[is.na(normalized_frequency), normalized_frequency := 0]
   pat_arr[is.na(productive_frequency), productive_frequency := 0]
   pat_arr[, 'value' := get(p_var)]
-  pat_arr[, 'shared_timepoints' := sum(value > 0), by = amino_acid]
-  pat_arr[, shared_timepoints := factor(shared_timepoints)]
-  wide_dat <- dcast(pat_arr, amino_acid ~ timepoint, value.var = 'value')
-  timepoints_present <- intersect(timepoints, pat_arr[, unique(timepoint)])
-  wide_dat[, 'clone_N' := .N, by = timepoints_present]
-  cluster_assigns <- unique(wide_dat, by = timepoints_present) %>%
-    { .[, 'cluster_ID' := 1:.N] }
-  wide_dat <-
-    controlled_merge(wide_dat,
-                     cluster_assigns[, c('cluster_ID', timepoints_present),
-                                     with = F])
-  pat_arr <- controlled_merge(pat_arr,
-                              wide_dat[, .(amino_acid, cluster_ID, clone_N)])
-  pat_arr <- pat_arr[shared_timepoints != 0]
-  pat_arr <- unique(pat_arr, by = c('cluster_ID', 'timepoint'))
+  pat_arr[, 'shared_timepoints' := factor(sum(value > 0)), by = amino_acid]
+  pat_arr[it_timepoints == 'NA', it_timepoints := NA]
+  pat_arr[is.na(it_timepoints), it_timepoints := 'None']
+  it_timepoints_levs <- c('None', 'Baseline', 'Baseline - Post-induction',
+                          'Baseline - On nivo', 
+                          'Baseline - Post-induction - On nivo', 
+                          'Post-induction', 'Post-induction - On nivo',
+                          'On nivo')
+  pat_arr[, it_timepoints := factor(it_timepoints, levels = it_timepoints_levs)]
+
+  ## Determine how to cluster TCRs into 'similar dynamic behaviour'
+  if (cluster_tcrs) {
+    if (compartment == 'tumor' || 
+        (compartment == 'blood' && colour_var == 'shared_timepoints')) {
+      wide_dat <- dcast(pat_arr, amino_acid ~ timepoint, value.var = 'value')
+    } else if (compartment == 'blood' && colour_var == 'it_timepoints') {
+      wide_dat <- dcast(pat_arr, amino_acid ~ timepoint + it_timepoints, 
+                        value.var = 'value')
+    } else { 
+      stopf('Not implemented')
+    }
+    timepoints_present <- intersect(c(timepoints, blood_timepoints), 
+                                    pat_arr[, unique(get(timepoint_v))])
+    wide_dat_cols <- setdiff(colnames(wide_dat), 'amino_acid')
+    wide_dat[, 'cluster_N' := .N, by = wide_dat_cols]
+    cluster_assigns <- unique(wide_dat, by = wide_dat_cols) %>%
+      { .[, 'cluster_ID' := 1:.N] }
+    wide_dat <-
+      controlled_merge(wide_dat,
+                       cluster_assigns[, c('cluster_ID', wide_dat_cols),
+                                       with = F])
+    pat_arr <- controlled_merge(pat_arr,
+                                wide_dat[, .(amino_acid, cluster_ID, cluster_N)])
+    pat_arr <- pat_arr[shared_timepoints != 0]
+    if (compartment == 'tumor') {
+      pat_arr <- unique(pat_arr, by = c('cluster_ID', 'timepoint'))
+    } else {
+      pat_arr <- unique(pat_arr, by = c('cluster_ID', 'timepoint', 
+                                        'it_timepoints'))
+    }
+  }
   return(pat_arr)
 }
 
@@ -766,6 +863,7 @@ plot_TCR_chronological <- function(patient = 'pat_11',
                                    facet_var = NULL,
                                    colour_var = 'shared_timepoints',
                                    allowed_timepoints = timepoints,
+                                   grep_it_timepoints = NULL,
                                    # p_var = 'productive_frequency',
                                    p_var = 'normalized_frequency',
                                    compartment = 'tumor') {
@@ -775,20 +873,31 @@ plot_TCR_chronological <- function(patient = 'pat_11',
                                 p_var = p_var, compartment = compartment)
   if (null_dat(pat_arr)) return(NULL)
 
-  size_breaks <- setNames(unlist(pat_arr[, .(min(clone_N),
-                                             ceiling(mean(range(clone_N))), 
-                                             max(clone_N))]), NULL)
+  size_breaks <- setNames(unlist(pat_arr[, .(min(cluster_N),
+                                             ceiling(mean(range(cluster_N))), 
+                                             max(cluster_N))]), NULL)
 
-  cols <- gen_color_vector(n = 3, name = 'Zissou1') %>%
-    darken(c(1, 1.15, 1)) %>%
-    { .[1:pat_arr[, uniqueN(shared_timepoints)]] } %>%
-    setNames(NULL) %>%
-    attr_pass('class', 'color_vector')
+  if (colour_var == 'shared_timepoints') {
+    cols <- gen_color_vector(n = 3, name = 'Zissou1') %>%
+      darken(c(1, 1.15, 1)) %>%
+      { .[1:pat_arr[, uniqueN(shared_timepoints)]] } %>%
+      setNames(NULL) %>%
+      attr_pass('class', 'color_vector')
+  } else if (colour_var == 'it_timepoints') {
+    cols <- gen_color_vector(n = pat_arr[, uniqueN(it_timepoints)], 
+                             name = 'Zissou1') %>%
+      setNames(NULL) %>%
+      attr_pass('class', 'color_vector')
+  }
+
+  if (!is.null(grep_it_timepoints)) {
+    pat_arr <- pat_arr[grepl(grep_it_timepoints, it_timepoints)]
+  }
 
   p <- plot_parallel_coords(pat_arr,
     facet_var = facet_var,
     filter_vals = F,
-    size_var = 'clone_N',
+    size_var = 'cluster_N',
     timepoint_v = timepoint_v,
     point_alpha = .5,
     line_alpha = .1,

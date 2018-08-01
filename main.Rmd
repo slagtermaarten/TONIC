@@ -210,9 +210,9 @@ ggsave(plot = ml,
 ```{r, warning=FALSE, echo=FALSE}
 library(corrplot)
 
-cor_mat <-
-  danaher_scores.m[, dcast(data = .SD, formula = patient ~ variable,
-                           value.var = 'value'), by = timepoint]
+seq_stat_overview <- 
+  rbindlist(lapply(patient_labels[, unique(patient)], compute_sequenza_stats))
+patient_labels <- controlled_merge(patient_labels, seq_stat_overview)
 
 plot_cor_mat <- function(tp = 'Baseline',
                          cormethod = 'spearman') {
@@ -227,7 +227,7 @@ plot_cor_mat <- function(tp = 'Baseline',
                       # Combine with significance
              # sig.level = 0.05, insig = "blank",
              mar=c(0,0,1,0), # http://stackoverflow.com/a/14754408/54964
-             title = sprintf('%s - %s', tp, simple_cap(cormethod)))
+             title = sprintf('%s - %s', tp, tonic_cap(cormethod)))
 }
 
 pdf(file = file.path(plot_dir, 'danaher_signature_correlations.pdf'),

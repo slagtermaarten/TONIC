@@ -19,4 +19,3 @@ for (vn in grep('ranked', setdiff(colnames(seq_stat_overview), 'patient'),
   rank_percentile(seq_stat_overview, vn)
 }
 invisible(seq_stat_overview[, 'DD_rank' := mut_load_ranked + weighted_gen_SCNA_score])
-# plot(seq_stat_overview[, .(mut_load_ranked, weighted_gen_SCNA_score)])

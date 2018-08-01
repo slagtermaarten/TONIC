@@ -17,6 +17,7 @@ REMOTEPROOT='/DATA/users/m.slagter/TONIC'
 SSHCOM="$REMOTEUNAME@$SERVER"
 NICEVAL=15
 FLAGS='-aviuzP'
+FLAGS='-aiuzP'
 
 # Explanation of rsync flags
 # -a archive mode, same as -rlptgoD
@@ -77,7 +78,7 @@ case "$1" in
         echo "Saving log to : ${LOGFILE}"
         ;;
     runremote|rr)
-        SC="$REMOTEPROOT/R/ifn_remote_analyses.R"
+        SC="$REMOTEPROOT/R/remote_analyses.R"
         LF="${SC:t:r}.log"
         COM="nohup nice -n $NICEVAL Rscript $SC > ~/$LF 2>&1 &"
 
@@ -109,11 +110,13 @@ case "$1" in
         # First sync results, some of which are in maarten-analyses, so as not
         # to delete them remotely if they're not present locally yet
         # $0 stf fas_shared_analyses -d
+        echo "Syncing code to remote $SERVER..."
         eval "rsync $FLAGS ~/libs/maartenutils $SSHCOM:~/libs"
         eval "rsync $FLAGS ~/libs/serializer $SSHCOM:~/libs"
         eval "rsync $FLAGS ~/libs/GSEAgenesets $SSHCOM:~/libs"
+        eval "rsync $FLAGS ~/antigenic_space/bin/install_packages.R $SSHCOM:~/antigenic_space/bin"
         eval "rsync $FLAGS $PROOT $SSHCOM:$REMOTEPROOT"
-        echo "\n\nFinished syncing code to remote\n\n"
+        echo "Finished syncing code to remote"
         ;;
     syncfromfile|sff)
         if [[ "$2" == "-d" ]]; then
@@ -151,7 +154,7 @@ case "$1" in
           DELETEFLAG="--delete"
           echo "Deleting extraneous"
         fi
-        eval "rsync $FLAGS $DELETFLAG $localloc $remoteloc"
+        eval "rsync $FLAGS $DELETEFLAG $localloc $remoteloc"
         ;;
     syncdatadelete|sddc)
         local ans

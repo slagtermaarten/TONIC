@@ -120,11 +120,12 @@ levels. Shown below are all correlation coefficients for all of the gene
 signatures fold changes with the four indicated variables in the panel rows.
 
 ```{r, warning=FALSE, echo=FALSE}
-test_confounding_cor_hists <- function(tp1 = 'Baseline', tp2 = 'Post-induction') {
+test_confounding_cor_hists <- function(tp1 = 'Baseline', 
+                                       tp2 = 'Post-induction') {
   c_dat_exp <- prepare_nano_bivariates(x_var = tp1,
                                        y_var = tp2,
                                        colour_var = 'arm') %>%
-    merge(clinical_annotation, by = 'patient')
+    maartenutils::controlled_merge(clinical_annotation, by = 'patient')
 
   comp_vars <- c(tp1, 'ca15_3', 's_til', 'pd_l1_immunoinfiltrate')
 

@@ -52,7 +52,7 @@ source('R/test_associations.R')
 # debugonce(plot_parallel_coords_geneset)
 # debugonce(plot_parallel_coords)
 for (sig in c('tis', 'ifn.gamma', 'cytotoxicity')) {
-  plot_parallel_coords_geneset(sig, colour_var = colour_var, 
+  plot_parallel_coords_geneset(sig, colour_var = 'clinical_response', 
                                median_line_alpha = .8,
                                point_alpha = .35,
                                facet_var = 'arm')
@@ -170,13 +170,12 @@ graphics.off()
 NMF::aheatmap(t(p_dat[, var_names, with = F]),
               scale = 'row',
               border_color = 'grey80',
-              labRow = simple_cap(gsub('\\.', ' ',
+              labRow = tonic_cap(gsub('\\.', ' ',
                                        gsub('_on.nivo', '',
-                                            gsub('pdl1', 'PD-L1', var_names))),
-                                  caplist = c('cells', 'TIS', 'Th1')),
+                                            gsub('pdl1', 'PD-L1', var_names)))),
               labCol = p_dat[, patient],
-              annRow = list('log2FC' = t_dat[gsub('_on.nivo', '', var_names),
-                            log2FC]),
+              # annRow = list('log2FC' = t_dat[gsub('_on.nivo', '', var_names),
+              #               log2FC]),
               annCol = list('Clinical response' = t(p_dat[,
                                                     clinical_response])),
                             # 'Induction arm' = t(p_dat[, arm])),
@@ -185,9 +184,9 @@ NMF::aheatmap(t(p_dat[, var_names, with = F]),
                                'Induction arm' =
                                tonic_color_palettes[['arm']]),
               width = 20/2.54, height = 10/2.54, 
-              filename = file.path(plot_dir, 'heatmap_on_nivo.pdf'))
+              # filename = file.path(plot_dir, 'heatmap_on_nivo.pdf'))
+              filename = file.path(plot_dir, 'heatmap_on_nivo.png'))
               # filename = NA)
-t_dat
 ```
 
 # Heatmaps of median FCs with and without p-values
@@ -206,16 +205,17 @@ invisible(m[p_val > .05, p_val := NA])
 p <- plot_p_values_induction(m)
 print(p)
 ggsave(plot = p, filename = file.path(plot_dir,
-                            'induction_fc_p_values_baseline_post_induction.png'),
+                           'induction_fc_p_values_baseline_post_induction.png'),
        width = 10, height = 13, units = 'cm')
 ```
 
 ```{r, warning=FALSE, echo=FALSE, fig.width = 9, fig.height = 12}
+devtools::load_all(file.path('~/libs', 'maartenutils'))
 invisible(m[, p_val := NA])
 pa <- plot_p_values_induction(filter(m, arm != 'All arms'))
 print(pa)
 ggsave(plot = pa, filename = file.path(plot_dir,
-                            'induction_fc_p_values_baseline_post_induction.png'),
+                           'induction_fc_p_values_baseline_post_induction.png'),
        width = 10, height = 13, units = 'cm')
 ```
 

@@ -39,8 +39,8 @@ compute_RNA_sigs <- function(sig = 'tis', genes = NULL) {
 
 
 prepare_rna_sig_MA <- function(sig = 'tis', genes = c('TP53'),
-                                  colour_var = 'ca15_3',
-                                  numeric_transform = 'log10') {
+                               colour_var = 'ca15_3',
+                               numeric_transform = 'log10') {
   rna_sigs <- compute_RNA_sigs(sig = sig, genes = genes)
 
   rna_sigs <-

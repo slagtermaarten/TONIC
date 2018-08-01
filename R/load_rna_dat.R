@@ -67,6 +67,12 @@ if (F) {
   rownames(rna_read_counts) <- ensgs
   setnames(rna_read_counts,
            gsub('4698_\\d{1,2}_|_[tcga]{7}', '', colnames(rna_read_counts)))
+  gene_symbols <- rna_read_counts_ann$external_gene_id %>%
+    { .[match(ensgs, rna_read_counts_ann$ensembl_gene_id)] }
+  rna_read_counts$gene_symbol <- gene_symbols
+  rna_read_counts <- rna_read_counts[, lapply(.SD, sum), by = gene_symbol]
+  rownames(rna_read_counts) <- rna_read_counts$gene_symbol
+  rna_read_counts$gene_symbol <- NULL
 }
 
 if (F) {
@@ -111,8 +117,9 @@ if (T) {
 
   rna_read_counts_salmon <- fread(file.path(p_root, 'salmon_rna', 
                                   'salmon_count_mat.tsv')) %>%
-    column_to_rownames('hugo_symbol') %>%
     normalize_colnames
+  rownames(rna_read_counts_salmon) <- rna_read_counts_salmon$hugo_symbol
+  rna_read_counts_salmon$hugo_symbol <- NULL
 }
 
 if (F) {

@@ -3,6 +3,7 @@ source('~/antigenic_space/bin/install_packages.R')
 devtools::load_all('~/libs/GSEAgenesets')
 source('R/init.R')
 source('R/load_rna_dat.R')
+source('R/rna.R')
 ```
 
 # Compare Tophat and Salmon quants
@@ -114,6 +115,42 @@ plot_gene_set(gs_name = 'Burstein_subtypes',
               # timepoints = 'Post-induction')
 ```
 
+
+Gene set scores
+
+```{r, warning=FALSE, echo=FALSE}
+burstein_scores <- gen_gene_set_score_matrix(sum_func = median, 
+                                             sets = filter_gmt(gmt_pat = 'burstein'),
+                                             log_transform = 'log2')
+# rel_scores <- 
+#   burstein_scores[, .SD[, .(gene_set, 'rel_score' = value / sum(value))], 
+#                   by = .(patient, timepoint)]
+burstein_scores[, gene_set := gsub('BURSTEIN-', '', gene_set)]
+burstein_scores[, 'certainty' := 1 - compute_evenness(value), 
+           by = .(patient, timepoint)]
+burstein_scores[, .N == 8, by = patient]
+burstein_scores[measurement_count == T, 
+                sum(value, na.rm = T), 
+                by = .(timepoint, arm, gene_set)]
+
+burstein_scores <- burstein_scores[, .SD[which.max(value)], 
+                                   by = .(patient, timepoint)] %>%
+  { .[naturalorder(patient)] }
+
+# burstein_scores[, uniqueN(gene_set), by = patient]
+# burstein_scores <- burstein_scores[measurement_count == T]
+# burstein_scores[, measurement_count := NULL]
+burstein_scores <- tidyr::spread(burstein_scores[, .(patient, arm, timepoint, 
+                                                     gene_set, 
+                                                     clinical_response)], 
+                                 timepoint, gene_set)
+## No assocation between clinical response and the BLIA label at the
+## Post-induction and Baseline timepoints
+burstein_scores[, fasanalysis::print.mean_CI(`Post-induction` == 'BLIA'), by = clinical_response]
+burstein_scores[, fasanalysis::print.mean_CI(`Baseline` == 'BLIA'), by = clinical_response]
+
+```
+
 # Compute gene set scores
 
 Compute gene set scores for each sample by taking the median of the Z-scores of
@@ -161,7 +198,7 @@ lapply(gs_mat_log2[, unique(gene_set)], function(gs_name) {
                             swarm_width = .1,
                             filter_vals = F,
                             colour_var = 'clinical_response') +
-    ggtitle(simple_cap(gs_name))
+    ggtitle(tonic_cap(gs_name))
   fn <- file.path('plots2', sprintf('rna_parallel_coords_%s.pdf', gs_name))
   ggsave(p, filename = fn, width = 17.4, height = 12, units = 'cm')
 
@@ -175,7 +212,7 @@ lapply(gs_mat_log2[, unique(gene_set)], function(gs_name) {
                             swarm_width = .1,
                             filter_vals = F,
                             colour_var = 'clinical_response') +
-    ggtitle(simple_cap(gs_name))
+    ggtitle(tonic_cap(gs_name))
   fn <- file.path('plots2', sprintf('rna_parallel_coords_log2_%s.pdf', gs_name))
   ggsave(p, filename = fn, width = 17.4, height = 12, units = 'cm')
 })
@@ -196,12 +233,6 @@ ggplot(gs_mat, aes(x = patient, y = value, fill = clinical_response)) +
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
-compute_evenness <- function(x) {
-  stopifnot(class(x) == 'numeric' || class(x) == 'integer')
-  x_norm <- x / sum(x, na.rm = T)
-  ## Divide observed entropy by maximally obtainable entropy
-  -sum(log((x_norm)^(x_norm))) / log(length(x))
-}
 ## Due to unequal distribution, check evenness of distributions
 evenness_vals <- apply(tpms, 2, compute_evenness)
 
@@ -312,26 +343,6 @@ class(cpms)
 normality_tests <- sapply(apply(cpms, 1, shapiro.test),
                           function(x) { x$p.value })
 table(normality_tests < 0.05)
-```
-
-```{r, warning=FALSE, echo=FALSE}
-my_tt <- function(e_fit, coef = ncol(model_mat), ...) {
-  tt <- limma::topTable(e_fit, coef = coef, ...)
-  if (any(grepl('ENSG', rownames(tt)[1:5]))) {
-    tt$gene_symbol <-
-      rna_read_counts_ann[match(rownames(tt),
-                                rna_read_counts_ann[, ensembl_gene_id]),
-                          external_gene_id]
-  } else {
-    tt$gene_symbol <- rownames(tt)
-  }
-  return(tt)
-}
-
-my_venn <- function(results, ...) {
-  vennDiagram(results, cex = .9, ...)
-}
-# my_tt(e_fit)
 ```
 
 We employ a multiway design, modelling all relevant interactions between all
@@ -494,3 +505,46 @@ layout(matrix(1, byrow = T, nrow = 1))
 plot(o_ana)
 ```
 
+## Timepoint specific analyses between responders/non-responders
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/rna.R')
+
+contrast_response <- function(l_timepoint = 'Baseline') {
+  rna_subs <- rna_sample_annotation[timepoint == l_timepoint]
+  rna_subs <- rna_subs[!is.na(clinical_response)] %>% unique
+
+  model_mat <- model.matrix(~ clinical_response, rna_subs)
+  colnames(model_mat) <- gsub('clinical_responseR', 'CR', colnames(model_mat))
+  colnames(model_mat) <- gsub(':', '_', colnames(model_mat))
+  colnames(model_mat) <- gsub('\\(Intercept\\)', 'intercept', 
+                              colnames(model_mat)) 
+  print(colnames(model_mat))
+  print(nrow(model_mat))
+  # rownames(model_mat) <- rna_subs[, cf_number]
+
+  idx  <- match(rna_subs$cf_number, colnames(rna_read_counts_salmon))
+  cpms <- as.matrix(rna_read_counts_salmon[, idx, with = F])
+  stopifnot(all(colnames(cpms) == rna_subs$cf_number))
+  rownames(cpms) <- rownames(rna_read_counts_salmon)
+  cpms <- cpms[!eps(apply(cpms, 1, var), 0, 1e-1), ]
+  cpms <- limma::voom(cpms, design = model_mat)
+
+  model_fit <- lmFit(cpms, design = model_mat)
+  e_fit <- eBayes(model_fit, trend = F)
+  return(e_fit)
+}
+
+bl_efit <- contrast_response(l_timepoint = 'Baseline')
+pi_efit <- contrast_response(l_timepoint = 'Post-induction')
+# contrast_response(l_timepoint = 'Post-induction')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+my_tt(e_fit, coef = 2, sort.by = 'p', resort.by = 'logFC', number = 1000)
+my_tt(bl_efit, coef = 2, sort.by = 'p', number = 3e4) %>%
+  filter(adj.P.Val <= 0.05)
+my_tt(pi_efit, coef = 2, sort.by = 'p', number = 3e4) %>%
+  filter(adj.P.Val <= 0.05)
+my_tt(e_fit, coef = 2, sort.by = 'p', number = 3e4)
+```
