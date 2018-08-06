@@ -1,0 +1,178 @@
+# Init
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+source('R/load_rna_dat.R')
+```
+
+# Compute FCs a priori
+
+Abandoned for now
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/load_rna_dat.R')
+test_NA <- function(vec) is.na(vec) | vec == 'NA'
+rna_sample_annotation_def <-
+  copy(rna_sample_annotation[!test_NA(clinical_response)])
+rna_sample_annotation_def[, timepoint := droplevels(timepoint)]
+```
+
+```{r, warning=FALSE, echo=FALSE}
+cpms <- as.matrix(rna_read_counts)
+rownames(cpms) <- ensgs
+cpms <- cpms[!eps(apply(cpms, 1, var), 0, 1e-1), ]
+## TODO include design matrix
+cpms <- limma::voom(cpms)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+FCs <- rbindlist(lapply(unique(rna_sample_annotation$patient), function(patient) {
+  cf_bl <- rna_sample_annotation[patient == parent.frame(3)$patient &
+                        timepoint == 'Baseline', cf_number]
+  cf_pi <- rna_sample_annotation[patient == parent.frame(3)$patient &
+                        timepoint == 'Post-induction', cf_number]
+  if (is.null(cf_bl) || is.null(cf_pi)) return(NULL)
+  fcs <- as.list(cpms$E[, cf_pi] - cpms$E[, cf_bl], 'patient' = patient)
+  return(fcs)
+}), fill = T)
+dim(FCs)
+t(FCs)
+FCs[1:5, 1:5]
+```
+
+# Paired testing
+
+```{r, devel, eval = F, warning=FALSE, echo=FALSE}
+source('R/GSEA_funcs_paired.R')
+res <- gsea_wrapper(gene_sets = HALLMARK_pathways[1:3],
+                    patients = rna_sample_annotation[arm == 'No induction',
+                                                     unique(patient)],
+                    resp_exp = 'timepoint',
+                    nperm = 10,
+                    abs = F,
+                    fn_extra = '')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+## This one is generated on Coley
+# devtools::load_all('~/libs/GSEAgenesets')
+# devtools::load_all(file.path('~/libs', 'maartenutils'))
+source('R/GSEA_plotting.R')
+res <- readRDS(file = 'rds2/GSEA_paired.rds')
+plot_es(res, legend.position = 'bottom', ptitle = 'paired',
+        # filename = sprintf('plots2/%s/GSEA_%s.pdf',
+        #                    format(Sys.time(), "%Y_%b_%d"), 'paired'),
+        subset_var = NULL, x_var = 'arm')
+```
+
+## Heatmaps for leading edge genes.
+
+Not very informative for the paired analysis
+
+```{r, warning=FALSE, echo=FALSE}
+# source('R/load_rna_dat.R')
+library(GSEAgenesets)
+# devtools::load_all('~/libs/GSEAgenesets')
+source('R/rna.R')
+source('R/GSEA_plotting.R')
+# debugonce(preprocess_rna)
+# debugonce(plot_gene_set)
+plot_leading_edge_heatmap(res, gsea_name = 'paired',
+                          timepoint = timepoints[1:2],
+                          fdr_thresh = .25)
+```
+
+## Parallel coordinates of leading edge gene set scores
+
+```{r, warning=FALSE, echo=FALSE}
+res <- readRDS(file = 'rds2/GSEA_paired.rds')
+dtf <- compute_leading_edge_gene_scores(res, fdr_thresh = .25)
+plot_leading_edge_gene_scores(dtf, allow_nonsensical = T,
+                              res_name = 'paired_FC_leading_edge')
+```
+
+# Unpaired testing
+
+## Baseline
+
+```{r, devel, eval = F, warning=FALSE, echo=FALSE}
+source('R/GSEA_funcs_paired.R')
+res <- gsea_wrapper(gene_sets = HALLMARK_pathways[1:3],
+                    patients = rna_sample_annotation[arm == 'No induction',
+                                                     unique(patient)],
+                    resp_exp = 'timepoint',
+                    nperm = 10,
+                    abs = F,
+                    fn_extra = '')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+res <- readRDS(file = 'rds2/GSEA_unpaired_baseline.rds')
+plot_es(res, legend.position = 'bottom', ptitle = 'unpaired',
+        subset_var = NULL, x_var = 'arm')
+```
+
+
+### Heatmaps for leading edge genes.
+
+```{r, warning=FALSE, echo=FALSE}
+plot_leading_edge_heatmap(res, gsea_name = 'unpaired',
+                          timepoint = timepoints[1],
+                          distfun = 'euclidean',
+                          fdr_thresh = .25)
+```
+
+### Parallel coordinates for leading edge genes.
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/rna.R')
+res <- readRDS(file = 'rds2/GSEA_unpaired_baseline.rds')
+dtf <- compute_leading_edge_gene_scores(res, fdr_thresh = .25)
+plot_leading_edge_gene_scores(dtf, allow_nonsensical = T,
+                              res_name = 'BL_r_vs_nr_leading_edge')
+```
+
+
+## Post-induction
+
+```{r, devel, eval = F, warning=FALSE, echo=FALSE}
+source('R/GSEA_funcs_paired.R')
+res <- gsea_all_arms(gene_sets = HALLMARK_pathways,
+                     patients = rna_sample_annotation[!is.na(clinical_response),
+                                                      unique(patient)],
+                     allowed_timepoints = 'Post-induction',
+                     gene_score_fn = my_unpaired_WC_test,
+                     resp_exp = 'clinical_response',
+                     paired_test = F,
+                     nperm = 1e1,
+                     abs = F,
+                     fn_extra = '')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+res <- readRDS(file = 'rds2/GSEA_unpaired_postinduction.rds')
+plot_es(res, legend.position = 'bottom', ptitle = 'unpaired',
+        subset_var = NULL, x_var = 'arm')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+plot_leading_edge_heatmap(res, gsea_name = 'unpaired',
+                          timepoint = timepoints[2],
+                          distfun = 'euclidean',
+                          fdr_thresh = .25)
+```
+
+### Parallel coordinates of leading edge gene set scores
+
+```{r, warning=FALSE, echo=FALSE}
+# source('R/load_rna_dat.R')
+library(GSEAgenesets)
+source('R/rna.R')
+dtf <- compute_leading_edge_gene_scores(res, fdr_thresh = .25)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/rna.R')
+plot_leading_edge_gene_scores(dtf, allow_nonsensical = T,
+                              res_name = 'PI_r_vs_nr_leading_edge')
+```

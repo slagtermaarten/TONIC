@@ -1,0 +1,20 @@
+
+```{r, annotation_test, warning=FALSE, echo=FALSE}
+p_dat <- data.table(class = factor(rep(c('a', 'b', 'c'), each = 3)), 
+                    value = 1:9, 
+                    drug = factor(rep(c('+', '-', '+'), each = 3)))
+p1 <- ggplot(p_dat, aes(x = class, y = value)) + geom_boxplot()
+```
+
+```{r, warning=FALSE, echo=FALSE}
+ann <- ggplot(p_dat[, .('drug' = unique(drug)), by = class], 
+              aes(x = class, y = 1, label = drug)) + 
+  geom_text() + 
+  theme(panel.grid = element_blank())
+print(ann)
+```
+             
+```{r, warning=FALSE, echo=FALSE}
+cowplot::plot_grid(p1, ann, ncol = 1, align = 'v', rel_heights = c(.9, .1))
+```
+

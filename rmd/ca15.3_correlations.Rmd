@@ -1,0 +1,261 @@
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+source('R/load_rna_dat.r')
+```
+
+# Adaptive TCR-Seq correlations with clinical data
+
+```{r, warning=FALSE, echo=FALSE}
+ggplot(patient_labels, aes(x = clinical_response, y = observed_richness)) + 
+  geom_boxplot() + facet_grid(arm ~ timepoint)
+ggplot(patient_labels, aes(x = clinical_response, y = pielou_evenness)) + 
+  geom_boxplot() + facet_grid(arm ~ timepoint)
+```
+
+Adaptive data over time
+
+```{r, warning=FALSE, echo=FALSE}
+# ggplot(patient_labels, aes(x = timepoint, y = observed_richness, 
+ggplot(patient_labels, aes(x = timepoint, y = pielou_evenness, 
+                           colour = clinical_response, group = patient)) +
+  geom_point() +
+  geom_line() +
+  facet_grid(~ arm)
+```
+
+# NanoString correlations with clinical response
+
+```{r, warning=FALSE, echo=FALSE}
+timepoint = 'Baseline'
+source('R/test_associations.R')
+# lapply(danaher_signature_genes[, auto_name(unique(signature_name))],
+#        function(sig) {
+#          test_gene_set_association(gene_set = sig, timepoint = timepoint)
+#        })
+p_dat <- test_gene_set_association(
+  gene_set = danaher_scores.m[, unique(variable)], timepoint = timepoint)
+p_dat <- test_gene_set_association(
+  gene_set = danaher_scores.m[, unique(variable)], timepoint = 'Post-induction')
+p_dat <- test_gene_set_association(
+  gene_set = danaher_scores.m[, unique(variable)], timepoint = 'On nivo')
+# p_dat[p_val <= .05]
+```
+
+```{r, warning=FALSE, echo=FALSE}
+plot_volcano <- function(gene_sets = danaher_scores.m[, unique(variable)],
+                         timepoint = 'Baseline') {
+  p_dat <- test_gene_set_association(gene_set = gene_sets,
+                                     timepoint = timepoint)
+
+  ggplot(p_dat, aes(x = log2FC, y = -log10(p_val), label = variable)) +
+    geom_point() +
+    ggrepel::geom_text_repel(data = p_dat[p_val <= .05]) +
+    geom_hline(yintercept = -log10(.05),
+               color = 'darkred', linetype = 'dashed') +
+    geom_vline(xintercept = 0, color = 'grey70', linetype = 'dashed') +
+    scale_y_continuous(name = 'Unadjusted p-value', trans = 'identity',
+                       breaks = c(-seq(-5,0, by = .5), -log10(0.05)),
+                       limits = c(0, 3.5),
+                       labels = function(x)
+                         parse(text = sprintf('10^{-%.2f}', x))) +
+    ggtitle(timepoint) +
+    xlab(sprintf('Fold difference\nresponders and non-responders (%s)',
+                 timepoint))
+}
+
+plots <- list(
+  plot_volcano(timepoint = 'Baseline'),
+  # plot_volcano(timepoint = 'Post-induction'),
+  plot_volcano(timepoint = 'On nivo'))
+# cowplot::plot_grid(plots[[1]], plots[[2]], plots[[3]], ncol = 3)
+ggsave(filename = file.path(img_dir, 'gene_sigs_response_volcanoes.pdf'),
+       width = 29, height = 11, units = 'cm')
+cowplot::plot_grid(plots[[1]], plots[[2]], ncol = 2)
+ggsave(filename = file.path(img_dir, 'gene_sigs_response_volcanoes.pdf'),
+       width = 24, height = 11, units = 'cm')
+```
+
+
+# Correlations between RNA and NanoString
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+plots <- lapply(danaher_signature_genes[, unique(signature_name)],
+                function(sig) {
+  compare_nano_rna_sigs(sig = sig)
+}) %>% { .[!sapply(., is.null)] }
+
+maartenutils::plot_panel_layout(plots, ncol = 3, nrow = 4,
+  labels = NULL,
+  plot_direct = F,
+  ref_panel_idx = 3 * 3,
+  clear_redundant_labels = T,
+  filename = file.path(plot_dir, sprintf('rna_nano_cors_%s.pdf', colour_var)),
+  w = 17.4, h = 25, label_size = 8)
+```
+
+
+## The same but for individual genes
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+
+rna_nano_cors <- rbindlist(lapply(auto_name(unique(test_genes)), function(gs) {
+  t_dat <- correlate_nano_rna(genes = gs)
+  if (null_dat(t_dat)) return(NULL)
+  cors <- t_dat[, .('pearson' = cor(rna_value, nano_value,
+                                    method = 'pearson'),
+                    'spearman' = cor(rna_value, nano_value,
+                                     method = 'spearman'),
+                    rna_q50, nano_q50),
+                by = c('gene_symbol', 'timepoint')]
+  return(cors)
+}), fill = T)
+
+rna_nano_cors_sigs <- rbindlist(lapply(auto_name(danaher_scores.m[, levels(variable)]),
+                                  function(sig) {
+  t_dat <- correlate_nano_rna(sig = sig, genes = NULL)
+  if (null_dat(t_dat)) return(NULL)
+  cors <- t_dat[, .('pearson' = cor(rna_value, nano_value,
+                                    method = 'pearson', use = 'complete'),
+                    'spearman' = cor(rna_value, nano_value,
+                                     method = 'spearman', use = 'complete'),
+                    rna_q50, nano_q50, 'gene_symbol' = sig),
+                by = c('timepoint')]
+  return(cors)
+}), fill = T)
+
+comb_dat <- rbind(mutate(rna_nano_cors, 'type' = 'Single gene'),
+                  mutate(rna_nano_cors_sigs, 'type' = 'Gene signature'))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+plot_dist <- function(dtf = comb_dat[timepoint == 'Baseline'],
+                      cor_measure = 'spearman') {
+  mycols <- c(maartenutils::darken('lightblue', factor = 1),
+              maartenutils::darken('lightblue', factor = 2.5)) %>%
+   setNames(dtf[, unique(type)])
+
+  p1 <- ggplot(dtf,
+               aes_string(x = cor_measure, y = '(..count..)/sum(..count..)',
+                          fill = 'type')) +
+    geom_histogram(binwidth = .01, color = 'black', position = 'stack') +
+    scale_fill_manual(name = '', values = mycols) +
+    xlab(sprintf('%s correlation coefficient', tonic_cap(cor_measure))) +
+    ylab('Relative frequency') +
+    theme(legend.position = 'top')
+
+  p2 <- ggplot(dtf, aes_string(x = '1', y = cor_measure, fill = 'type')) +
+    geom_boxplot(color = 'black') +
+    scale_fill_manual(name = '', values = mycols) +
+    coord_flip() +
+    xlab(' ') +
+    ylab(' ') +
+    theme(axis.text = element_blank(), axis.ticks = element_blank(),
+          axis.line = element_blank(), legend.position = 'none')
+
+  cowplot::plot_grid(p1, p2, align = 'v', rel_heights = c(7, 1), ncol = 1)
+}
+
+plot_dist(cor_measure = 'spearman')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+plot_dist(cor_measure = 'spearman')
+ggsave(filename = file.path(plot_dir, 'spearman_nano_vs_rna_single_genes.pdf'))
+plot_dist(cor_measure = 'pearson')
+ggsave(filename = file.path(plot_dir, 'pearson_nano_vs_rna_single_genes.pdf'))
+```
+
+Plot relationship between correlation and average expression. Are lowly expressed
+genes enriched amongst the genes with low concordance between the two
+methodologies?
+
+
+```{r, warning=FALSE, echo=FALSE}
+ggplot(unique(comb_dat, by = c('gene_symbol')), 
+       aes(x = nano_q50, y = spearman)) + geom_point()
+```
+
+```{r, warning=FALSE, echo=FALSE}
+library(kableExtra)
+
+unique(comb_dat, by = c('gene_symbol'))[abs(spearman) <= .1] %>%
+  .[order(spearman)] %>%
+  knitr::kable(format = 'html') %>%
+  kableExtra::kable_styling()
+```
+
+
+# CA15.3 correlation with Danaher signatures
+
+```{r, warning=FALSE, echo=FALSE}
+## Investigate outlying patient
+rna_sigs <- compute_RNA_sigs(sig = 'mmr_loss')
+pat_id <- rna_sigs[which.max(FC), patient]
+pat_id <- rna_sigs[which.max(FC), patient]
+clinical_annotation[patient %in% pat_id]
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+
+plot_RNA_sig_MA(sig = 'mmr_loss') +
+  scale_colour_gradient2(name = 'CA15.3',
+                         trans = 'log10',
+                         low = scales::muted('red'),
+                         high = scales::muted('blue'),
+                         na.value = 'white')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+colour_var <- 'ca15_3'
+
+plots <- lapply(danaher_signature_genes[, unique(signature_name)],
+                function(sig) {
+  plot_RNA_sig_MA(sig = sig, colour_var = colour_var) +
+    scale_colour_gradient2(name = 'CA15.3',
+                           trans = 'log10',
+                           low = scales::muted('red'),
+                           high = scales::muted('blue'),
+                           na.value = 'white')
+})
+
+maartenutils::plot_panel_layout(plots, ncol = 2, nrow = 4,
+  labels = NULL,
+  plot_direct = F,
+  ref_panel_idx = 2 * 8,
+  clear_redundant_labels = T,
+  clear_redundant_legends = T,
+  filename = file.path(plot_dir, sprintf('ma_plot_%s.pdf', colour_var)),
+  w = 17.4, h = 25, label_size = 8)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+devtools::load_all(file.path('~/libs', 'GSEAgenesets'))
+gene_sets <- filter_gmt(gmt_pat = 'h.all', gene_set_pat = '.')
+
+colour_var <- 'ca15_3'
+library(purrr)
+
+plots <- imap(gene_sets, function(g, n) {
+  p <- plot_RNA_sig_MA(sig = NULL, genes = g, colour_var = colour_var)
+  p + scale_colour_gradient2(name = 'CA15.3',
+                             trans = 'log10',
+                             low = scales::muted('red'),
+                             high = scales::muted('blue'),
+                             na.value = 'white') +
+    ggtitle(n)
+})
+
+maartenutils::plot_panel_layout(plots, ncol = 2, nrow = 4,
+  labels = NULL,
+  plot_direct = F,
+  ref_panel_idx = 2 * 8,
+  clear_redundant_labels = T,
+  clear_redundant_legends = T,
+  filename = file.path(plot_dir, sprintf('ma_plot_hallmark_%s.pdf', colour_var)),
+  w = 17.4, h = 25, label_size = 8)
+```

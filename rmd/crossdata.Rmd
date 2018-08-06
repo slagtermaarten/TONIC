@@ -1,0 +1,38 @@
+---
+title: "Data integrating analyses for TONIC"
+author: "Maarten Slagter"
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+    theme: united
+---
+
+
+```{r, warning=FALSE, echo=FALSE, cache = F}
+knitr::opts_chunk$set(message = FALSE, cache = T, cache.lazy = F,
+                      cache.comments = F, autodep = T, warning = FALSE,
+                      results = 'hide', fig.keep = 'high',
+                      echo = TRUE, error = FALSE)
+knitr::opts_knit$set(progress = TRUE, verbose = TRUE)
+# knitr::clean_cache()
+# knitr::opts_chunk$get("cache.path")
+# knitr::knit_global()
+source('R/init.R')
+```
+
+
+
+# Relationship between various repertoire size estimators and platforms
+
+Various (statistical) methods of estimating the total repertoire size,
+extrapolating from the observed to the unobserved total.
+
+```{r, fig.width = 12, fig.height = 6, warning=FALSE, echo=FALSE}
+# plot_cor_mat()
+## Separating by timepoint does not change these correlations for the Adapative
+## data, as expected
+plot_cor_mat(tp = 'Baseline')
+# plot_cor_mat(tp = 'Post-induction')
+# plot_cor_mat(tp = 'On nivo')
+```

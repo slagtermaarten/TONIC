@@ -1,0 +1,321 @@
+---
+title: "Potential confounding variables in transcriptomic analyses"
+author: "Maarten Slagter"
+output: html_document
+---
+
+```{r, cache = F, warning=FALSE, echo=FALSE}
+knitr::opts_chunk$set(message = FALSE, cache = F, cache.lazy = F, 
+                      cache.comments = F, autodep = T, warning = FALSE, 
+                      echo = TRUE, error = FALSE)
+knitr::opts_knit$set(progress = TRUE, verbose = TRUE)
+source('R/init.R')
+```
+
+The relatively small patient numbers per induction arm render the TONIC study
+susceptible to potentially confounding variables not being equal between
+treatment arms. In an initial clinical response analysis, I already observed
+some clinical variables like WHO PS and CA15.3 are unevenly distributed between
+treatment arms and correcting for them changed the relative order given to
+different induction arms. In the document, I investigate whether we should
+similarly control for baseline covariates in NanoString signature fold change
+analysis. Do potential confounders increase the likelihood of showing a large
+fold change?
+
+```{r, warning=FALSE, echo=FALSE}
+graphics.off()
+
+# debugonce(prepare_nano_bivariates)
+test_confounding <- function(x_var = 'Baseline',
+                             x_label = var_to_label(x_var, label_reps),
+                             tp1 = 'Baseline', 
+                             tp2 = 'Post-induction',
+                             feature = 'tis') {
+  c_dat_exp <- prepare_nano_bivariates(x_var = tp1, y_var = tp2,
+                                       colour_var = 'arm') %>%
+    controlled_merge(clinical_annotation, by_cols = 'patient', 
+                     all.x = T, all.y = F)
+
+  ggplot(c_dat_exp[variable == feature], aes_string(x = x_var, y = "logfc")) +
+    geom_point() +
+    facet_grid(~arm) +
+    geom_smooth(se = F, span = 2, alpha = .2) +
+    xlab(x_label) +
+    ylab(sprintf('log FC\n%s vs. %s', tp1, tp2)) +
+    ggtitle(feature)
+}
+
+plot_confounding_panel <- function(tp1 = 'Baseline', tp2 = 'Post-induction',
+                                   feature = 'tis') {
+  cowplot::plot_grid(
+    test_confounding(x_var = sprintf('`%s`', tp1),
+                     x_label = sprintf('%s expression level', tp1),
+                     tp1 = tp1, tp2 = tp2, feature = feature),
+    test_confounding(x_var = 'ca15_3', 
+                     tp1 = tp1, tp2 = tp2, feature = feature),
+    test_confounding(x_var = 's_til', 
+                     tp1 = tp1, tp2 = tp2, feature = feature),
+    test_confounding(x_var = 'pd_l1_immunoinfiltrate',
+                     tp1 = tp1, tp2 = tp2, feature = feature),
+    ncol = 1)
+}
+
+# plot_confounding_panel(tp1 = 'Baseline', tp2 = 'Post-induction',
+#                        feature = 'tis')
+plot_confounding_panel(tp1 = 'Baseline', tp2 = 'On nivo',
+                       feature = 'tis')
+# plot_confounding_panel(tp1 = 'Post-induction', tp2 = 'On nivo',
+#                        feature = 'tis')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+test_confounding_heatmap <- function(tp1 = 'Baseline', tp2 = 'Post-induction') {
+  c_dat_exp <- prepare_nano_bivariates(x_var = tp1,
+                                       y_var = tp2,
+                                       colour_var = 'arm') %>%
+    merge(clinical_annotation, by = 'patient')
+  # x_label = sprintf('%s expression level', tp1)
+  # x_label = 'Baseline PD-L1 [%]'
+  # comp_vars <- c(sprintf('`%s`', tp1), 'ca15_3', 's_til',
+  #                'pd_l1_immunoinfiltrate')
+  comp_vars <- c(tp1, 'ca15_3', 's_til', 'pd_l1_immunoinfiltrate')
+
+  plots <- lapply(c_dat_exp[, unique(variable)], function(feat) {
+    p_dat <- rbindlist(lapply(auto_name(comp_vars), function(comp_var) {
+        c_dat_exp[variable == feat,
+                  .('cor' = cor(logfc, get(comp_var), method = 'spearman'),
+                    'var' = comp_var,
+                    'feat' = feat),
+                  by = arm]
+        }), fill = T)
+
+    ggplot(p_dat, aes(x = arm, y = var, fill = cor,
+                      label = sprintf('%.2f', cor))) +
+      geom_raster() +
+      geom_text(size = 2) +
+      scale_fill_gradient2(name = 'Spearman correlation',
+                           low = scales::muted('red'),
+                           high = scales::muted('blue'),
+                           limits = c(-1, 1),
+                           na.value = 'white') +
+      ggtitle(feat) +
+      rotate_x_labels(45) +
+      xlab('') + ylab('')
+  })
+
+  plot_panel_layout(plots, ncol = 2, nrow = 3,
+                    labels = NULL,
+                    clear_redundant_labels = T,
+                    clear_redundant_legends = T,
+                    filename = file.path(plot_dir, 'baseline_logfc_cors.pdf'))
+}
+test_confounding_heatmap()
+```
+
+A gene signature's baseline levels anti-correlate with the FC that's achieved by
+all induction therapies. This can probably be understood by the log
+transformation that is applied to the gene signature scores. This results in
+increasing difficulty for a signature score to increase with high baseline
+levels. Shown below are all correlation coefficients for all of the gene
+signatures fold changes with the four indicated variables in the panel rows.
+
+```{r, warning=FALSE, echo=FALSE}
+test_confounding_cor_hists <- function(tp1 = 'Baseline', 
+                                       tp2 = 'Post-induction') {
+  c_dat_exp <- prepare_nano_bivariates(x_var = tp1,
+                                       y_var = tp2,
+                                       colour_var = 'arm') %>%
+    maartenutils::controlled_merge(clinical_annotation, by = 'patient')
+
+  comp_vars <- c(tp1, 'ca15_3', 's_til', 'pd_l1_immunoinfiltrate')
+
+  t_dat <- rbindlist(lapply(c_dat_exp[, unique(variable)], function(feat) {
+    rbindlist(lapply(auto_name(comp_vars), function(comp_var) {
+      c_dat_exp[variable == feat,
+                .('cor' = cor(logfc, get(comp_var), method = 'spearman'),
+                  'var' = comp_var,
+                  'feat' = feat),
+                by = arm]
+      }), fill = T) 
+  }), fill = T)
+
+  t_dat[, .('frac_pos' = .SD[cor > 0, .N] / .SD[!is.na(cor), .N]), 
+        by = c('var', 'arm')]
+  
+  ggplot(t_dat, aes(x = cor)) + 
+    facet_grid( var ~ arm, labeller = label_value) +
+    geom_vline(xintercept = 0, colour = 'grey85', type = 'dashed') +
+    geom_histogram() + 
+    xlab('Spearman correlation coefficients') +
+    ylab('Number of sigs') +
+    geom_vline(data = t_dat[, .('median' = median(cor, na.rm = T)), 
+                            by = c('var', 'arm')],
+               aes(xintercept = median), colour = 'red')
+
+}
+
+test_confounding_cor_hists()
+```
+
+# Formal tests
+
+```{r, warning=FALSE, echo=FALSE}
+# clear_object(tis_baseline_exp)
+sr(tis_baseline_exp <- do.call('brm',
+                               c(list(formula = bf(logfc ~ 0 + (1 | arm)),
+                                      data = test_dat,
+                                      prior = NULL),
+                                 list('family' = gaussian(),
+                                      'warmup' = 1000,
+                                      'iter' = 3e3,
+                                      'chains' = 4,
+                                      'control' = list(adapt_delta = 0.95)))))
+# stancode(tis_baseline_exp)
+update_model <- function(fit = tis_baseline_exp, feat = 'tis',
+                         newdata = c_dat_exp[variable == feat]) {
+  update(fit, newdata = newdata)
+}
+# update_model(feat = 'apm')
+```
+```{r, warning=FALSE, echo=FALSE}
+stanplot(tis_baseline_exp, pars = '^r_.*(arm)', type = 'intervals')
+updated_model <- update_model(feat = 'apm')
+stanplot(updated_model, pars = '^r_.*(arm)', type = 'intervals')
+```
+
+Expand with baseline CA15.3, this does not influence fold changes at all
+
+```{r, warning=FALSE, echo=FALSE}
+sr(tis_baseline_exp_e1 <- do.call('brm',
+                               c(list(formula = bf(logfc ~ 0 + (1 + ca15_3 | arm)),
+                                      data = test_dat,
+                                      prior = NULL),
+                                 list('family' = gaussian(),
+                                      'warmup' = 1000,
+                                      'iter' = 3e3,
+                                      'chains' = 4,
+                                      'control' = list(adapt_delta = 0.95)))))
+```
+
+Also not in TIS
+
+```{r, warning=FALSE, echo=FALSE}
+stanplot(tis_baseline_exp_e1, pars = '^r_.*(arm)', type = 'intervals')
+updated_model <- update_model(fit = tis_baseline_exp_e1, feat = 'tis')
+stanplot(updated_model, pars = '^r_.*(arm)', type = 'intervals')
+```
+
+Expand with baseline CA15.3, this does not influence fold changes at all
+
+```{r, warning=FALSE, echo=FALSE}
+sr(tis_baseline_exp_e2 <- do.call('brm',
+                               c(list(formula = bf(logfc ~ 0 + (1 + s_til | arm)),
+                                      data = test_dat,
+                                      prior = NULL),
+                                 list('family' = gaussian(),
+                                      'warmup' = 1000,
+                                      'iter' = 3e3,
+                                      'chains' = 4,
+                                      'control' = list(adapt_delta = 0.95)))))
+```
+
+
+# Control for baseline covariates in clinical response comparison
+
+```{r, warning=FALSE, echo=FALSE}
+priors <- NULL
+priors <- c(#set_prior("beta(1,1)", class = "b", coef = "response_bin"),
+            set_prior("cauchy(1,2)", class = "b"))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+sr(brm_tonic <- do.call('brm',
+                     c(list(formula = bf(response_bin ~ (1 | induction_therapy) +
+             who_performance_status + s_til + tis_nanostring + ca15_3 + age,
+             nl = F), data = clinical_annotation, prior = NULL),
+                       brms_settings)))
+dat <- clinical_annotation[study_id %in% as.integer(rownames(standata(brm_tonic)$X))]
+```
+
+```{r, warning=FALSE, echo=FALSE}
+sr(brm_tonic_basic <- do.call('brm',
+  c(list(formula = bf(response_bin ~ (1 | induction_therapy), nl = F),
+         data = dat,
+         prior = NULL),
+    brms_settings)))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+sr(brm_tonic_intermed <- do.call('brm',
+  c(list(formula = bf(response_bin ~ (1 | induction_therapy) + who_performance_status,
+                      nl = F),
+         data = dat,
+         prior = NULL),
+    brms_settings)))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+sr(brm_tonic_ca15 <- do.call('brm',
+  c(list(formula = bf(response_bin ~ (1 | induction_therapy) +
+                  who_performance_status + ca15_3,
+                  nl = F),
+         data = dat,
+         prior = NULL),
+    brms_settings)))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+sr(brm_tonic_s_til <- do.call('brm',
+  c(list(formula = bf(response_bin ~ (1 | induction_therapy) +
+                  who_performance_status + s_til,
+                  nl = F),
+         data = dat,
+         prior = NULL),
+    brms_settings)))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+# source('R/init.R')
+# brm_tonic_basic <- readRDS(file.path(rds_dir, 'brm_tonic_basic.rds'))
+# brm_tonic_intermed <- readRDS(file.path(rds_dir, 'brm_tonic_intermed.rds'))
+# brm_tonic_ca15 <- readRDS(file.path(rds_dir, 'brm_tonic_ca15.rds'))
+# brm_tonic <- readRDS(file.path(rds_dir, 'brm_tonic.rds'))
+# perform_model_comps(brms_object = brm_tonic_basic)
+# perform_model_comps(brms_object = brm_tonic_intermed)
+# perform_model_comps(brms_object = brm_tonic)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+# posterior_histogram(brms_object = brm_tonic_basic,
+#                     name = 'Model: Induction therapy',
+#                     variables = NULL)
+
+p <- plot_panel_layout(list(
+  posterior_histogram(brms_object = brm_tonic_basic,
+                      name = 'Model: Induction therapy',
+                      variables = c('Doxorubicin', 'Cisplatin', 'No.induction')) +
+                       theme(legend.position = 'right'),
+  # posterior_histogram(brms_object = brm_tonic_basic,
+  #                     name = 'Model: Induction therapy',
+  #                     offset_val = 2,
+  #                     variables = c('Doxorubicin', 'Cisplatin', 'No.induction')),
+  posterior_histogram(brms_object = brm_tonic_intermed,
+                      name = 'Model: Induction therapy + WHO PS',
+                      variables = c('Doxorubicin', 'Cisplatin', 'No.induction')),
+  # posterior_histogram(brms_object = brm_tonic_intermed,
+  #                     name = 'Model: Induction therapy + WHO PS',
+  #                     offset_val = 2,
+  #                     variables = c('Doxorubicin', 'Cisplatin', 'No.induction')),
+  posterior_histogram(brms_object = brm_tonic_ca15,
+                      name = 'Model: Induction therapy + WHO PS + CA15.3',
+                      offset_val = 1,
+                      variables = c('Doxorubicin', 'Cisplatin', 'No.induction'))),
+                  ncol = 1, labels = NULL,
+                  filename = file.path(plot_dir, 'bayesian_hists_no_MMR.png'),
+                  w = 10, h = 15)
+  # posterior_histogram(brms_object = brm_tonic_ca15,
+  #                     name = 'Model: Induction therapy + WHO PS + CA15.3',
+  #                     offset_val = 2,
+  #                     variables = c('Doxorubicin', 'Cisplatin', 'No.induction'))),
+```
+

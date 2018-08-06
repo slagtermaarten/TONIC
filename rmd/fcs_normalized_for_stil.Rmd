@@ -1,0 +1,230 @@
+---
+title: "Gene expression FCs normalized for stromal TIL"
+author: "Maarten Slagter"
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+    theme: united
+---
+
+
+```{r, warning=FALSE, echo=FALSE, cache = F}
+knitr::opts_chunk$set(message = FALSE, cache = T, cache.lazy = F,
+                      cache.comments = F, autodep = T, warning = FALSE,
+                      results = 'hide', fig.keep = 'high',
+                      echo = TRUE, error = FALSE)
+knitr::opts_knit$set(progress = TRUE, verbose = TRUE)
+# knitr::clean_cache()
+# knitr::opts_chunk$get("cache.path")
+# knitr::knit_global()
+source('R/init.R')
+```
+
+# Introduction
+
+Due to relatively small patient numbers per treatment arm, spontaneous biases in
+baseline factors could confound differences in the FCs of the genesets we've
+decided to follow over time - those associated with clinical response at the on
+nivolumab timepoint. Here I show that among the patients for whom NanoString
+assays are available both On nivo and at Baseline, inter-arm differences in
+stromal TIL% between the treatment arms are not detectable. Stromal TIL
+additionally only seems weakly associated with the FCs of the median geneset
+scores. As an effect of that, trying to correct for stromal TIL by explicitly
+taking it along in a regression model does not alter the relative weight that is
+assigned to the various treatment arms - as one would expect based on the
+observed data.
+
+# Methods
+
+The log2 FC in the median of the 12-geneset values per patient was modelled as a
+function of either the treatment arm alone (the baseline model) or both the
+treatment arm and the baseline level of stromal TIL percentage. The latter could
+be interpreted as a measure of the baseline immunological presence in the
+assayed sample and hence as a proxy for the local immune system's capability of
+inducing an inflamed state.
+
+In a Bayesian framework, FCs were assumed to be Gaussian distributed with a mean
+that is composed of the sum of arm and stromal TIL effects. Arm coefficients
+were regularized by drawing them from a common $t$-distribution. For the prior
+distribution on the stromal TIL, we also chose a $t_2$-distribution. TODO: check
+and further specify exact parameters.
+
+# No apparent relationship between baseline factors and expression FCs
+
+```{r, warning=FALSE, echo=FALSE}
+# source('R/test_associations.R')
+# debugonce(prepare_test_gene_set_difference)
+tp1 = 'Baseline'; tp2 = 'On nivo'
+prep_comp_data <- function(tp1 = 'Baseline', tp2 = 'On nivo') {
+  dtf <- prepare_test_gene_set_difference(gene_set = sig_gene_sets, 
+                                          tp1 = tp1,
+                                          tp2 = tp2)
+  invisible(dtf[, 'FC' := get(tp2) - get(tp1)])
+  dtf <- controlled_merge(dtf, patient_labels[, .(patient, s_til, ca15_3)], 
+                          by_cols = 'patient') %>%
+    { .[complete.cases(.), ] }
+  return(dtf)
+}
+
+dtf <- prep_comp_data(tp1 = 'Baseline', tp2 = 'On nivo')
+dtf <- prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+explore_confounder <- function(conf_var = 's_til') {
+  if (!require(ggExtra)) {
+    devtools::install_github('daattali/ggExtra')
+    library(ggExtra)
+  }
+  p1 <- ggplot(dtf, aes_string(x = conf_var, y = 'FC', colour = 'arm')) + 
+    scale_colour_manual(name = '', values = tonic_color_palettes[['arm']]) +
+    geom_point() +
+    scale_y_continuous(name = sprintf('log2 Fold change between %s and %s\nin the median of response-associated genesets scores', tp1, tp2)) +
+    scale_x_continuous(name = var_to_label(conf_var, label_reps)) +
+    ggplot2::theme(legend.position = 'left', legend.direction = 'vertical',
+                   aspect.ratio = 1)
+  ggMarginal(p1, groupColour = TRUE, groupFill = TRUE, type = 'histogram')
+}
+explore_confounder('s_til')
+# explore_confounder('ca15_3')
+```
+
+# Regression modelling of the observed FCs
+
+```{r, brm1, warning=FALSE, echo=FALSE}
+source('R/bayes.R')
+brm_fc <- do.call('brm', 
+                  c(list(formula = bf(FC ~ 1 + (1 | arm), nl = F), 
+                         data = dtf, family = gaussian()),
+                         # prior = c(
+                         #   prior(student_t(3, 0, 10), "sd_g_Intercept"),
+                         #   prior(student_t(3, 0, 10), "sd")
+                         # ),
+                         brms_settings[c('warmup', 'iter', 
+                                         'chains', 'control')]))
+print(brm_fc)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+posterior_samples(brm_fc, "b")
+get_prior(FC ~ 0 + (0 + intercept | arm), data = dtf, family = gaussian())
+get_prior(FC ~ 0 + intercept, data = dtf, family = gaussian())
+```
+
+```{r, warning=FALSE, echo=FALSE}
+pp_check(brm_fc)
+plot(brm_fc)
+```
+
+```{r, eval = F, brm2, warning=FALSE, echo=FALSE}
+# source('R/bayes.R')
+# devtools::load_all(file.path('~/libs', 'maartenutils'))
+# debugonce(posterior_histogram)
+brm_fc_stil <- do.call('brm', 
+                       c(list(formula = bf(FC ~ s_til + (1 | arm), nl = F), 
+                              data = dtf, family = gaussian()),
+                              brms_settings[c('warmup', 'iter', 
+                                              'chains', 'control')]))
+print(brm_fc_stil)
+```
+
+
+Comparing the leave-one-out-cross-validation performance, the simpler model
+taking along just treatment arm actually prevails. This is not unexpected given
+the weak relationship between stromal TIL and treatment arm in the assayed
+samples. Stromal TIL is given a very weak estimate in the expanded model; the
+models are virtually identical.
+
+```{r, warning=FALSE, echo=FALSE}
+loo(brm_fc, brm_fc_stil)
+```
+
+Assessing the posterior distributions of arm-coefficients in the models, we see
+that the effects ascribed to Cisplatin are higher than that of Doxorubicin and
+that this difference is slightly increased when accounting for Stromal TIL -
+indeed stromal TIL levels are slightly higher in Dox arm, making the
+contribution of the stromal TIL coefficient to the observed FCs slightly larger
+here. Assuming validity of the data generating model and convergence of the
+MCMC-sampling (highly probably given the convergence estimates and MCMC-traces),
+we can estimate that the probability that Cisplatin induces higher FCs than
+Doxorubicin is ~80%. I haven't done other comparisons yet, should I compare all
+induction arms to the No induction arm?
+
+```{r, warning=FALSE, echo=FALSE, fig.width = 14/2.54, fig.height = 10/2.54}
+source('R/bayes.R')
+# brm_fc
+p_names <- names(brm_fc$fit@sim$samples[[1]])
+
+posterior_histogram(brms_object = brm_fc,
+                    name = 'Model: Induction therapy',
+                    binwidth = .05,
+                    cols = tonic_color_palettes[['arm']],
+                    x_lab = 'Contribution to FC',
+                    # variables = c('Doxorubicin', 'Cisplatin', 'No.induction')) +
+                    variables = gsub(' ', '\\.', treatment_arms)) + 
+  theme(legend.position = 'right') + 
+  ggtitle('Baseline model')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+p <- stanplot(brm_fc, pars = '^r_.*(arm)', type = 'intervals') + theme_ms()
+p <- p + scale_y_discrete(limits = rev(grep('r_arm', 
+                                        names(brm_fc$fit@sim$samples[[1]]), 
+                                        value = T)), 
+                          labels = rev(treatment_arms))
+p <- p + xlab('Arm FC relative to all patients (log2)')
+print(p)
+fn <- file.path(img_dir, 'bayesian_FC_intercepts.pdf')
+ggsave(plot = p, file = fn,
+       width = 7, height = 10, units = 'cm')
+sys_file_open(fn)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+dtf <- extract_params(brm_fc, 
+               params = grep('r_arm', names(brm_fc$fit@sim$samples[[1]]), 
+                             value = T))
+lapply(dtf, function(x) quantile(x, probs = c(0.025, .975)))
+lapply(dtf, function(x) quantile(x, probs = c(0.05, .95)))
+```
+
+```{r, warning=FALSE, echo=FALSE, fig.width = 14/2.54, fig.height = 10/2.54}
+posterior_histogram(brms_object = brm_fc_stil,
+                    name = 'Model: Induction therapy + stromal TIL',
+                    cols = tonic_color_palettes[['arm']],
+                    x_lab = 'Contribution to FC',
+                    variables = c('Doxorubicin', 'Cisplatin', 'No.induction')) +
+  theme(legend.position = 'right') +
+  ggtitle('Expanded model')
+```
+
+
+
+```{r, warning=FALSE, echo=FALSE}
+compute_bayesian_p_val <- function(brms_object = brm_fc,
+                                   name = '', 
+                                   offset_val = 1,
+                                   group_name = 'induction_therapy',
+                                   param_capture = '.*\\[(.*),Intercept\\]',
+                                   x_lab = 'Contribution to response probability',
+                                   cols = NULL,
+                                   variables = c('Doxorubicin', 'Cisplatin')) {
+  ## Subselect group variables
+  p_names <- names(brms_object$fit@sim$samples[[1]])
+  p_names <- grep(param_capture, p_names, value = T)
+  p_names <- setNames(p_names, 
+                      tolower(gsub(param_capture, '\\1', p_names)))
+  if (all(sapply(variables, is.null))) 
+    variables <- names(p_names)
+  
+  p_dat <- as.data.frame(extract_params(brms_object, p_names))
+  comp_vals <- setdiff(1:length(p_names), offset_val)
+  setNames(sapply(comp_vals, function(comp_val) 
+           mean(p_dat[, offset_val] < p_dat[, comp_val])),
+           names(p_names)[comp_vals])
+  sapply(setNames(comp_vals, names(p_names)[comp_vals]), 
+         function(x) quantile(p_dat[, x], probs = c(.025, .5, .975)))
+}
+compute_bayesian_p_val()
+```

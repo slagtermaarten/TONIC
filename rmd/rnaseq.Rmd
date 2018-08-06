@@ -1,0 +1,692 @@
+```{r, warning=FALSE, echo=FALSE}
+source('~/antigenic_space/bin/install_packages.R')
+devtools::load_all('~/libs/GSEAgenesets')
+source('R/init.R')
+source('R/load_rna_dat.R')
+source('R/rna.R')
+```
+
+# QC
+
+## Correspondence transcriptome evenness and FASTQC
+
+All samples fail the `Per base sequence content`, `Sequence duplication
+levels` and `Per tile sequence quality` checks.
+
+```{r, warning=FALSE, echo=FALSE}
+## Due to unequal distribution, check evenness of distributions
+evenness_vals <- apply(tpms_salmon, 2, compute_evenness)
+rna_sample_annotation$evenness <- evenness_vals[rna_sample_annotation$cf_number]
+rm(evenness_vals)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+x_var <- 'per_sequence_gc_content'
+x_var <- 'overrepresented_sequences'
+fastqc_vars <-  c("adapter_content", "basic_statistics",
+                  "overrepresented_sequences", "per_base_n_content",
+                  "per_base_sequence_content", "per_base_sequence_quality",
+                  "per_sequence_gc_content", "per_sequence_quality_scores",
+                  "per_tile_sequence_quality", "sequence_duplication_levels",
+                  "sequence_length_distribution")
+t(rna_sample_annotation[, lapply(.SD, mean), .SDcols = fastqc_vars])
+
+
+rna_sample_annotation$best_samples <-
+  apply(rna_sample_annotation[, fastqc_vars, with = F], 1, mean) %>%
+    eps(.818)
+
+write_tsv(rna_sample_annotation, 'ext/rna_sample_annotation.tsv')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+rna_sample_annotation$percentage_tests <-
+  apply(rna_sample_annotation[, fastqc_vars, with = F], 1, mean)
+
+ggplot(rna_sample_annotation, aes(x = percentage_tests, y = evenness)) +
+  geom_point() + geom_smooth(se = F, span = 4) +
+  xlab('Percentage FastQC tests passed') +
+  ylab('Transcriptome evenness')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+plots <- lapply(c(fastqc_vars, 'best_samples'), function(x_var) {
+  # rna_sample_annotation[, as.integer(get(x_var))]
+  x_labels <- apply(rna_sample_annotation[, .N, by = x_var][order(get(x_var))], 1,
+    function(x) {
+      suc <- gsub('0', 'failure', x[[1]])
+      suc <- gsub('1', 'success', suc)
+      sprintf('%s (n = %d)', suc, x[[2]])
+    })
+  if (length(x_labels) == 1) {
+    return(NULL)
+  } else {
+    x_labels <- setNames(x_labels, c(0, 1))
+  }
+
+  rna_sample_annotation[, (x_var) := as.integer(get(x_var))]
+
+  ggplot(rna_sample_annotation,
+         aes_string(x = x_var, y = 'evenness', group = x_var)) +
+    geom_boxplot() +
+    scale_x_continuous(breaks = c(0, 1), labels = x_labels,
+                       name = tonic_cap(x_var, cap_first_word_only = T))
+}) %>% { .[!sapply(., is.null)] }
+
+graphics.off()
+plot_panel_layout(plots = plots,
+                  filename = 'plots2/fastqc_transcriptome_evenness.pdf',
+                  ncol = 3, nrow = 2, labels = NULL, h = 17)
+```
+
+Investigate overrepresented sequences, which seqs are high?
+
+```{r, warning=FALSE, echo=FALSE}
+rna_sample_annotation[, .(cf_number, overrepresented_sequences)]
+
+html_files <- list.files(file.path(p_root, 'salmon_rna', 'fastqc'),
+                         pattern = 'html', full.names = T)
+
+## Select especially bad files
+inspect_files <- rna_sample_annotation[overrepresented_sequences == 0,
+                                       toupper(cf_number)] %>%
+  { grep(paste(., collapse = '|'), html_files, value = T) }
+
+## Relatively good files
+inspect_files <-
+  eps(apply(rna_sample_annotation[, fastqc_vars, with = F], 1, mean),
+      .818) %>%
+  { rna_sample_annotation[., toupper(cf_number)] } %>%
+  { grep(paste(., collapse = '|'), html_files, value = T) }
+
+sys_file_open(inspect_files)
+```
+
+## Compare Tophat and Salmon quants
+
+```{r, compare_res, warning=FALSE, echo=FALSE}
+isec_names <- intersect(rownames(rna_read_counts),
+                        rownames(rna_read_counts_salmon)) %>% sort
+
+## Make sure row and col order is identical
+rna_read_counts_comp <- rna_read_counts %>%
+  { .[match(isec_names, rownames(.)), ] }
+rna_read_counts_salmon_comp <- rna_read_counts_salmon %>%
+  { .[match(isec_names, rownames(.)), ] }
+rna_read_counts_comp$gs <- isec_names
+rna_read_counts_salmon_comp$gs <- isec_names
+
+all(colnames(rna_read_counts_comp) == colnames(rna_read_counts_salmon_comp))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+rna_read_counts_comp_m <-
+  melt(rna_read_counts_comp, id.vars = 'gs', variable.name = 'sample')
+rna_read_counts_salmon_comp_m <-
+  melt(rna_read_counts_salmon_comp, id.vars = 'gs', variable.name = 'sample')
+setnames(rna_read_counts_comp_m, 'value', 'tophat')
+setnames(rna_read_counts_salmon_comp_m, 'value', 'salmon')
+merged_dat <- controlled_merge(rna_read_counts_comp_m,
+                               rna_read_counts_salmon_comp_m)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+plots <- lapply(merged_dat[, naturalsort(unique(sample))], function(samp) {
+  p_dat <- merged_dat[sample == samp]
+  ax_scale_range <- p_dat[, range(tophat, salmon)] + 1
+
+
+  ggplot(p_dat, aes(x = tophat + 1, y = salmon + 1)) +
+    geom_point(alpha = .4) +
+    theme(aspect.ratio = 1) +
+    scale_x_continuous('Tophat read counts', trans = "log10",
+                       limits = ax_scale_range) +
+    scale_y_continuous('Salmon read counts', trans = 'log10',
+                       limits = ax_scale_range) +
+    ggtitle(samp)
+})
+
+plot_panel_layout(plots = plots, filename = 'plots2/tophat_salmon_cor.pdf',
+                  ncol = 3, nrow = 5, labels = NULL)
+```
+
+# PAM50 subtypes
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+source("https://bioconductor.org/biocLite.R")
+biocLite("org.Mm.eg.db")
+library(AnnotationDbi)
+library(org.Mm.eg.db)
+AnnotationDbi::select(org.Mm.eg.db, keys=genes, columns='ENTREZID',
+                      keytype='SYMBOL')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+if (F) {
+  library(biomaRt)
+  ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+  grep('entrez', listAttributes(ensembl)$name, value = T)
+  entrez_table <-
+    getBM(attributes=c('ensembl_gene_id', 'gene_biotype', 'entrezgene',
+                       'hgnc_symbol',
+                       'chromosome_name', 'start_position', 'end_position'),
+          filters = 'hgnc_symbol', values = rownames(tpms_salmon), mart = ensembl)
+  sr(entrez_table)
+} else {
+  entrez_table <- as.data.table(readRDS('rds/entrez_table.rds'))
+}
+```
+
+```{r, warning=FALSE, echo=FALSE}
+# source("https://bioconductor.org/biocLite.R")
+# biocLite("genefu")
+library(genefu)
+t_dat <- t(tpms_salmon)
+# dimnames(t_dat)
+# annot_df
+colnames(t_dat) <- rownames(tpms_salmon)
+entrez_table <- entrez_table[!is.na(entrezgene)]
+t_dat <- t_dat[, colnames(t_dat) %in% entrez_table[, hgnc_symbol]]
+setnames(entrez_table, c('hgnc_symbol', 'entrezgene'),
+         c('Gene.Symbol', 'EntrezGene.ID'))
+subtype_predictions <- molecular.subtyping(sbt.model = 'pam50',
+  data = as.data.frame(t_dat),
+  annot = entrez_table[, .(Gene.Symbol, EntrezGene.ID)],
+  do.mapping = F)
+table(subtype_predictions$subtype)
+```
+
+# Directly plot gene sets
+
+See external plots
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+## Make heatmaps for all genesets per timepoint
+plot_gene_sets()
+```
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+plot_gene_set(gs_name = 'CD4_cytokines',
+              gene_symbols = filter_gmt(gmt_pat = 'gu')[[2]],
+              # timepoints = 'Baseline')
+              # timepoints = 'On nivo')
+              timepoints = 'Post-induction')
+```
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+# plot_gene_set()
+# devtools::load_all('~/libs/GSEAgenesets')
+plot_gene_set(gs_name = 'CD4_TIL',
+              gene_symbols = filter_gmt(gmt_pat = 'gu',
+                                        gene_set_pat = 'TIL')[[1]],
+              # timepoints = 'Baseline')
+              # timepoints = 'On nivo')
+              timepoints = 'Post-induction')
+```
+
+## Burstein subtypes
+
+```{r, warning=FALSE, echo=FALSE}
+source('~/antigenic_space/bin/install_packages.R')
+devtools::load_all('~/libs/GSEAgenesets')
+source('R/init.R')
+source('R/load_rna_dat.R')
+source('R/rna.R')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/rna.R')
+
+ann_row <-
+  rbindlist(imap(filter_gmt(gmt_pat = 'burstein'), function(x, y)
+     data.frame(x, 'subtype' = gsub('BURSTEIN-', '', y))
+     )) %>% as.data.frame %>% column_to_rownames('x')
+class(ann_row)
+# rownames(ann_cols)
+
+# plot_gene_set(gs_name = 'Burstein_subtypes',
+#               gene_symbols = rownames(ann_cols),
+#               ann_row = ann_row,
+#               timepoints = 'Baseline')
+
+plot_gene_set(gs_name = 'Burstein_subtypes',
+              gene_symbols = rownames(ann_cols),
+              exp_mat = tpms_salmon,
+              ann_row = ann_row,
+              timepoints = c('Baseline', 'Post-induction'))
+              # timepoints = 'Post-induction')
+```
+
+
+Gene set scores
+
+```{r, warning=FALSE, echo=FALSE}
+burstein_scores <- gen_gene_set_score_matrix(sum_func = median,
+                                             sets = filter_gmt(gmt_pat = 'burstein'),
+                                             log_transform = 'log2')
+# rel_scores <-
+#   burstein_scores[, .SD[, .(gene_set, 'rel_score' = value / sum(value))],
+#                   by = .(patient, timepoint)]
+burstein_scores[, gene_set := gsub('BURSTEIN-', '', gene_set)]
+burstein_scores[, 'certainty' := 1 - compute_evenness(value),
+           by = .(patient, timepoint)]
+burstein_scores[, .N == 8, by = patient]
+burstein_scores[measurement_count == T,
+                sum(value, na.rm = T),
+                by = .(timepoint, arm, gene_set)]
+
+burstein_scores <- burstein_scores[, .SD[which.max(value)],
+                                   by = .(patient, timepoint)] %>%
+  { .[naturalorder(patient)] }
+
+# burstein_scores[, uniqueN(gene_set), by = patient]
+# burstein_scores <- burstein_scores[measurement_count == T]
+# burstein_scores[, measurement_count := NULL]
+burstein_scores <- tidyr::spread(burstein_scores[, .(patient, arm, timepoint,
+                                                     gene_set,
+                                                     clinical_response)],
+                                 timepoint, gene_set)
+## No assocation between clinical response and the BLIA label at the
+## Post-induction and Baseline timepoints
+burstein_scores[, fasanalysis::print.mean_CI(`Post-induction` == 'BLIA'), by = clinical_response]
+burstein_scores[, fasanalysis::print.mean_CI(`Baseline` == 'BLIA'), by = clinical_response]
+
+```
+
+# Compute gene set scores
+
+Compute gene set scores for each sample by taking the median of the Z-scores of
+the geneset for that sample. Z-scores are computed over the samples by gene and
+reflect the relative magnitude of the gene's expression relative to the rest of
+the cohort. Alternatively and to facilitate the comparison to new samples, raw
+TPMs are analyzed instead. The latter is done here.
+Of note, gene set scores are computed over informative genes only, meaning that
+genes with a near zero variance across samples are discarded before running the
+summary function to compute the gene set function.
+
+```{r, gene_set_scores, cache = F, warning=FALSE, echo=FALSE}
+source('R/rna.R')
+## Compute gene set matrix
+clear_object(gs_mat, sr)
+sr(gs_mat <- gen_gene_set_score_matrix(sum_func = median,
+                                       log_transform = NULL))
+clear_object(gs_mat_log2, sr)
+sr(gs_mat_log2 <- gen_gene_set_score_matrix(sum_func = median,
+                                            log_transform = 'log2'))
+gs_mat[is.na(clinical_response), clinical_response := 'NA']
+gs_mat[, timepoint := factor(timepoint, levels = timepoints)]
+```
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+vec <- c(10, 3, 9, 28, 1, 1)
+geometric_mean <- function(vec) {
+  if (is.numeric(vec) || is.double(vec) || is.integer(vec)) {
+    stopf('geometric_mean expects numeric input')
+  }
+  prod(vec)^(1/length(vec))
+}
+mean(vec)
+median(vec)
+```
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+source('R/plotting_nanostring.R')
+# debugonce(plot_parallel_coords)
+
+lapply(gs_mat_log2[, unique(gene_set)], function(gs_name) {
+  library(ggrepel)
+  p <- plot_parallel_coords(gs_mat[gene_set == gs_name],
+                            facet_var = 'arm',
+                            swarm_width = .1,
+                            filter_vals = F,
+                            colour_var = 'clinical_response') +
+    ggtitle(tonic_cap(gs_name))
+  fn <- file.path('plots2', sprintf('rna_parallel_coords_%s.pdf', gs_name))
+  ggsave(p, filename = fn, width = 17.4, height = 12, units = 'cm')
+
+  ## Seeing the data, I realize this was a stupid experiment: Here's the same
+  ## but with gene expression scores computed over log2 transformed values. Of
+  ## course, this is just a monotonic transformation and the scores should be
+  ## same as having directly applied a log2 transformation to the just plotted
+  ## scores.
+  p <- plot_parallel_coords(gs_mat_log2[gene_set == gs_name],
+                            facet_var = 'arm',
+                            swarm_width = .1,
+                            filter_vals = F,
+                            colour_var = 'clinical_response') +
+    ggtitle(tonic_cap(gs_name))
+  fn <- file.path('plots2', sprintf('rna_parallel_coords_log2_%s.pdf', gs_name))
+  ggsave(p, filename = fn, width = 17.4, height = 12, units = 'cm')
+})
+```
+
+Gene set score dists per patient. Patient 4 has high scores for almost all gene
+sets, is this an artefact? I rechecked the normalisation and that is correct.
+
+```{r, warning=FALSE, echo=FALSE, fig.width = 24/2.54, fig.height = 18/2.54}
+ggplot(gs_mat, aes(x = patient, y = value, fill = clinical_response)) +
+  geom_boxplot() +
+  facet_wrap(~ timepoint + arm, nrow = 2, scales = 'free_x') +
+  ylab('Gene set scores') +
+  ggplot2::theme(axis.text.x =
+    ggplot2::element_text(angle = 45, hjust = 1, vjust = 0.5)) +
+  scale_fill_manual(name = 'Clinical response',
+                    values = tonic_color_palettes[['clinical_response']])
+```
+
+```{r, warning=FALSE, echo=FALSE}
+## Due to unequal distribution, check evenness of distributions
+evenness_vals <- apply(tpms, 2, compute_evenness)
+
+rna_sample_annotation$evenness <- evenness_vals[rna_sample_annotation$cf_number]
+rm(evenness_vals)
+## Gene set score dists per patient
+gs_mat <-
+  controlled_merge(gs_mat,
+                   rna_sample_annotation[, .(patient, timepoint, evenness)])
+```
+
+```{r, warning=FALSE, echo=FALSE}
+log2tpms <- log2(tpms + 1)
+## Due to unequal distribution, check evenness of distributions
+evenness_vals <- apply(log2tpms, 2, compute_evenness)
+rna_sample_annotation$log_evenness <- evenness_vals[rna_sample_annotation$cf_number]
+rm(evenness_vals)
+## Gene set score dists per patient
+gs_mat <-
+  controlled_merge(gs_mat,
+                   rna_sample_annotation[, .(patient, timepoint, log_evenness)])
+```
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+ggplot(rna_sample_annotation, aes(x = evenness, y = log_evenness)) +
+  geom_point()
+```
+
+The sample with high scores (pat 4, baseline) turns out to be very
+even, which would result in higher gene set scores as these are based on the
+median.
+
+```{r, warning=FALSE, echo=FALSE, fig.width = 24/2.54, fig.height = 18/2.54}
+ggplot(gs_mat, aes(x = patient, y = value, fill = evenness)) +
+  geom_boxplot() +
+  facet_wrap(~ timepoint + arm, nrow = 2, scales = 'free_x') +
+  ylab('Gene set scores') +
+  scale_fill_gradient2(name = 'Transcriptome evenness',
+                       low = 'white',
+                       high = 'red',
+                       limits = range(gs_mat$evenness, na.rm = T),
+                       na.value = 'grey80') +
+  ggplot2::theme(axis.text.x =
+    ggplot2::element_text(angle = 45, hjust = 1, vjust = 0.5),
+    legend.key.size = grid::unit(8, 'mm')
+  )
+```
+
+```{r, eval = F, warning=FALSE, echo=FALSE, fig.width = 24/2.54, fig.height = 18/2.54}
+ggplot(gs_mat, aes(x = patient, y = value, fill = log_evenness)) +
+  geom_boxplot() +
+  facet_wrap(~ timepoint + arm, nrow = 2, scales = 'free_x') +
+  ylab('Gene set scores') +
+  scale_fill_gradient2(name = 'Transcriptome evenness (logged values)',
+                       low = 'white',
+                       high = 'red',
+                       limits = range(gs_mat$log_evenness, na.rm = T),
+                       na.value = 'grey80') +
+  ggplot2::theme(axis.text.x =
+    ggplot2::element_text(angle = 45, hjust = 1, vjust = 0.5),
+    legend.key.size = grid::unit(8, 'mm')
+  )
+```
+
+# Limma DEG
+## Multivariate model
+
+```{r, warning=FALSE, echo=FALSE}
+library(limma)
+library(edgeR)
+test_NA <- function(vec) is.na(vec) | vec == 'NA'
+rna_sample_annotation_def <-
+  copy(rna_sample_annotation[!test_NA(clinical_response)])
+rna_sample_annotation_def <- copy(rna_sample_annotation)
+rna_sample_annotation_def[, timepoint := droplevels(timepoint)]
+```
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+log2tpms <- log2(tpms + 1)
+log10tpms <- log10(tpms + 1)
+
+log2tpms <- log2tpms[!eps(apply(log2tpms, 1, var), 0, 1e-1), ]
+hist(apply(log2tpms, 1, var))
+
+normality_tests <- sapply(apply(log2tpms, 1, shapiro.test),
+                          function(x) { x$p.value })
+table(normality_tests < 0.05)
+log2tpms <- log2tpms[which(normality_tests > 0.05), ]
+# log2tpms[sample(names(which(normality_tests < 0.05)), 5), ]
+# normality_tests[which(normality_tests < 0.05)]
+hist(normality_tests)
+## Test normality
+hist(unlist(log2tpms[1, ]))
+hist(unlist(log2tpms[10, ]))
+hist(unlist(log2tpms[12, ]))
+hist(unlist(log2tpms[100, ]))
+hist(unlist(log2tpms[2100, ]))
+hist(unlist(log10tpms[2100, ]))
+hist(unlist(log2tpms[2000, ]))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+cpms <- as.matrix(rna_read_counts)
+rownames(cpms) <- ensgs
+cpms <- cpms[!eps(apply(cpms, 1, var), 0, 1e-1), ]
+cpms <- limma::voom(cpms)
+class(cpms)
+normality_tests <- sapply(apply(cpms, 1, shapiro.test),
+                          function(x) { x$p.value })
+table(normality_tests < 0.05)
+```
+
+We employ a multiway design, modelling all relevant interactions between all
+three factors (induction treatment, time and clinical response).  Responders are
+assumed to be deriving from one common distribution, we don't want to model
+responders independently for the five arms.
+
+```{r, warning=FALSE, echo=FALSE}
+# rna_sample_annotation_def[, levels(timepoint)]
+# rna_sample_annotation_def[, levels(arm)]
+model_mat <- model.matrix(~ 0 + timepoint*arm,
+                          rna_sample_annotation_def)
+colnames(model_mat) <- gsub('Post-induction', 'PI', colnames(model_mat))
+colnames(model_mat) <- gsub('Baseline', 'BL', colnames(model_mat))
+colnames(model_mat) <- gsub('timepoint', 'tp', colnames(model_mat))
+colnames(model_mat) <- gsub('clinical_responseR', 'CR', colnames(model_mat))
+colnames(model_mat) <- gsub(':', '_', colnames(model_mat))
+colnames(model_mat) <- gsub('\\(Intercept\\)', 'intercept', colnames(model_mat))
+# model_mat <- model_mat[, 7:10]
+print(colnames(model_mat))
+head(model_mat)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+## Indexes with log2tpms of samples that we will be training on
+idx <- match(rna_sample_annotation_def[, cf_number],
+             colnames(cpms))
+model_fit <- lmFit(cpms[, idx], design = model_mat)
+sum(model_fit$design[, 'CR'])
+e_fit <- eBayes(model_fit, trend = F)
+# summary(e_fit)
+# print(e_fit)
+my_tt(e_fit, coef = 7)
+my_tt(e_fit, coef = 12)
+```
+
+Contrasts of interest:
+
+  * Changes specifically induced by each of the induction arms at the two
+    timepoints
+  * Changes between non-responders and responders at the two timepoints
+  * Changes that are unique to any timepoint and response level interaction.
+    These are interaction terms and can be understood to describe synergy.
+
+```{r, warning=FALSE, echo=FALSE}
+results <- decideTests(e_fit, adjust.method = 'none')
+results <- decideTests(e_fit, adjust.method = 'fdr')
+## Total amount of genes sig for each contrast
+apply(results != 0, 2, sum)
+
+## Baseline differences as compared to No induction
+coefs <- c('armRadiotherapy', 'armCyclophosphamide', 'armCisplatin',
+           'armDoxorubicin')
+my_venn(results[, coefs])
+my_tt(e_fit, coefs)
+
+## Genes associated with clinical response
+coefs <- c('CR', 'tpPI', 'tpPI_CR')
+my_venn(results[, coefs])
+my_tt(e_fit, coefs)
+
+## Genes specifically upregulated in any arm
+coefs <- c('tpPI_armRadiotherapy', 'tpPI_armCyclophosphamide',
+           'tpPI_armCisplatin', 'tpPI_armDoxorubicin')
+my_venn(results[, coefs])
+my_tt(e_fit, coefs)
+
+## Same but per arm
+coefs <- c('tpPI_armRadiotherapy', 'armRadiotherapy')
+my_venn(results[, coefs])
+my_tt(e_fit, coefs)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+colnames(model_mat)
+cont.matrix <- makeContrasts(PI = tpPI,
+                             PI_Radiotherapy = tpPI,
+                             levels = model_mat)
+cont.matrix <- makeContrasts(PIvsBL_Radiotherapy = tpPI + tpPI_armRadiotherapy,
+                             PIvsBL_Cyclophosphamide = tpPI + tpPI_armCyclophosphamide,
+                             PIvsBL_Cisplatin = tpPI + tpPI_armCisplatin,
+                             PIvsBL_Doxorubicin = tpPI + tpPI_armDoxorubicin,
+                             levels = model_mat)
+cont.matrix <- makeContrasts(R = CR,
+                             PI_Radiotherapy = tpPI,
+                             levels = model_mat)
+c_fit <- eBayes(contrasts.fit(e_fit, cont.matrix))
+my_tt(c_fit, adjust = "fdr")
+
+
+```
+
+## Arm specific analyses
+
+Univariate models, these obviate the previous analyses
+
+```{r, warning=FALSE, echo=FALSE}
+e_fits <- lapply(rna_sample_annotation[, auto_name(levels(arm))],
+                 function(l_arm) {
+  ## TODO select matched samples
+  rna_subs <- rna_sample_annotation_def[arm == l_arm]
+  allowed_pats <- rna_subs[, .N, patient][N == 2, patient]
+  rna_subs <- rna_subs[patient %in% allowed_pats]
+
+  model_mat <- model.matrix(~ timepoint, rna_subs)
+  colnames(model_mat) <- gsub('Post-induction', 'PI', colnames(model_mat))
+  colnames(model_mat) <- gsub('Baseline', 'BL', colnames(model_mat))
+  colnames(model_mat) <- gsub('timepoint', 'tp', colnames(model_mat))
+  colnames(model_mat) <- gsub('clinical_responseR', 'CR', colnames(model_mat))
+  colnames(model_mat) <- gsub(':', '_', colnames(model_mat))
+  colnames(model_mat) <- gsub('\\(Intercept\\)', 'intercept',
+                              colnames(model_mat))
+  print(colnames(model_mat))
+  print(nrow(model_mat))
+
+  cpms <- as.matrix(rna_read_counts_salmon[, rna_subs[, cf_number], with = F])
+  rownames(cpms) <- rownames(rna_read_counts_salmon)
+  cpms <- cpms[!eps(apply(cpms, 1, var), 0, 1e-1), ]
+  cpms <- limma::voom(cpms, design = model_mat)
+
+  model_fit <- lmFit(cpms, design = model_mat)
+  e_fit <- eBayes(model_fit, trend = F)
+  print(my_tt(e_fit, coef = 2, sort.by = 'T', resort.by = 'logFC'))
+  return(e_fit)
+})
+```
+
+P-value distributions indicate a strong absence of significant results -
+distributions are non-uniform left-skewed, indicating a lower amount of
+significant results compared to what would be expected. Does
+this have to do with the variance moderation that limma employs?
+
+```{r, warning=FALSE, echo=FALSE}
+layout(matrix(1:6, byrow = T, nrow = 2))
+lapply(seq_along(e_fits), function(idx) {
+  obj <- e_fits[[idx]]
+  hist(obj$p.value[, 'tpPI'], main = names(e_fits)[idx], xlab = 'p-value')
+})
+```
+
+Find the DE genes that overlap between arms
+
+```{r, warning=FALSE, echo=FALSE}
+o_dat <- rbindlist(lapply(seq_along(e_fits), function(idx) {
+  obj <- e_fits[[idx]]
+  gene_names <- rownames(obj)
+
+  obj <- obj$p.value %>%
+    as.data.frame %>%
+    rownames_to_column('ensg') %>%
+    dplyr::filter(tpPI <= .05) %>%
+    mutate(arm = names(e_fits)[idx])
+  return(obj)
+}), fill = T)
+
+o_dat_w <- dcast(o_dat[, c('ensg', 'arm')], formula = ensg ~ arm)
+o_dat_w <- o_dat_w[, lapply(.SD, function(x) as.integer(!is.na(x))), by = ensg]
+o_ana <- overlap_analysis(o_dat_w[, 2:6])
+layout(matrix(1, byrow = T, nrow = 1))
+plot(o_ana)
+```
+
+## Timepoint specific analyses between responders/non-responders
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/rna.R')
+
+contrast_response <- function(l_timepoint = 'Baseline') {
+  rna_subs <- rna_sample_annotation[timepoint == l_timepoint]
+  rna_subs <- rna_subs[!is.na(clinical_response)] %>% unique
+
+  model_mat <- model.matrix(~ clinical_response, rna_subs)
+  colnames(model_mat) <- gsub('clinical_responseR', 'CR', colnames(model_mat))
+  colnames(model_mat) <- gsub(':', '_', colnames(model_mat))
+  colnames(model_mat) <- gsub('\\(Intercept\\)', 'intercept',
+                              colnames(model_mat))
+  print(colnames(model_mat))
+  print(nrow(model_mat))
+  # rownames(model_mat) <- rna_subs[, cf_number]
+
+  idx  <- match(rna_subs$cf_number, colnames(rna_read_counts_salmon))
+  cpms <- as.matrix(rna_read_counts_salmon[, idx, with = F])
+  stopifnot(all(colnames(cpms) == rna_subs$cf_number))
+  rownames(cpms) <- rownames(rna_read_counts_salmon)
+  cpms <- cpms[!eps(apply(cpms, 1, var), 0, 1e-1), ]
+  cpms <- limma::voom(cpms, design = model_mat)
+
+  model_fit <- lmFit(cpms, design = model_mat)
+  e_fit <- eBayes(model_fit, trend = F)
+  return(e_fit)
+}
+
+bl_efit <- contrast_response(l_timepoint = 'Baseline')
+pi_efit <- contrast_response(l_timepoint = 'Post-induction')
+# contrast_response(l_timepoint = 'Post-induction')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+my_tt(e_fit, coef = 2, sort.by = 'p', resort.by = 'logFC', number = 1000)
+my_tt(bl_efit, coef = 2, sort.by = 'p', number = 3e4) %>%
+  filter(adj.P.Val <= 0.05)
+my_tt(pi_efit, coef = 2, sort.by = 'p', number = 3e4) %>%
+  filter(adj.P.Val <= 0.05)
+my_tt(e_fit, coef = 2, sort.by = 'p', number = 3e4)
+```

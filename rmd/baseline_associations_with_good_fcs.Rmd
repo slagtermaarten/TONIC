@@ -1,0 +1,36 @@
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+source('R/load_rna_dat.r')
+```
+
+Compute scores per patient
+
+```{r, warning=FALSE, echo=FALSE}
+rna_read_counts
+sig_gene_sets
+
+tp1 = 'Baseline'
+tp2 = 'Post-induction'
+t_dat[, 'logFC' := get(tp2) - get(tp1)]
+t_dat[, 'upreg_score' := logFC]
+# t_dat[, median(logFC), by = arm]
+rel_rna <- rna_read_counts[patient %in% t_dat[, patient]]
+```
+
+```{r, warning=FALSE, echo=FALSE}
+## Finish me
+cors <- rbindlist(lapply(rel_rna[, auto_name(unique(external_gene_id))], 
+                         function(x) {  
+  tmp_dat <- dcast(rel_rna[external_gene_id == x], 
+                   patient + induction_arm + external_gene_id ~ timepoint)
+  compute_FC_p_val(tmp_dat, tp1 = tp1, tp2 = tp2)
+  t_dat <- test_gene_set_difference(genes = x, facet_var = 'patient', 
+                                    tp1 = tp1, tp2 = tp2)
+  merged <- merge(t_dat, rel_rna[external_gene_id == x], by = 'patient')
+  t_dat <- merged[, .('gene_symbol' = external_gene_id[1], 
+                      'logFC_q50' = median(logFC),
+                      'spearman' = cor(get(tp1), upreg_score, 
+                                       method = 'spearman'))]
+  return(t_dat)
+}))
+```

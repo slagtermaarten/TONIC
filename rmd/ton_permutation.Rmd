@@ -1,0 +1,74 @@
+---
+title: "Permutation testing for enrichment of upregulation of immune associated genes in the Dox and Cis treatment arms"
+author: "Maarten Slagter"
+output: html_document
+---
+
+```{r, cache = F, warning=FALSE, echo=FALSE}
+knitr::opts_chunk$set(message = FALSE, cache = F, cache.lazy = F, 
+                      cache.comments = F, autodep = T, warning = FALSE, 
+                      echo = TRUE, error = FALSE)
+knitr::opts_knit$set(progress = TRUE, verbose = TRUE)
+```
+
+Ton was especially interested in the pattern of all gene sets associated with
+clinical response moving up and down jointly (see logFC heatmaps). To test the
+enrichment with which this occurs in the two arms that came out as winners in
+this visualisation (Dox and Cis), we devised a permutation experiment in which
+patients are shuffled across treatment arms. First, to summarise the pattern of
+gene set fold changes for each patient individually, the median $FC_p$ of fold
+changes between two time points of the 16 gene sets was computed to capture the
+general change in gene expression in these gene sets. Next, the treatment arms
+were summarized by taking the median of $FC_p$ for the patients in that
+treatment arm to get $FC_t$. Only patients with samples at both timepoints under
+comparison are included in the analysis. To obtain a null distribution of
+$FC_t$, $FC_{t\ast}$, that would have occurred given no differential effect of
+the treatment arms, arm labels were repetitively shuffled between patients ($n =
+1000$). $FC_t$ could then be compared against $FC_{t\ast}$, taking the arm
+specific percentage of $FC_{t\ast} \ge FC_t$ as the one-sided probability that
+the observed enrichment of fold changes - or lack thereof - could occur by
+chance. We could also turn this into a two sided test if desired but to me this
+is most intuitive.
+
+Colored in dark red are arm specific median FC in permuted samples that are
+greater than the observed FC. Interestingly, the strong effect observed when
+comparing $t = 0$ to $t = 2$ for the Dox and Cisplating arms can already be
+observed between $t = 0$ and $t = 1$, albeit to a smaller degree. 
+
+A caveat in the analysis of these results is that this method does not take
+differences in baseline features into account.
+
+# Results
+
+Baseline vs. post-induction
+
+```{r, warning=FALSE, echo=FALSE, fig.width = 10 / 2.54, height = 13 / 2.54}
+source('R/init.R')
+library(grid)
+
+graphics.off()
+p <- ton_percentile_comparison_of_fc(N_reps = 5e4, 
+                                     gene_sets = sig_gene_sets,
+                                     tp1 = 'Baseline', 
+                                     tp2 = 'Post-induction')
+grid::grid.draw(p)
+```
+
+Post-induction vs. on nivo
+
+
+```{r, warning=FALSE, echo=FALSE, fig.width = 10 / 2.54, height = 13 / 2.54}
+p <- ton_percentile_comparison_of_fc(N_reps = 5e4, 
+                                     tp1 = 'Post-induction', 
+                                     tp2 = 'On nivo')
+grid::grid.draw(p)
+```
+
+Baseline vs. on nivo
+
+```{r, warning=FALSE, echo=FALSE, fig.width = 10 / 2.54, height = 13 / 2.54}
+p <- ton_percentile_comparison_of_fc(N_reps = 5e4, 
+                                     tp1 = 'Baseline', 
+                                     tp2 = 'On nivo')
+grid::grid.draw(p)
+```

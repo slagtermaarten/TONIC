@@ -1,0 +1,146 @@
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+source('R/load_rna_dat.R')
+```
+
+# Prep data for CIBERSORT
+
+Compute TPMs, convert from ENSG to gene symbol annotation, sum by gene symbol
+(as multiple ENSGs map to one gene symbol) and write the result out to a .tsv
+
+```{r, warning=FALSE, echo=FALSE}
+# rna_read_counts <- rownames_to_column(rna_read_counts, 'ensembl_gene_id')
+tpms <- controlled_merge(rna_read_counts,
+                         rna_read_counts_ann[, .(ensembl_gene_id,
+                                                 gene_length)])
+## Check first gene, second sample as representative for all genes
+tpm_val <- tpms[1,3] / tpms[1, gene_length]
+tpms <- tpms[, lapply(.SD, function(x) x / gene_length),
+  .SDcols = grep('cf', colnames(tpms), value = T)]
+stopifnot(tpms[1, 2] == tpm_val)
+
+if (F) {
+  ## Checking the syntax I'm using
+  dat <- matrix(1:9, nrow = 3, byrow = T)
+  dat <- t(t(dat) / apply(dat, 2, sum))
+  v <- c(3, 6, 9)
+  v <- c(1, 4, 7)
+  v / sum(v)
+  dat <- t(t(dat) * 1e6 / apply(dat, 2, sum))
+}
+
+## Normalise by library size
+tpms <- t(t(tpms) * 1e6 / apply(tpms, 2, sum))
+# stopifnot(!rna_read_counts[, any(table(external_gene_id) > 1)])
+# rna_read_counts <- merge(rna_read_counts, rna_read_counts_ann,
+#                          all.x = T, all.y = F)
+tpms <- as.data.frame(tpms)
+rownames(tpms) <- rna_read_counts$ensembl_gene_id
+
+tpms$hugo_symbol <- 
+  rna_read_counts_ann[match(rownames(tpms), 
+                            rna_read_counts_ann$ensembl_gene_id),
+                      external_gene_id]
+setDT(tpms)
+tpms <- tpms[, lapply(.SD, sum), by = hugo_symbol]
+# tpms <- t(tpms)
+inspect_mat(tpms)
+write_tsv(tpms, output_file = 'rds/cibersort_input.tsv')
+```
+
+# Plot results
+
+```{r, warning=FALSE, echo=FALSE}
+cibersort <- read_cibersort()
+```
+
+```{r, warning=FALSE, echo=FALSE}
+hist(cibersort[, p_value], xlab = 'P-value (lower is better)',
+     main = 'CIBERSORT p-values')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+cell_columns <- colnames(cibersort)[2:23]
+cibersort_m <- melt(cibersort[p_value <= 0.05, 
+                    c(cell_columns, 'patient', 'timepoint', 'arm',
+                                  'clinical_response'), with = F],
+                    id.vars = c('patient', 'timepoint', 'arm', 
+                                'clinical_response'),
+                    variable.name = 'celltype')
+# head(cibersort_m)
+
+## Validate all scores are to be interpreted as proportional values
+cibersort_m[, sum(value), by = .(patient, timepoint)][, eps(V1, 1)]
+```
+
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+library(ggrepel)
+source('R/plotting_nanostring.R')
+devtools::load_all(file.path('~/libs', 'maartenutils'))
+
+lapply(cibersort_m[, as.character(unique(celltype))], function(ct) {
+  p <- plot_parallel_coords(cibersort_m[celltype == ct],
+                            facet_var = 'arm',
+                            swarm_width = .2,
+                            overlay_boxplot = T,
+                            filter_vals = F,
+                            colour_var = 'clinical_response') +
+    ylab('Celltype fraction of total') +
+    ggplot2::theme(axis.ticks.x = element_blank()) +
+    ggtitle(tonic_cap(ct))
+  fn <- file.path('plots2', sprintf('cibersort_%s.pdf', ct))
+  ggsave(p, filename = fn, width = 17.4, height = 12, units = 'cm')
+
+  p <- plot_parallel_coords(cibersort_m[celltype == ct],
+                            facet_var = NULL,
+                            swarm_width = .2,
+                            overlay_boxplot = T,
+                            filter_vals = F,
+                            colour_var = 'clinical_response') +
+    ylab('Celltype fraction of total') +
+    ggplot2::theme(axis.ticks.x = element_blank()) +
+    ggtitle(tonic_cap(ct))
+  fn <- file.path('plots2', sprintf('cibersort_%s_allarms.pdf', ct))
+  ggsave(p, filename = fn, width = 8, height = 12, units = 'cm')
+})
+```
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+paste(tonic_cap(cibersort_m[, naturalsort(unique(levels(celltype)))]), 
+      collapse = ', ')
+```
+
+
+## Associate with response
+
+
+```{r, warning=FALSE, echo=FALSE}
+f <- mean
+f <- function(x) median(x + 1)
+
+test_cibersort_association <- function(l_timepoint = 'Baseline',
+                                       l_celltype = 'b_cells_naive') {
+  t_dat <- cibersort_m[!is.na(clinical_response) & 
+                       timepoint == l_timepoint & 
+                       celltype == l_celltype]
+  wc_test <- wilcox.test(value ~ clinical_response, data = t_dat, exact = F)
+  LFC <- log2(f(t_dat[clinical_response == 'R', value])) -
+         log2(f(t_dat[clinical_response == 'NR', value]))
+  list('timepoint' = l_timepoint, 'celltype' = l_celltype, 
+       'p_value' = wc_test$p.value, 'log2FC' = LFC)
+}
+param_grid <- expand.grid(celltype = cibersort_m[, naturalsort(unique(celltype))],
+                          timepoint = timepoints[c(1,2)]) %>% as.data.table
+param_grid <- 
+  param_grid[, test_cibersort_association(.SD[, timepoint], .SD[, celltype]), 
+             by = 1:nrow(param_grid)]
+param_grid[, 'p_adjusted' := p.adjust(p_value, method = 'fdr')]
+```
+
+```{r, warning=FALSE, echo=FALSE}
+x_range <- rep(param_grid[, max(abs(range(log2FC)))], 2) * c(-1, 1)
+ggplot(param_grid, aes(x = log2FC, y = -log10(p_adjusted))) + geom_point() +
+  scale_x_continuous(limits = x_range)
+```
+

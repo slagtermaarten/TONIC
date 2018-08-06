@@ -1,0 +1,21 @@
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R') 
+gene_symbol <- 'CD274'
+system(sprintf('./tonic_utils sff rds/%s.rds', gene_symbol))
+fit <- readRDS(file.path(rds_dir, sprintf('%s.rds', gene_symbol)))
+class(fit)
+extract(fit)
+ranef(fit)
+p <- stanplot(fit) + ggtitle(gene_symbol)
+fn <- file.path(plot_dir, sprintf('params_%s.pdf', gene_symbol))
+ggsave(plot = p, filename = fn, width = 4.5, height = 5)
+sys_file_open(fn)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+print(tonic_brm)
+plot(tonic_brm, type = 'hist')
+
+str(tonic_brm)
+plot(fit, show_density = TRUE, ci_level = 0.5, fill_color = "purple")
+```
