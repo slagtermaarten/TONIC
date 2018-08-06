@@ -4,10 +4,11 @@
 test_gene_association <- function(gene = 'CD274', timepoint = 'On nivo',
                                   patient_ids = patient_labels[, unique(patient)],
                                   y_var = 'response') {
-  stopifnot(timepoint %in% timepoints)
+  l_timepoint <- timepoint
+  stopifnot(l_timepoint %in% timepoints)
   p_dat <- prep_gene_parallel_coords(gene = gene,
                                      colour_var = y_var)[['p_dat']]
-  p_dat <- p_dat[timepoint == parent.frame(3)$timepoint & 
+  p_dat <- p_dat[timepoint == l_timepoint & 
                  patient %in% patient_ids]
   p_dat <- filter_patients(p_dat, y_var)
   if (p_dat[, all(is.na(value))]) return(NULL)
@@ -34,7 +35,8 @@ test_gene_set_association <- function(gene_set = 'tis', timepoint = 'On nivo',
                                       patient_ids = patient_labels[, unique(patient)]) {
   stopifnot(timepoint %in% timepoints)
   p_dat <- danaher_scores.m[variable %in% gene_set]
-  p_dat <- p_dat[as.character(timepoint) == parent.frame(3)$timepoint]
+  l_timepoint <- timepoint
+  p_dat <- p_dat[as.character(timepoint) == l_timepoint]
   p_dat <- p_dat[as.character(patient) %in% patient_ids] 
   # p_dat <- filter_patients(p_dat, y_var, facet_var)
   if (null_dat(p_dat) || p_dat[, all(is.na(value))]) {
@@ -62,7 +64,8 @@ prepare_test_gene_set_difference <- function(gene_set = sig_gene_sets[1],
                                              tp1 = 'Baseline',
                                              tp2 = 'On nivo') {
   ## Select relevant data
-  data_subs <- danaher_scores.m[variable %in% parent.frame(3)$gene_set] %>%
+  l_gene_set <- gene_set
+  data_subs <- danaher_scores.m[variable %in% l_gene_set] %>%
     { .[timepoint %in% c(tp1, tp2)] } %>%
     { .[!is.na(value)] } %>%
     filter_patients(facet_var)

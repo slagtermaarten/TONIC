@@ -1,8 +1,0 @@
-```{r, warning=FALSE, echo=FALSE}
-i = .001
-TPR = .96
-FPR = .92
-PPV = i * TPR / (i * TPR + (1-i) * FPR)
-print(PPV * 100)
-```
-

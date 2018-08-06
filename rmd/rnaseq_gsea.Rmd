@@ -27,12 +27,13 @@ cpms <- limma::voom(cpms)
 
 ```{r, warning=FALSE, echo=FALSE}
 FCs <- rbindlist(lapply(unique(rna_sample_annotation$patient), function(patient) {
-  cf_bl <- rna_sample_annotation[patient == parent.frame(3)$patient &
+  l_patient <- patient
+  cf_bl <- rna_sample_annotation[patient == l_patient &
                         timepoint == 'Baseline', cf_number]
-  cf_pi <- rna_sample_annotation[patient == parent.frame(3)$patient &
+  cf_pi <- rna_sample_annotation[patient == l_patient &
                         timepoint == 'Post-induction', cf_number]
   if (is.null(cf_bl) || is.null(cf_pi)) return(NULL)
-  fcs <- as.list(cpms$E[, cf_pi] - cpms$E[, cf_bl], 'patient' = patient)
+  fcs <- as.list(cpms$E[, cf_pi] - cpms$E[, cf_bl], 'patient' = l_patient)
   return(fcs)
 }), fill = T)
 dim(FCs)

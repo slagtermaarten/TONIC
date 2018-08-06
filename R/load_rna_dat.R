@@ -29,6 +29,28 @@ rna_sample_annotation <- controlled_merge(rna_sample_annotation,
       unique(patient_labels[, .(patient, arm, clinical_response, response)]),
       by = 'patient')
 
+if (local_run) {
+  ## Merge FASTQC results
+  fastqc_res <- 
+    fread(sprintf('cat %s/salmon_rna/fastqc/CF*/**/summary.txt', p_root), header = F)
+  setnames(fastqc_res, c('fastqc_test_result', 'fastqc_test', 'filename'))
+  fastqc_res[, 'cf_number' := 
+             gsub('\\d{4}_\\d{1,2}_(CF.*)_\\w{7}_S\\d{1,2}_R\\d_\\d{3}\\.fastq\\.gz', '\\1', filename)]
+  fastqc_res[, fastqc_test_result := fastqc_test_result == 'PASS']
+  fastqc_res[, cf_number := tolower(cf_number)]
+  fastqc_res[, filename := NULL]
+  # fastqc_res[, unique(cf_number)]
+  ## All samples must have same number of tests
+  stopifnot(fastqc_res[, .N, by = cf_number][, uniqueN(N) == 1])
+  fastqc_res[, fastqc_test := variabilize_character(fastqc_test)]
+  fastqc_res <- dcast(fastqc_res, cf_number ~ fastqc_test, 
+                      value.var = 'fastqc_test_result')
+  rna_sample_annotation <- 
+    controlled_merge(rna_sample_annotation, fastqc_res, by = 'cf_number')
+}
+
+
+
 if (F) {
   ## Read in RNA
   rna_read_counts <- suppressWarnings(read_excel(file.path(data_dir, 

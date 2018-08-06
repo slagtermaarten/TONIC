@@ -2,7 +2,8 @@ single_gene_timepoint_comp <- function(gene_symbol = 'CD274',
                                        timepoints = c(1, 2)) {
   allowed_patients <- patient_labels[timepoint %in% timepoints,
                                      .N >= 2, by = patient][V1 == TRUE, patient]
-  gene_idx <- exp_levels[, which(gene_symbol == parent.frame(3)$gene_symbol)]
+  l_gene_symbol <- gene_symbol
+  gene_idx <- exp_levels[, which(gene_symbol == l_gene_symbol)]
   setkey(patient_labels, patient)
   res <- lapply(timepoints, function(tp) {
     exp_levels[gene_idx,
@@ -244,6 +245,7 @@ plot_parallel_coords <- function(p_dat,
                                  man_colors = tonic_color_palettes[[colour_var]],
                                  swarm_width = .2,
                                  unswarm_zero = F,
+                                 overlay_boxplot = F,
                                  point_alpha = .7,
                                  line_alpha = point_alpha / 2 * 1,
                                  median_line_alpha = .8,
@@ -259,6 +261,7 @@ plot_parallel_coords <- function(p_dat,
   p_dat[, vipor::offsetX(value, width = swarm_width)]
   p_dat[, as.integer(get(timepoint_v))]
   stopifnot(p_dat[, class(get(timepoint_v))] == 'factor')
+  p_dat[, 'x_coord_base' := as.integer(get(timepoint_v)), by = c(timepoint_v, facet_var)]
   p_dat[, 'x_coord' := vipor::offsetX(value, width = swarm_width) +
                      as.integer(get(timepoint_v)),
         by = c(timepoint_v, facet_var)]
@@ -269,10 +272,11 @@ plot_parallel_coords <- function(p_dat,
           by = c(timepoint_v, facet_var)]
   }
 
-  if (!is.null(facet_var))
+  if (!is.null(facet_var)) {
     fl <- length(facet_var)
-  else
+  } else {
     fl <- 1
+  }
 
   p <- ggplot(p_dat, aes_string(x = 'x_coord', y = 'value',
                                 labels = NULL, group = group_var,
@@ -283,6 +287,19 @@ plot_parallel_coords <- function(p_dat,
     # scale_x_discrete(name = '', labels = timepoints) +
     ylab('Gene expression score') +
     ggtitle(title)
+
+  if (overlay_boxplot && F) {
+    ## FIX ME
+    if (!is.null(colour_var)) {
+      group_var <- colour_var
+    } else {
+      group_var <- 'x_coord_base'
+    }
+    p <- p + geom_boxplot(aes_string(x = 'x_coord_base', y = 'value', 
+                                     group = group_var, 
+                                     fill = 'paste(x_coord_base, colour_var)'),
+                          alpha = .5, width = swarm_width, outlier.shape = NA)
+  }
 
   p <- p + scale_x_continuous(name = '', minor_breaks = c(),
                               breaks = p_dat[, seq_along(levels(get(timepoint_v)))],

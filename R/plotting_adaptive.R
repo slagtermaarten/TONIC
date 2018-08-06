@@ -308,9 +308,9 @@ compute_TCR_FCs <- function(patient = 'pat_11',
                             y_var = 'productive_frequency') {
   if (!exists('arr')) read_adaptive_seqs()
 
+  l_patient <- patient
   suf_data <- all(c(tp1, tp2, tp3, tp4) %in%
-                  arr[patient == parent.frame(3)$patient,
-                      as.character(timepoint)])
+                  arr[patient == l_patient, as.character(timepoint)])
 
   # arr[patient == parent.frame(3)$patient, unique(timepoint)]
 
@@ -326,7 +326,7 @@ compute_TCR_FCs <- function(patient = 'pat_11',
   tp3 <- as.character(tp3)
   tp4 <- as.character(tp4)
 
-  FCs_l <- arr[patient == parent.frame(3)$patient] %>%
+  FCs_l <- arr[patient == l_patient] %>%
     filter(as.character(timepoint) %in% c(tp3, tp4, tp1, tp2)) %>%
     { .[, {
           if (.SD[timepoint %in% c(tp1, tp2), .N] > 0) {
@@ -387,12 +387,13 @@ compute_tp_comp_FCs <- function(
 
 timepoint_s_dat <- function(timepoint) {
   stopifnot(length(timepoint) == 1)
+  l_timepoint <- timepoint
   if (timepoint %in% blood_timepoints) {
     s_dat <- blood_adaptive
-    s_dat <- s_dat[as.character(blood_timepoint) == parent.frame(3)$timepoint]
+    s_dat <- s_dat[as.character(blood_timepoint) == l_timepoint]
   } else if (timepoint %in% timepoints) {
     s_dat <- patient_labels
-    s_dat <- s_dat[as.character(timepoint) == parent.frame(3)$timepoint]
+    s_dat <- s_dat[as.character(timepoint) == l_timepoint]
   } else {
     stopf('Unknown timepoint %s', timepoint)
   }
@@ -488,10 +489,11 @@ plot_tp_comp_direct <- function(tp1 = 'Baseline', tp2 = '-2',
                                 y_var = 'normalized_frequency') {
   plyr::llply(arr[, naturalsort::naturalsort(auto_name(unique(patient)))],
               function(patient) {
-    suf_data <- arr[patient == parent.frame(3)$patient,
+    l_patient <- patient
+    suf_data <- arr[patient == l_patient,
                     all(c(tp1, tp2) %in% timepoint)]
     if (!suf_data) return(NULL)
-    t_dat <- arr[patient == parent.frame(3)$patient &
+    t_dat <- arr[patient == l_patient &
                  timepoint %in% c(tp1, tp2)]
 
     p_dat <- merge(t_dat[timepoint == tp1, c(y_var, 'amino_acid'), with = F],
@@ -521,9 +523,9 @@ plot_tp_comp_direct <- function(tp1 = 'Baseline', tp2 = '-2',
       geom_vline(xintercept = 0, color = 'gray20', linetype = 'dashed') +
       ggtitle(sprintf('%s - %s - %s',
                       patient,
-                      patient_labels[patient == parent.frame(3)$patient,
+                      patient_labels[patient == l_patient,
                                      unique(arm)],
-                      patient_labels[patient == parent.frame(3)$patient,
+                      patient_labels[patient == l_patient,
                                      unique(clinical_response)])) +
       theme(legend.position = 'right', legend.direction = 'vertical',
             aspect.ratio = 1)
@@ -533,11 +535,12 @@ plot_tp_comp_direct <- function(tp1 = 'Baseline', tp2 = '-2',
 
 format_patient_title <- function(patient) {
   # patient_labels[patient == parent.frame(3)$patient]
+  l_patient <- patient
   sprintf('%s - %s - %s',
           patient,
-          patient_labels[patient == parent.frame(3)$patient,
+          patient_labels[patient == l_patient,
                          unique(arm)],
-          patient_labels[patient == parent.frame(3)$patient,
+          patient_labels[patient == l_patient,
                          unique(clinical_response)]) %>%
   unique()
 }
@@ -563,8 +566,8 @@ plot_tp_comp_FCs <- function(tp1 = 'Baseline', tp2 = 'Post-induction',
                              y_var = 'normalized_frequency', 
                              tcr_subset = NULL) {
   plyr::llply(arr[, naturalsort::naturalsort(auto_name(unique(patient)))],
-              function(patient) {
-    fn <- get_FC_fn(patient, tp1, tp2, tp3, tp4, y_var)
+              function(l_patient) {
+    fn <- get_FC_fn(l_patient, tp1, tp2, tp3, tp4, y_var)
     if (file.exists(fn)) {
       FCs <- readRDS(fn)
     } else {
@@ -578,7 +581,7 @@ plot_tp_comp_FCs <- function(tp1 = 'Baseline', tp2 = 'Post-induction',
         FCs <- 
           controlled_merge(FCs, 
                            arr[timepoint == 'Baseline' & 
-                               patient == parent.frame(3)$patient,
+                               patient == l_patient,
                                .(timepoint, patient, normalized_frequency)])
         FCs <- FCs[normalized_frequency > 0]
       }
@@ -589,8 +592,8 @@ plot_tp_comp_FCs <- function(tp1 = 'Baseline', tp2 = 'Post-induction',
       ylab(sprintf('Expansion in blood (day %s vs. day %s)', tp3, tp4)) +
       geom_hline(yintercept = 0, color = 'gray20', linetype = 'dashed') +
       geom_vline(xintercept = 0, color = 'gray20', linetype = 'dashed') +
-      # ggtitle(sprintf('%s %s-%s vs %s-%s', patient, tp1, tp2, tp3, tp4)) +
-      ggtitle(format_patient_title(patient)) +
+      # ggtitle(sprintf('%s %s-%s vs %s-%s', l_patient, tp1, tp2, tp3, tp4)) +
+      ggtitle(format_patient_title(l_patient)) +
       theme(legend.position = 'right', legend.direction = 'vertical',
             aspect.ratio = 1)
   })
@@ -772,15 +775,16 @@ prepare_TCR_chrono <- function(patient = 'pat_11',
                                p_var = 'normalized_frequency',
                                compartment = 'tumor') {
   
+  l_patient <- patient
   if (compartment == 'tumor') {
     read_adaptive_seqs(force_reload = F)
-    pat_arr <- unique(arr[patient %in% parent.frame(3)$patient &
+    pat_arr <- unique(arr[patient %in% l_patient &
                           get(timepoint_v) %in% allowed_timepoints,
                           .(adaptive_sample_name, amino_acid, productive_frequency,
                             normalized_frequency, timepoint)])
   } else if (compartment == 'blood') {
     read_annotated_bloodadaptive_seqs(force_reload = F)
-    pat_arr <- arr_merged[patient %in% parent.frame(3)$patient &
+    pat_arr <- arr_merged[patient %in% l_patient &
                           get(timepoint_v) %in% allowed_timepoints] %>%
       unique(by = c('amino_acid', 'timepoint')) 
       # { .[!is.na(it_timepoints) & it_timepoints != 'NA'] }

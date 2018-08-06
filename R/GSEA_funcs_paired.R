@@ -19,10 +19,10 @@ plot_bool <- interactive()
 #'
 my_paired_FC_test <- function(x, y, abs = F) {
   ## Compute FCs per patient
-  FCs <- rbindlist(lapply(unique(y$patient), function(patient) {
-    pre_cf <- y[y$patient == parent.frame(3)$patient &
+  FCs <- rbindlist(lapply(unique(y$patient), function(l_patient) {
+    pre_cf <- y[y$patient == l_patient &
                 y$timepoint == 'Baseline', cf_number]
-    post_cf <- y[y$patient == parent.frame(3)$patient &
+    post_cf <- y[y$patient == l_patient &
                  y$timepoint == 'Post-induction', cf_number]
     logFC <- unlist(x[match(post_cf, rownames(x)), ]) -
              unlist(x[match(pre_cf, rownames(x)), ])

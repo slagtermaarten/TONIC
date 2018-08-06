@@ -1,7 +1,7 @@
 read_CONTRA <- function(patient = 'pat_1') {
+  l_patient <- patient
   rel_subs <-
-    patient_labels[patient == parent.frame(3)$patient &
-                   timepoint == 'Baseline' &
+    patient_labels[patient == l_patient & timepoint == 'Baseline' &
                    !is.na(cf_number)]
   if (nrow(rel_subs) == 0) return(NULL)
   cf_number <- rel_subs[, cf_number]
@@ -23,9 +23,11 @@ lookup_DNA_cf <- function(patient = 'pat_69', timepoint = 'Baseline') {
   # patient_labels[timepoint == 'Baseline' & !is.na(cf_number), .N]
   # patient_labels[timepoint == 'Baseline' & !is.na(cf_number), patient]
   # patient_labels[patient == parent.frame(3)$patient]
+  l_patient <- patient
+  l_timepoint <- timepoint
   rel_subs <-
-    patient_labels[tolower(patient) == tolower(parent.frame(3)$patient) &
-                   timepoint == parent.frame(3)$timepoint &
+    patient_labels[tolower(patient) == tolower(l_patient) &
+                   timepoint == l_timepoint &
                    !is.na(cf_number)]
   if (nrow(rel_subs) == 0) return(NULL)
   cf_number <- rel_subs[, unique(cf_number)]

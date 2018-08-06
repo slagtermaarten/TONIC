@@ -2,7 +2,7 @@ library(grid)
 
 caplist_tonic <- c(caplist_def, 'Gu-Trantien', 'IFNy', 'IFNg', 'TNBC', 'TIL',
                    'mm2', 'Ichao1', 'cells', 'TIS', 'score', 's', 'ng', 'LDH',
-                   'CRP', 'TIL', 'CIBERSORT')
+                   'CRP', 'TIL', 'CIBERSORT', 'GC')
 # simple_cap('ifny', caplist = caplist_tonic)
 tonic_cap <- function(x, ...) {
   stopifnot(is.character(x))
