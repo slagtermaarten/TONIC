@@ -30,23 +30,41 @@ rna_sample_annotation <- controlled_merge(rna_sample_annotation,
       by = 'patient')
 
 if (local_run) {
-  ## Merge FASTQC results
-  fastqc_res <- 
-    fread(sprintf('cat %s/salmon_rna/fastqc/CF*/**/summary.txt', p_root), header = F)
-  setnames(fastqc_res, c('fastqc_test_result', 'fastqc_test', 'filename'))
-  fastqc_res[, 'cf_number' := 
-             gsub('\\d{4}_\\d{1,2}_(CF.*)_\\w{7}_S\\d{1,2}_R\\d_\\d{3}\\.fastq\\.gz', '\\1', filename)]
-  fastqc_res[, fastqc_test_result := fastqc_test_result == 'PASS']
-  fastqc_res[, cf_number := tolower(cf_number)]
-  fastqc_res[, filename := NULL]
-  # fastqc_res[, unique(cf_number)]
-  ## All samples must have same number of tests
-  stopifnot(fastqc_res[, .N, by = cf_number][, uniqueN(N) == 1])
-  fastqc_res[, fastqc_test := variabilize_character(fastqc_test)]
-  fastqc_res <- dcast(fastqc_res, cf_number ~ fastqc_test, 
-                      value.var = 'fastqc_test_result')
+  fastqc_res <- parse_fastqc(fastq_dir = file.path(p_root, 
+                                                   'fastq', 'rna', 'fastqc'))
   rna_sample_annotation <- 
     controlled_merge(rna_sample_annotation, fastqc_res, by = 'cf_number')
+
+  gcf_rna_stats <- suppressWarnings(read_excel(file.path(data_dir,
+                                                         'gcf_stats_4698.xlsx'), 
+                                                 sheet = 1, na = c("", "NA"))) %>%
+      as.data.table %>%
+      normalize_colnames
+  gcf_rna_stats <- gcf_rna_stats[, 1:18, with = F]
+  gcf_rna_stats[, 'cf_number' := tolower(sample)]
+  gcf_rna_stats[, cf_number := gsub('\\d{4}_\\d{1,2}_(cf.*)_\\w{7}', 
+                                    '\\1', cf_number)]
+  gcf_rna_stats <- clean_columns(instance = '', 
+                                 fh = gcf_rna_stats, 
+                                 col_names = c('x__1', 'sample'))
+  setnames(gcf_rna_stats,
+    c("bioanalyzer_nm_(mol/l)_(yield_after_libprep)",
+    "nr_of_genes_with_normalized_expression_>_0",
+    "nr_of_genes_with_normalized_expression_>_5",
+    "nr_of_genes_with_normalized_expression_>_10",
+    "nr_of_genes_with_normalized_expression_>_15"),
+    c("bioanalyzer_nM",
+    "nr_of_genes_with_normalized_expression_>_0",
+    "nr_of_genes_with_normalized_expression_>_5",
+    "nr_of_genes_with_normalized_expression_>_10",
+    "nr_of_genes_with_normalized_expression_>_15"))
+
+  rna_sample_annotation <- 
+    controlled_merge(rna_sample_annotation, gcf_rna_stats, by = 'cf_number')
+
+  rna_sample_annotation <- 
+    controlled_merge(rna_sample_annotation, 
+                     readRDS(file.path('rds', 'fastq_files.rds')))
 }
 
 
