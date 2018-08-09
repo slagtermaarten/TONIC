@@ -39,6 +39,7 @@ prep_gene_set <- function(gs = NULL,
 
   # ensgs <- rna_read_counts_ann[which(external_gene_id %in% gene_symbols),
   #                              ensembl_gene_id]
+  mean(gene_symbols %in% rownames(exp_mat))
   p_dat <-
     GSEAgenesets::preprocess_rna(exp_mat, 
                                  gs_genes = gene_symbols,
@@ -46,6 +47,7 @@ prep_gene_set <- function(gs = NULL,
                                  gene_normalisation = gene_normalisation,
                                  var_thresh = NULL, symbol_var = NULL,
                                  donor_ids = cf_numbers)
+  browser(expr = is.null(p_dat) || nrow(p_dat) <= 1)
   if (F) {
     ## Convert ENSGs to gene symbols
     gene_idx <- rna_read_counts_ann[, which(ensembl_gene_id %in% rownames(p_dat))]
@@ -193,9 +195,11 @@ compute_gene_set_score <- function(timepoint = 'Baseline',
                                    gene_symbols = filter_gmt(gmt_pat =
                                                              'h.all')[1],
                                    log_transform = NULL,
+                                   exp_mat = tpms_salmon,
                                    sum_func = median) {
   t_dat <- prep_gene_set(gene_symbols = gene_symbols,
                          gene_normalisation = F,
+                         exp_mat = exp_mat,
                          log_transform = log_transform,
                          timepoints = timepoint)
   if (null_dat(t_dat)) return(NULL)
@@ -212,32 +216,36 @@ compute_gene_set_score <- function(timepoint = 'Baseline',
 gen_gene_set_score_matrix <- function(sets = filter_gmt(gmt_pat = 'h.all'),
                                       sum_func = median,
                                       log_transform = NULL,
+                                      exp_mat = tpms_salmon,
                                       timepoints = c('Baseline', 
                                                      'Post-induction',
                                                      'On nivo')) {
-  li <- lapply(seq_along(sets), function(idx) {
-    li <- lapply(timepoints, function(timepoint) {
+  dtf <- rbindlist(lapply(seq_along(sets), function(idx) {
+    dtf <- rbindlist(lapply(timepoints, function(timepoint) {
       compute_gene_set_score(gene_symbols = sets[idx], 
+                             exp_mat = exp_mat,
                              log_transform = log_transform,
                              timepoint = timepoint,
                              sum_func = sum_func)
-    })
-    dtf <- rbindlist(li, fill = T)
+    }), fill = T)
     if (null_dat(dtf)) return(NULL)
     dtf[, 'gene_set' := names(sets[idx])]
     return(dtf)
-  })
-  dtf <- rbindlist(li, fill = T)
+  }), fill = T)
   if (null_dat(dtf)) return(NULL)
-  dtf <- melt(dtf, id.vars = c('timepoint', 'gene_set'), 
-              variable.name = 'patient')
-  dtf[, timepoint := factor(timepoint, levels = timepoints)]
-  dtf <- dtf[naturalsort::naturalorder(patient)]
-  dtf <- controlled_merge(dtf, 
-                          patient_labels[, .(patient, clinical_response, arm)])
-  dtf[is.na(clinical_response), clinical_response := 'NA']
-  dtf[, timepoint := factor(timepoint, levels = timepoints)]
-  return(dtf)
+  dtf_m <- melt(dtf, id.vars = c('timepoint', 'gene_set', 'cf_number', 
+                                 'patient'),
+                measure.vars = 'gs_score') 
+  stopifnot(dtf_m[, uniqueN(variable)] == 1)
+  dtf_m[, variable := NULL]
+  dtf_m[, timepoint := factor(timepoint, levels = timepoints)]
+  dtf_m <- dtf_m[naturalsort::naturalorder(patient)]
+  dtf_m <- controlled_merge(dtf_m, 
+                            patient_labels[, .(patient, 
+                                               clinical_response, arm)])
+  dtf_m[is.na(clinical_response), clinical_response := 'NA']
+  dtf_m[, timepoint := factor(timepoint, levels = timepoints)]
+  return(dtf_m)
 }
 
 

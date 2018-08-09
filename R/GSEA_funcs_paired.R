@@ -99,7 +99,7 @@ gsea_wrapper <- function(gene_sets = HALLMARK_pathways,
                          gene_score_fn = my_paired_WC_test,
                          paired_test = T,
                          resp_exp = NULL,
-                         rc_obj = rna_read_counts_salmon,
+                         exp_mat = rna_read_counts_salmon,
                          allowed_timepoints = NULL,
                          nperm = 25,
                          abs = F,
@@ -143,11 +143,11 @@ gsea_wrapper <- function(gene_sets = HALLMARK_pathways,
   ## does not need to be consistent with the actual experiment
   design_mat <- stats::model.matrix(as.formula(sprintf('~ 0 + timepoint')),
                                     as.data.frame(Y_mat))
-  idx <- match(Y_mat[, cf_number], colnames(rc_obj))
-  RCs <- rc_obj[, idx, with = F]
-  rownames(RCs) <- rownames(rc_obj)
-  if (grepl('ENSG', rownames(rc_obj)[1])) {
-    RCs$ensembl_gene_id <- rownames(rc_obj)
+  idx <- match(Y_mat[, cf_number], colnames(exp_mat))
+  RCs <- exp_mat[, idx, with = F]
+  rownames(RCs) <- rownames(exp_mat)
+  if (grepl('ENSG', rownames(exp_mat)[1])) {
+    RCs$ensembl_gene_id <- rownames(exp_mat)
     RCs$gene_symbol <-
       rna_read_counts_ann[match(RCs$ensembl_gene_id, ensembl_gene_id),
                           external_gene_id]
@@ -161,7 +161,7 @@ gsea_wrapper <- function(gene_sets = HALLMARK_pathways,
   cpms <- limma::voom(RCs, design_mat, plot = plot_bool, span = .1)
   cpms <- t(cpms$E)
   dimnames(cpms)
-  colnames(cpms) <- rownames(rc_obj)
+  colnames(cpms) <- rownames(exp_mat)
 
   res <- ggsea(x = cpms,
                y = Y_mat,
@@ -204,6 +204,7 @@ gsea_all_arms <- function(gene_sets = HALLMARK_pathways,
                                                            unique(patient)],
                           allowed_timepoints = c('Baseline', 'Post-induction'),
                           gene_score_fn = my_unpaired_WC_test,
+                          exp_mat = rna_read_counts_salmon_tmm,
                           resp_exp = 'timepoint',
                           paired_test = F,
                           nperm = 1000,
@@ -221,6 +222,7 @@ gsea_all_arms <- function(gene_sets = HALLMARK_pathways,
                           patients = l_patients,
                           allowed_timepoints = allowed_timepoints,
                           gene_score_fn = gene_score_fn,
+                          exp_mat = exp_mat,
                           resp_exp = resp_exp,
                           paired_test = paired_test,
                           nperm = nperm,

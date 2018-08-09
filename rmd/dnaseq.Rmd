@@ -4,6 +4,13 @@ source('R/load_rna_dat.R')
 devtools::load_all('~/libs/GSEAgenesets')
 ```
 
+# FastQC analyses
+
+```{r, warning=FALSE, echo=FALSE}
+parse_fastqc(fastq_dir = sprintf('%s/fastq/dna/fastq_files_NORMAL/fastqc', 
+                                 p_root))
+```
+
 # VC inconsistencies
 
 

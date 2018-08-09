@@ -1,6 +1,7 @@
 ```{r, warning=FALSE, echo=FALSE}
-source('~/antigenic_space/bin/install_packages.R')
+# source('~/antigenic_space/bin/install_packages.R')
 devtools::load_all('~/libs/GSEAgenesets')
+setwd('~/Projects/TONIC')
 source('R/init.R')
 source('R/load_rna_dat.R')
 source('R/rna.R')
@@ -8,75 +9,112 @@ source('R/rna.R')
 
 # QC
 
-## Correspondence transcriptome evenness and FASTQC
+
+## Correspondence gene set scores and evenness
+
+Evenness and median gene set scores indeed heavily correlated; renormalizing
+gene expression data after having removed ribsomal and mitochondrial genes does
+not cancel that correlation.
+
+```{r, warning=FALSE, echo=FALSE}
+graphics.off()
+dev.off()
+pairs(rna_sample_annotation[, .(evenness, evenness_rn, median_gs, median_gs_rn)])
+pairs(rna_sample_annotation[, .(evenness, evenness_rn, evenness_tmm)])
+t_dat <- rna_sample_annotation[, .(median_gs, median_gs_rn)]
+rownames(t_dat) <- rna_sample_annotation$cf_number
+rna_sample_annotation[c(40, 31, 2)]
+```
+
+```{r, warning=FALSE, echo=FALSE}
+dev.off()
+layout(matrix(1:6, nrow = 3, byrow = T))
+plot(lm(median_gs ~ median_gs_rn, 
+        data = rna_sample_annotation[, .(median_gs, median_gs_rn)]),
+     labels.id = rna_sample_annotation[, cf_number],
+     which = 1:6, ask = F)
+```
+
+
+## Correspondence transcriptome evenness and FastQC
 
 All samples fail the `Per base sequence content`, `Sequence duplication
 levels` and `Per tile sequence quality` checks.
+Especially failing the 'overrepresented sequences' measure lowers evenness
+Percentage failed FastQC tests is associated with evenness.
 
 ```{r, warning=FALSE, echo=FALSE}
-## Due to unequal distribution, check evenness of distributions
-evenness_vals <- apply(tpms_salmon, 2, compute_evenness)
-rna_sample_annotation$evenness <- evenness_vals[rna_sample_annotation$cf_number]
-rm(evenness_vals)
-```
-
-```{r, warning=FALSE, echo=FALSE}
-x_var <- 'per_sequence_gc_content'
-x_var <- 'overrepresented_sequences'
-fastqc_vars <-  c("adapter_content", "basic_statistics",
-                  "overrepresented_sequences", "per_base_n_content",
-                  "per_base_sequence_content", "per_base_sequence_quality",
-                  "per_sequence_gc_content", "per_sequence_quality_scores",
-                  "per_tile_sequence_quality", "sequence_duplication_levels",
-                  "sequence_length_distribution")
-t(rna_sample_annotation[, lapply(.SD, mean), .SDcols = fastqc_vars])
-
-
-rna_sample_annotation$best_samples <-
-  apply(rna_sample_annotation[, fastqc_vars, with = F], 1, mean) %>%
-    eps(.818)
-
-write_tsv(rna_sample_annotation, 'ext/rna_sample_annotation.tsv')
-```
-
-```{r, warning=FALSE, echo=FALSE}
-rna_sample_annotation$percentage_tests <-
-  apply(rna_sample_annotation[, fastqc_vars, with = F], 1, mean)
-
 ggplot(rna_sample_annotation, aes(x = percentage_tests, y = evenness)) +
   geom_point() + geom_smooth(se = F, span = 4) +
   xlab('Percentage FastQC tests passed') +
   ylab('Transcriptome evenness')
 ```
 
+Correlating all possible factors to evenness and median gene set score
+
 ```{r, warning=FALSE, echo=FALSE}
-plots <- lapply(c(fastqc_vars, 'best_samples'), function(x_var) {
-  # rna_sample_annotation[, as.integer(get(x_var))]
-  x_labels <- apply(rna_sample_annotation[, .N, by = x_var][order(get(x_var))], 1,
-    function(x) {
-      suc <- gsub('0', 'failure', x[[1]])
-      suc <- gsub('1', 'success', suc)
-      sprintf('%s (n = %d)', suc, x[[2]])
-    })
-  if (length(x_labels) == 1) {
-    return(NULL)
-  } else {
-    x_labels <- setNames(x_labels, c(0, 1))
-  }
+plot(rna_sample_annotation[, .(prot_cod, prot_chrmt)])
+```
 
-  rna_sample_annotation[, (x_var) := as.integer(get(x_var))]
+```{r, warning=FALSE, echo=FALSE}
+correlate_all_rnaseq_features <- function(y_var = 'evenness') {
+  vns <- c(setdiff(colnames(gcf_rna_stats), 'cf_number')[1:11],
+           'baseline_biopsy_site')
+  plots_iris <- lapply(vns, function(vn) {
+    if (uniqueN(rna_sample_annotation[, get(vn)]) == 1) {
+      return(NULL)
+    }
 
-  ggplot(rna_sample_annotation,
-         aes_string(x = x_var, y = 'evenness', group = x_var)) +
-    geom_boxplot() +
-    scale_x_continuous(breaks = c(0, 1), labels = x_labels,
-                       name = tonic_cap(x_var, cap_first_word_only = T))
-}) %>% { .[!sapply(., is.null)] }
+    p <- ggplot(rna_sample_annotation, aes_string(x = vn, y = y_var)) +
+      geom_smooth(se = F, span = 2)
 
-graphics.off()
-plot_panel_layout(plots = plots,
-                  filename = 'plots2/fastqc_transcriptome_evenness.pdf',
-                  ncol = 3, nrow = 2, labels = NULL, h = 17)
+    if (rna_sample_annotation[, is.factor(get(vn))]) {
+      p <- p + geom_boxplot()
+      p <- p + rotate_x_labels(45)
+    }
+
+    if (is.numeric(rna_sample_annotation[, get(vn)])) {
+      label_dat <- rna_sample_annotation[detect_outliers(get(vn))]
+      p <- p + geom_point()
+      p <- p + ggrepel::geom_label_repel(data = label_dat,
+                                         aes(label = cf_number),
+                                         fill = 'white', size = 2)
+    }
+    return(p)
+  })
+
+  plots <- lapply(fastqc_vars, function(x_var) {
+    # rna_sample_annotation[, as.integer(get(x_var))]
+    x_labels <- apply(rna_sample_annotation[, .N, by = x_var][order(get(x_var))], 1,
+      function(x) {
+        suc <- gsub('0', 'failure', x[[1]])
+        suc <- gsub('1', 'success', suc)
+        sprintf('%s (n = %d)', suc, x[[2]])
+      })
+    if (length(x_labels) == 1) {
+      return(NULL)
+    } else {
+      x_labels <- setNames(x_labels, c(0, 1))
+    }
+
+    rna_sample_annotation[, (x_var) := as.integer(get(x_var))]
+
+    ggplot(rna_sample_annotation,
+           aes_string(x = x_var, y = y_var, group = x_var)) +
+      geom_boxplot() +
+      scale_x_continuous(breaks = c(0, 1), labels = x_labels,
+                         name = tonic_cap(x_var, cap_first_word_only = T))
+  }) %>% { .[!sapply(., is.null)] }
+
+  graphics.off()
+  plot_panel_layout(plots = c(plots, plots_iris),
+                    filename = sprintf('plots2/fastqc_transcriptome_%s.pdf',
+                                       y_var),
+                    ncol = 3, nrow = 2, labels = NULL, h = 17)
+}
+
+correlate_all_rnaseq_features(y_var = 'evenness')
+correlate_all_rnaseq_features(y_var = 'median_gs')
 ```
 
 Investigate overrepresented sequences, which seqs are high?
@@ -135,7 +173,6 @@ plots <- lapply(merged_dat[, naturalsort(unique(sample))], function(samp) {
   p_dat <- merged_dat[sample == samp]
   ax_scale_range <- p_dat[, range(tophat, salmon)] + 1
 
-
   ggplot(p_dat, aes(x = tophat + 1, y = salmon + 1)) +
     geom_point(alpha = .4) +
     theme(aspect.ratio = 1) +
@@ -166,11 +203,19 @@ if (F) {
   library(biomaRt)
   ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
   grep('entrez', listAttributes(ensembl)$name, value = T)
+  grep('description', listAttributes(ensembl)$name, value = T)
   entrez_table <-
     getBM(attributes=c('ensembl_gene_id', 'gene_biotype', 'entrezgene',
                        'hgnc_symbol',
+                       'description',
                        'chromosome_name', 'start_position', 'end_position'),
-          filters = 'hgnc_symbol', values = rownames(tpms_salmon), mart = ensembl)
+          filters = 'hgnc_symbol', values = rownames(tpms_salmon), 
+          mart = ensembl)
+  clear_object('entrez_table', sr)
+  setDT(entrez_table)
+  # entrez_table[grepl('mitochondrial', description)]
+  options(max.print = 3000)
+  entrez_table[grepl('RPS|RPL', hgnc_symbol)]
   sr(entrez_table)
 } else {
   entrez_table <- as.data.table(readRDS('rds/entrez_table.rds'))
@@ -196,9 +241,11 @@ subtype_predictions <- molecular.subtyping(sbt.model = 'pam50',
 table(subtype_predictions$subtype)
 ```
 
-# Directly plot gene sets
+# Transcriptomic processes
 
-See external plots
+## Heat maps
+
+Directly plot heatmaps of gene sets. See external plots
 
 ```{r, eval = F, warning=FALSE, echo=FALSE}
 ## Make heatmaps for all genesets per timepoint
@@ -258,7 +305,7 @@ plot_gene_set(gs_name = 'Burstein_subtypes',
 ```
 
 
-Gene set scores
+### Burstein gene set scores
 
 ```{r, warning=FALSE, echo=FALSE}
 burstein_scores <- gen_gene_set_score_matrix(sum_func = median,
@@ -293,7 +340,7 @@ burstein_scores[, fasanalysis::print.mean_CI(`Baseline` == 'BLIA'), by = clinica
 
 ```
 
-# Compute gene set scores
+## Compute gene set scores
 
 Compute gene set scores for each sample by taking the median of the Z-scores of
 the geneset for that sample. Z-scores are computed over the samples by gene and
@@ -307,14 +354,16 @@ summary function to compute the gene set function.
 ```{r, gene_set_scores, cache = F, warning=FALSE, echo=FALSE}
 source('R/rna.R')
 ## Compute gene set matrix
-clear_object(gs_mat, sr)
-sr(gs_mat <- gen_gene_set_score_matrix(sum_func = median,
-                                       log_transform = NULL))
-clear_object(gs_mat_log2, sr)
-sr(gs_mat_log2 <- gen_gene_set_score_matrix(sum_func = median,
-                                            log_transform = 'log2'))
-gs_mat[is.na(clinical_response), clinical_response := 'NA']
-gs_mat[, timepoint := factor(timepoint, levels = timepoints)]
+# clear_object(geneset_scores, sr)
+sr(geneset_scores <- gen_gene_set_score_matrix(sum_func = median,
+                       exp_mat = tpms_salmon,
+                       sets = filter_gmt('h.all', 'HALLMARK'),
+                       log_transform = 'log2'))
+
+sr(geneset_scores_tmm <- gen_gene_set_score_matrix(sum_func = median,
+                           exp_mat = rna_read_counts_salmon_tmm,
+                           sets = filter_gmt('h.all', 'HALLMARK'),
+                           log_transform = 'log2'))
 ```
 
 ```{r, eval = F, warning=FALSE, echo=FALSE}
@@ -333,23 +382,9 @@ median(vec)
 source('R/plotting_nanostring.R')
 # debugonce(plot_parallel_coords)
 
-lapply(gs_mat_log2[, unique(gene_set)], function(gs_name) {
+lapply(geneset_scores[, unique(gene_set)], function(gs_name) {
   library(ggrepel)
-  p <- plot_parallel_coords(gs_mat[gene_set == gs_name],
-                            facet_var = 'arm',
-                            swarm_width = .1,
-                            filter_vals = F,
-                            colour_var = 'clinical_response') +
-    ggtitle(tonic_cap(gs_name))
-  fn <- file.path('plots2', sprintf('rna_parallel_coords_%s.pdf', gs_name))
-  ggsave(p, filename = fn, width = 17.4, height = 12, units = 'cm')
-
-  ## Seeing the data, I realize this was a stupid experiment: Here's the same
-  ## but with gene expression scores computed over log2 transformed values. Of
-  ## course, this is just a monotonic transformation and the scores should be
-  ## same as having directly applied a log2 transformation to the just plotted
-  ## scores.
-  p <- plot_parallel_coords(gs_mat_log2[gene_set == gs_name],
+  p <- plot_parallel_coords(geneset_scores[gene_set == gs_name],
                             facet_var = 'arm',
                             swarm_width = .1,
                             filter_vals = F,
@@ -357,21 +392,35 @@ lapply(gs_mat_log2[, unique(gene_set)], function(gs_name) {
     ggtitle(tonic_cap(gs_name))
   fn <- file.path('plots2', sprintf('rna_parallel_coords_log2_%s.pdf', gs_name))
   ggsave(p, filename = fn, width = 17.4, height = 12, units = 'cm')
+
+  p <- plot_parallel_coords(geneset_scores_tmm[gene_set == gs_name],
+                            facet_var = 'arm',
+                            swarm_width = .1,
+                            filter_vals = F,
+                            colour_var = 'clinical_response') +
+    ggtitle(tonic_cap(gs_name))
+  fn <- file.path('plots2', sprintf('rna_parallel_coords_log2_tmm_%s.pdf', gs_name))
+  ggsave(p, filename = fn, width = 17.4, height = 12, units = 'cm')
 })
 ```
 
 Gene set score dists per patient. Patient 4 has high scores for almost all gene
-sets, is this an artefact? I rechecked the normalisation and that is correct.
+sets when using TPM quants, is this an artefact? I rechecked the normalisation
+and that is correct.
 
 ```{r, warning=FALSE, echo=FALSE, fig.width = 24/2.54, fig.height = 18/2.54}
-ggplot(gs_mat, aes(x = patient, y = value, fill = clinical_response)) +
-  geom_boxplot() +
-  facet_wrap(~ timepoint + arm, nrow = 2, scales = 'free_x') +
-  ylab('Gene set scores') +
-  ggplot2::theme(axis.text.x =
-    ggplot2::element_text(angle = 45, hjust = 1, vjust = 0.5)) +
-  scale_fill_manual(name = 'Clinical response',
-                    values = tonic_color_palettes[['clinical_response']])
+plot_geneset_scores_by_patient <- function(dtf = geneset_scores) {
+  ggplot(dtf, aes(x = patient, y = value, fill = clinical_response)) +
+    geom_boxplot() +
+    facet_wrap(~ timepoint + arm, nrow = 2, scales = 'free_x') +
+    ylab('Gene set scores') +
+    ggplot2::theme(axis.text.x =
+      ggplot2::element_text(angle = 45, hjust = 1, vjust = 0.5)) +
+    scale_fill_manual(name = 'Clinical response',
+                      values = tonic_color_palettes[['clinical_response']])
+}
+plot_geneset_scores_by_patient(geneset_scores)
+plot_geneset_scores_by_patient(geneset_scores_tmm)
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
@@ -381,8 +430,8 @@ evenness_vals <- apply(tpms, 2, compute_evenness)
 rna_sample_annotation$evenness <- evenness_vals[rna_sample_annotation$cf_number]
 rm(evenness_vals)
 ## Gene set score dists per patient
-gs_mat <-
-  controlled_merge(gs_mat,
+geneset_scores <-
+  controlled_merge(geneset_scores,
                    rna_sample_annotation[, .(patient, timepoint, evenness)])
 ```
 
@@ -438,6 +487,10 @@ ggplot(gs_mat, aes(x = patient, y = value, fill = log_evenness)) +
     legend.key.size = grid::unit(8, 'mm')
   )
 ```
+
+## Correct gene set scores for `prot_cod`
+
+`prot_cod` turned out to be a major influence on evenness and gene set scores
 
 # Limma DEG
 ## Multivariate model

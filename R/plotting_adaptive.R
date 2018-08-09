@@ -797,6 +797,7 @@ prepare_TCR_chrono <- function(patient = 'pat_11',
   pat_arr[, normalized_frequency := sum(normalized_frequency, na.rm = T),
           by = .(amino_acid, timepoint)]
   pat_arr <- unique(pat_arr)
+
   if (null_dat(pat_arr)) return(NULL)
 
   setkey(pat_arr, amino_acid, timepoint)
@@ -806,26 +807,47 @@ prepare_TCR_chrono <- function(patient = 'pat_11',
   # subs[, .N, by = amino_acid][N != length(timepoints)]
   ## Ensure each timepoints-TCR combination is represented in the data
   pat_arr <- pat_arr[subs, ]
+  pat_arr[, timepoint := factor(timepoint, 
+                                levels = c(timepoints, blood_timepoints))]
+  pat_arr[is.na(normalized_frequency), normalized_frequency := 0]
+  pat_arr[is.na(productive_frequency), productive_frequency := 0]
 
   # pat_arr[amino_acid %in% pat_arr[, .N, by = amino_acid][N != 3, amino_acid]] %>%
   #   { .[order(amino_acid, timepoint)] } %>%
   #   { .[, .N == 0] } %>%
   #   stopifnot()
 
-  pat_arr[, timepoint := factor(timepoint, 
-                                levels = c(timepoints, blood_timepoints))]
-  pat_arr[is.na(normalized_frequency), normalized_frequency := 0]
-  pat_arr[is.na(productive_frequency), productive_frequency := 0]
+  if (F) {
+    ## Turn this into resuable function when things are quiet
+    comp_cols <- c('adaptive_sample_name')
+    anchor_cols <- c('timepoint')
+    sub_df <- unique(pat_arr[!is.na(get(comp_cols))], by = anchor_cols) %>%
+      { .[, c(comp_cols, anchor_cols), with = F] }
+    setkeyv(sub_df, anchor_cols)
+    comp_col_vals <- sub_df[pat_arr[, get(anchor_cols)], get(comp_cols)]
+    pat_arr[is.na(get(comp_cols)), (comp_cols) := comp_col_vals]
+  }
   pat_arr[, 'value' := get(p_var)]
-  pat_arr[, 'shared_timepoints' := factor(sum(value > 0)), by = amino_acid]
-  pat_arr[it_timepoints == 'NA', it_timepoints := NA]
-  pat_arr[is.na(it_timepoints), it_timepoints := 'None']
-  it_timepoints_levs <- c('None', 'Baseline', 'Baseline - Post-induction',
-                          'Baseline - On nivo', 
-                          'Baseline - Post-induction - On nivo', 
-                          'Post-induction', 'Post-induction - On nivo',
-                          'On nivo')
-  pat_arr[, it_timepoints := factor(it_timepoints, levels = it_timepoints_levs)]
+  pat_arr[, 'shared_timepoints' := sum(value > 0), by = amino_acid]
+  # pat_arr[, 'shared_timepoints' := factor(sum(value > 0), 
+  #                                         levels = seq(1,8)), by = amino_acid]
+  # pat_arr[, sum(value > 0) + 1, by = amino_acid]
+
+  # pat_arr[value > 0, .N, by = amino_acid][N > 1]
+  # pat_arr[amino_acid == 'CAISESSLQSYEQYF']
+  print(pat_arr[value > 0, .N, 
+        by = .(timepoint, shared_timepoints)])
+  if ('it_timepoints' %in% colnames(pat_arr)) {
+    pat_arr[it_timepoints == 'NA', it_timepoints := NA]
+    pat_arr[is.na(it_timepoints), it_timepoints := 'None']
+    it_timepoints_levs <- c('None', 'Baseline', 'Baseline - Post-induction',
+                            'Baseline - On nivo', 
+                            'Baseline - Post-induction - On nivo', 
+                            'Post-induction', 'Post-induction - On nivo',
+                            'On nivo')
+    pat_arr[, it_timepoints := factor(it_timepoints, 
+                                      levels = it_timepoints_levs)]
+  }
 
   ## Determine how to cluster TCRs into 'similar dynamic behaviour'
   if (cluster_tcrs) {
@@ -849,7 +871,8 @@ prepare_TCR_chrono <- function(patient = 'pat_11',
                        cluster_assigns[, c('cluster_ID', wide_dat_cols),
                                        with = F])
     pat_arr <- controlled_merge(pat_arr,
-                                wide_dat[, .(amino_acid, cluster_ID, cluster_N)])
+                                wide_dat[, .(amino_acid, cluster_ID, 
+                                             cluster_N)])
     pat_arr <- pat_arr[shared_timepoints != 0]
     if (compartment == 'tumor') {
       pat_arr <- unique(pat_arr, by = c('cluster_ID', 'timepoint'))

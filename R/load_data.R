@@ -3,25 +3,27 @@
 # d <- calcNormFactors(d)
 # v <- voom(d, design)
 
-exp_levels <- read.csv(file.path(p_root,
-                                 'data-raw/normalized_gene_expression.csv'),
-                       # verbose = T,
-                       dec = ',',
-                       sep = ';', skip = 1L) %>% as.data.table
+if (T) {
+  exp_levels <- read.csv(file.path(p_root,
+                                   'data-raw/normalized_gene_expression.csv'),
+                         # verbose = T,
+                         dec = ',',
+                         sep = ';', skip = 1L) %>% as.data.table
 
-setnames(exp_levels, gsub('.RCC$', '', colnames(exp_levels)))
-setnames(exp_levels, gsub('^X', '', colnames(exp_levels)))
-setnames(exp_levels, 'File.Name', 'gene_symbol')
-setdiff(colnames(exp_levels), 'gene_symbol') %>%
-  { setNames(rep('numeric', length(.)), .) } %>%
-  set_dt_types(exp_levels, .)
-maartenutils::set_dt_types(exp_levels,
-                           c('mean_log2_hk' = 'numeric',
-                             'tis_score' = 'numeric'))
+  setnames(exp_levels, gsub('.RCC$', '', colnames(exp_levels)))
+  setnames(exp_levels, gsub('^X', '', colnames(exp_levels)))
+  setnames(exp_levels, 'File.Name', 'gene_symbol')
+  setdiff(colnames(exp_levels), 'gene_symbol') %>%
+    { setNames(rep('numeric', length(.)), .) } %>%
+    set_dt_types(exp_levels, .)
+  maartenutils::set_dt_types(exp_levels,
+                             c('mean_log2_hk' = 'numeric',
+                               'tis_score' = 'numeric'))
+  # length(intersect(patient_labels[, filename], colnames(exp_levels)))
+  # length(colnames(exp_levels))
+  stopifnot(all(patient_labels[!is.na(filename), filename] %in% colnames(exp_levels)))
+}
 
-# length(intersect(patient_labels[, filename], colnames(exp_levels)))
-# length(colnames(exp_levels))
-stopifnot(all(patient_labels[!is.na(filename), filename] %in% colnames(exp_levels)))
 
 
 danaher_scores <- read.csv(file.path(p_root, 'data-raw', 
@@ -82,16 +84,33 @@ test_gene_sets <- danaher_scores.m[, levels(variable)]
 
 
 ## Read adaptive seq data if required
-read_adaptive_seqs <- function(force_reload = F) {
-  if (exists('arr', envir = globalenv()) && !force_reload) {
-    return(invisible()) 
+read_adaptive_seqs <- function(force_reload = F, patient = NULL) {
+  fn <- file.path(p_root, 'data-raw', 'AdaptiveAllRearrangements.tsv')
+  if (is.null(patient)) {
+    if (exists('arr', envir = globalenv()) && !force_reload) {
+      return(invisible()) 
+    }
+    arr <- w_fread(fn, col_classes = c('productive_frequency' = 'numeric'))
+  } else {
+    ## Patient specific reading of files
+    browser()
+    l_patient <- patient
+    adaptive_samples <- 
+      sort(c(patient_labels[patient %in% l_patient,
+             unique(adaptive_sample_name)]))
+    grep_string <- 
+      sprintf('$1 == "%s"', adaptive_samples) %>%
+      { paste(., collapse = ' || ') }
+    read_com <- sprintf("awk '(%s || NR == 1) {print $0}' %s", grep_string, fn)
+    arr <- fread(read_com)
   }
-  arr <- w_fread(file.path(p_root, 'data-raw', 'AdaptiveAllRearrangements.tsv'),
-                 col_classes = c('productive_frequency' = 'numeric'))
   arr[, productive_frequency := as.numeric(productive_frequency)]
-  arr[, reads := NULL]
-  arr <- arr[!is.na(amino_acid) & amino_acid != 'na']
+  arr <- clean_columns(instance = '', fh = arr, col_names = "reads")
+  arr[amino_acid == 'na', amino_acid := NA]
+  arr[productive_frequency == 'na', productive_frequency := NA]
+  arr <- arr[!is.na(amino_acid) & !is.na(productive_frequency)]
   setnames(arr, 'sample_name', 'adaptive_sample_name')
+
   arr1 <-
     controlled_merge(arr[grepl('T_', adaptive_sample_name)],
                      patient_labels[, .(patient, adaptive_sample_name,
@@ -125,15 +144,19 @@ read_adaptive_seqs <- function(force_reload = F) {
                      by_cols = 'adaptive_sample_name')
 
   arr[, 'normalized_frequency' := productive_frequency * adaptive_t_cells]
-  assign('arr', arr, envir = globalenv())
-  return(invisible())
+  if (is.null(patient)) {
+    assign('arr', arr, envir = globalenv())
+    return(invisible())
+  } else {
+    return(arr)
+  }
 }
 
-read_annotated_bloodadaptive_seqs <- function(force_reload = F) {
-  if (exists('arr_merged', envir = globalenv()) && !force_reload) {
-    return(invisible()) 
-  }
-  read_adaptive_seqs(force_reload = F)
+read_annotated_bloodadaptive_seqs <- function(patient = 'pat_1', 
+                                              force_reload = F) {
+  arr <- read_adaptive_seqs(patient = patient)
+  if (null_dat(arr)) return(NULL)
+
   arr_merged <- arr[, {
     av_tps <- .SD[, unique(timepoint)]
     if (!any(blood_timepoints %in% av_tps) && any(timepoints %in% av_tps)) {
@@ -148,21 +171,28 @@ read_annotated_bloodadaptive_seqs <- function(force_reload = F) {
              ## detected intatumorally, the second the magnitude with which this
              ## happened
              c('it_timepoint', 'it_normalized_frequency'))
-    merge(t1, t2, all.x = T, all.y = F, allow.cartesian = T)
+    if (F && any(blood_timepoints %in% av_tps) && any(timepoints %in% av_tps)) {
+      browser()
+    }
+    merge(t1, t2, all.x = T, all.y = F, allow.cartesian = T, by = 'amino_acid')
   }, by = patient]
 
-  arr_merged[, it_timepoints := NULL]
-  system.time(arr_merged[order(it_timepoint), 
-              'it_timepoints' := paste(unique(it_timepoint), collapse = ' - '), 
+  # arr_merged[, it_timepoints := NULL]
+  arr_merged <- arr_merged[!is.na(productive_frequency)]
+  system.time(arr_merged[, 
+              'it_timepoints' := paste(sort(unique(it_timepoint)), 
+                                       collapse = ' - '), 
               # 'it_timepoints' := as.list(as.integer(it_timepoint)),
               by = .(patient, amino_acid)])
+  # arr_merged[, table(it_timepoint)]
 
-  arr_merged[stringr::str_length(it_timepoints) > 30]
+  # arr_merged[stringr::str_length(it_timepoints) > 30]
   # arr_merged[patient == 'pat_14' & amino_acid == 'CA*SSQAYSYNSPLHF']
   # arr[patient == 'pat_15' & amino_acid == 'CADRDEPLREQFF']
-  assign('arr_merged', arr_merged, envir = globalenv())
-
-  return(invisible())
+  # arr_merged[patient == 'pat_15' & amino_acid == 'CADRDEPLREQFF']
+  # assign('arr_merged', arr_merged, envir = globalenv())
+  # return(invisible())
+  return(arr_merged)
 }
 
 

@@ -1,7 +1,7 @@
 ---
 title: "TIL and blood TCR repertoires and their relationships to induction arm and clinical response"
 author: "Maarten Slagter"
-output: 
+output:
   html_document:
     toc: true
     number_sections: true
@@ -18,6 +18,7 @@ knitr::opts_knit$set(progress = TRUE, verbose = TRUE)
 # knitr::clean_cache()
 # knitr::opts_chunk$get("cache.path")
 # knitr::knit_global()
+setwd('~/Projects/TONIC')
 source('R/init.R')
 ```
 
@@ -42,22 +43,22 @@ print(knitr::kable(res))
 Visualisations of the comparisons shown above in table form
 
 ```{r, warning=FALSE, echo=FALSE, fig.width = 3, fig.height = 4}
-plot_single_timepoint_r_assocation(l_timepoint = 'Baseline', 
+plot_single_timepoint_r_assocation(l_timepoint = 'Baseline',
                                    facet_var = NULL)
-plot_single_timepoint_r_assocation(l_timepoint = 'Post-induction', 
+plot_single_timepoint_r_assocation(l_timepoint = 'Post-induction',
                                    facet_var = NULL)
-plot_single_timepoint_r_assocation(l_timepoint = 'On nivo', 
+plot_single_timepoint_r_assocation(l_timepoint = 'On nivo',
                                    facet_var = NULL)
 ```
 
 The same comparisons but split up by induction arm
 
 ```{r, warning=FALSE, echo=FALSE, fig.width = 5, fig.height = 4}
-plot_single_timepoint_r_assocation(l_timepoint = 'Baseline', 
+plot_single_timepoint_r_assocation(l_timepoint = 'Baseline',
                                    facet_var = 'arm')
-plot_single_timepoint_r_assocation(l_timepoint = 'Post-induction', 
+plot_single_timepoint_r_assocation(l_timepoint = 'Post-induction',
                                    facet_var = 'arm')
-plot_single_timepoint_r_assocation(l_timepoint = 'On nivo', 
+plot_single_timepoint_r_assocation(l_timepoint = 'On nivo',
                                    facet_var = 'arm')
 ```
 
@@ -76,20 +77,20 @@ print(knitr::kable(res))
 
 
 ```{r, warning=FALSE, echo=FALSE, fig.width = 3, fig.height = 4}
-plot_single_timepoint_r_assocation(l_timepoint = '-2', 
+plot_single_timepoint_r_assocation(l_timepoint = '-2',
                                    facet_var = NULL)
-plot_single_timepoint_r_assocation(l_timepoint = '0', 
+plot_single_timepoint_r_assocation(l_timepoint = '0',
                                    facet_var = NULL)
-plot_single_timepoint_r_assocation(l_timepoint = '6', 
+plot_single_timepoint_r_assocation(l_timepoint = '6',
                                    facet_var = NULL)
 ```
 
 ```{r, warning=FALSE, echo=FALSE, fig.width = 5, fig.height = 4}
-plot_single_timepoint_r_assocation(l_timepoint = '-2', 
+plot_single_timepoint_r_assocation(l_timepoint = '-2',
                                    facet_var = 'arm')
-plot_single_timepoint_r_assocation(l_timepoint = '0', 
+plot_single_timepoint_r_assocation(l_timepoint = '0',
                                    facet_var = 'arm')
-plot_single_timepoint_r_assocation(l_timepoint = '6', 
+plot_single_timepoint_r_assocation(l_timepoint = '6',
                                    facet_var = 'arm')
 ```
 
@@ -98,21 +99,21 @@ plot_single_timepoint_r_assocation(l_timepoint = '6',
 ```{r, warning=FALSE, echo=FALSE}
 source('R/plotting_adaptive.R')
 source('R/plotting_nanostring.R')
-plot_adaptive_FC(facet_var = 'arm', 
+plot_adaptive_FC(facet_var = 'arm',
                  p_timepoints = c('Baseline', 'Post-induction', 'On nivo'),
                  var1 = 'sample_clonality', var2 = 'efron_thisted_estimator',
                  colour_var = 'comb_time_resp')
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
-plot_adaptive_FC(facet_var = 'arm', 
+plot_adaptive_FC(facet_var = 'arm',
                  p_timepoints = c('Baseline', 'Post-induction'),
                  var1 = 'sample_clonality', var2 = 'efron_thisted_estimator',
                  colour_var = 'comb_time_resp')
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
-plot_adaptive_FC(facet_var = 'arm', 
+plot_adaptive_FC(facet_var = 'arm',
                  p_timepoints = c('Baseline', 'On nivo'),
                  var1 = 'sample_clonality', var2 = 'efron_thisted_estimator',
                  colour_var = 'comb_time_resp')
@@ -122,21 +123,21 @@ The same, but not coloring by clinical response
 
 ```{r, warning=FALSE, echo=FALSE}
 source('R/plotting_adaptive.R')
-plot_adaptive_FC(facet_var = 'arm', 
+plot_adaptive_FC(facet_var = 'arm',
                  p_timepoints = c('Baseline', 'Post-induction', 'On nivo'),
                  var1 = 'sample_clonality', var2 = 'efron_thisted_estimator',
                  colour_var = 'timepoint')
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
-plot_adaptive_FC(facet_var = 'arm', 
+plot_adaptive_FC(facet_var = 'arm',
                  p_timepoints = c('Baseline', 'Post-induction'),
                  var1 = 'sample_clonality', var2 = 'efron_thisted_estimator',
                  colour_var = 'timepoint')
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
-plot_adaptive_FC(facet_var = 'arm', 
+plot_adaptive_FC(facet_var = 'arm',
                  p_timepoints = c('Baseline', 'On nivo'),
                  var1 = 'sample_clonality', var2 = 'efron_thisted_estimator',
                  colour_var = 'timepoint')
@@ -145,21 +146,21 @@ plot_adaptive_FC(facet_var = 'arm',
 The same, but not coloring by clinical response and showing %TIL instead
 
 ```{r, spider1, warning=FALSE, echo=FALSE}
-plot_adaptive_FC(facet_var = 'arm', 
+plot_adaptive_FC(facet_var = 'arm',
                  p_timepoints = c('Baseline', 'Post-induction', 'On nivo'),
                  var1 = 'sample_clonality', var2 = 'adaptive_t_cells',
                  colour_var = 'timepoint')
 ```
 
 ```{r, spider2, warning=FALSE, echo=FALSE}
-plot_adaptive_FC(facet_var = 'arm', 
+plot_adaptive_FC(facet_var = 'arm',
                  p_timepoints = c('Baseline', 'Post-induction'),
                  var1 = 'sample_clonality', var2 = 'adaptive_t_cells',
                  colour_var = 'timepoint')
 ```
 
 ```{r, spider3, warning=FALSE, echo=FALSE}
-plot_adaptive_FC(facet_var = 'arm', 
+plot_adaptive_FC(facet_var = 'arm',
                  p_timepoints = c('Baseline', 'On nivo'),
                  var1 = 'sample_clonality', var2 = 'adaptive_t_cells',
                  colour_var = 'timepoint')
@@ -203,9 +204,9 @@ source('R/plotting_nanostring.R')
 source('R/plotting_adaptive.R')
 plot_parallel_adaptive(p_var = 'efron_thisted_estimator', compartment = 'tumor',
                        facet_var = NULL)
-plot_parallel_adaptive(p_var = 'sample_clonality', compartment = 'tumor', 
+plot_parallel_adaptive(p_var = 'sample_clonality', compartment = 'tumor',
                        facet_var = NULL)
-plot_parallel_adaptive(p_var = 'adaptive_t_cells', compartment = 'tumor', 
+plot_parallel_adaptive(p_var = 'adaptive_t_cells', compartment = 'tumor',
                        facet_var = NULL)
 plot_parallel_adaptive(p_var = 'sample_clonality', compartment = 'blood',
                        facet_var = NULL)
@@ -222,13 +223,13 @@ nivo)
 source('R/plotting_nanostring.R')
 source('R/plotting_adaptive.R')
 plot_parallel_adaptive(p_var = 'sample_clonality', compartment = 'blood',
-                       facet_var = NULL, 
+                       facet_var = NULL,
                        allowed_timepoints = c(-2, 6))
 plot_parallel_adaptive(p_var = 'efron_thisted_estimator', compartment = 'blood',
-                       facet_var = NULL, 
+                       facet_var = NULL,
                        allowed_timepoints = c(-2, 6))
 plot_parallel_adaptive(p_var = 'adaptive_t_cells', compartment = 'blood',
-                       facet_var = NULL, 
+                       facet_var = NULL,
                        allowed_timepoints = c(-2, 6))
 ```
 
@@ -239,15 +240,15 @@ source('R/plotting_nanostring.R')
 source('R/plotting_adaptive.R')
 plot_parallel_adaptive(p_var = 'efron_thisted_estimator', compartment = 'tumor',
                        facet_var = 'arm')
-plot_parallel_adaptive(p_var = 'sample_clonality', compartment = 'tumor', 
+plot_parallel_adaptive(p_var = 'sample_clonality', compartment = 'tumor',
                        facet_var = 'arm')
-plot_parallel_adaptive(p_var = 'adaptive_t_cells', compartment = 'tumor', 
+plot_parallel_adaptive(p_var = 'adaptive_t_cells', compartment = 'tumor',
                        facet_var = 'arm')
 ```
 
 ```{r, fig.width = 7, fig.height = 3, warning=FALSE, echo=FALSE}
 # debugonce(plot_parallel_adaptive)
-plot_parallel_adaptive(p_var = 'efron_thisted_estimator', 
+plot_parallel_adaptive(p_var = 'efron_thisted_estimator',
                        compartment = 'blood',
                        facet_var = 'arm')
 plot_parallel_adaptive(p_var = 'sample_clonality', compartment = 'blood',
@@ -272,11 +273,11 @@ plot_parallel_adaptive(p_var = 'adaptive_t_cells', compartment = 'blood',
 ```{r, eval = F, warning=FALSE, echo=FALSE}
 source('R/plotting_nanostring.R')
 cowplot::plot_grid(
-  plot_parallel_adaptive(p_var = 'efron_thisted_estimator') + 
+  plot_parallel_adaptive(p_var = 'efron_thisted_estimator') +
     remove_x +
     remove_legend + scale_y_continuous(trans = 'log10',
                                        name = 'Repertoire size'),
-  plot_parallel_adaptive(p_var = 'sample_clonality') + 
+  plot_parallel_adaptive(p_var = 'sample_clonality') +
     remove_strip +
     theme(legend.position = 'top'),
   s_plot + remove_strip, ncol = 1, align = 'hv', rel_heights = c(.4, .4, .6))
@@ -324,20 +325,20 @@ plot_all_comps(f = compare_adaptive_summary_stats,
 # Clone size FCs compared between tumor and blood
 
 ```{r, warning=FALSE, echo=FALSE, results = 'hide'}
-plot_tp_comp_FCs(tp1 = 'Baseline', tp2 = 'Post-induction', 
+plot_tp_comp_FCs(tp1 = 'Baseline', tp2 = 'Post-induction',
                  tp3 = '-2', tp4 = '0')
 plot_tp_comp_FCs(tp1 = 'Baseline', tp2 = 'On nivo', tp3 = '-2', tp4 = '6')
 plot_tp_comp_FCs(tp1 = 'Baseline', tp2 = 'On nivo', tp3 = '-2', tp4 = '10')
 plot_tp_comp_FCs(tp1 = 'Baseline', tp2 = 'On nivo', tp3 = '-2', tp4 = '12')
 ```
 
-## Subset to specific TCRs of interest  
+## Subset to specific TCRs of interest
 
 TCRs in tumor at baseline
 
 ```{r, warning=FALSE, echo=FALSE}
 source('R/plotting_adaptive.R')
-plot_tp_comp_FCs(tp1 = 'Baseline', tp2 = 'Post-induction', 
+plot_tp_comp_FCs(tp1 = 'Baseline', tp2 = 'Post-induction',
                  tp3 = '-2', tp4 = '0')
 ```
 
@@ -366,11 +367,11 @@ contribution of the other clones. I corrected the relative contribution by
 multiplying it with the fraction of T-cells over all nucleated cells, which "is
 calculated by dividing the number of Productive Templates by Nucleated Cells (a
 measure based on the amplification of reference gene primers rather than DNA
-absorbance)." 
+absorbance)."
 
 ```{r, warning=FALSE, echo=FALSE}
-plot_TCR_chronological(patient = 'pat_11', 
-                       p_var = 'productive_frequency') + 
+plot_TCR_chronological(patient = 'pat_11',
+                       p_var = 'productive_frequency') +
   ggtitle('Not normalised for T cell infiltration')
 plot_TCR_chronological(patient = 'pat_11',
                        p_var = 'normalized_frequency') +
@@ -388,7 +389,7 @@ occurs in non-responding patients.
 #'
 plot_TCR_chronological_all <- function(p_var = 'normalized_frequency') {
   read_adaptive_seqs(force_reload = F)
-  plyr::llply(arr[, naturalsort::naturalsort(auto_name(unique(patient)))], 
+  plyr::llply(arr[, naturalsort::naturalsort(auto_name(unique(patient)))],
               function(patient) {
     p_title <- format_patient_title(patient)
     print(p_title)
@@ -400,56 +401,81 @@ plot_TCR_chronological_all <- function(p_var = 'normalized_frequency') {
 plot_TCR_chronological_all()
 ```
 
+# Composition of largest clones in TIL on nivo highly associated with clinical response
+
+```{r, warning=FALSE, echo=FALSE}
+setwd('~/Projects/TONIC')
+source('R/init.R')
+source('R/plotting_nanostring.R')
+source('R/plotting_adaptive.R')
+```
+
 ```{r, warning=FALSE, echo=FALSE}
 source('R/plotting_nanostring.R')
 source('R/plotting_adaptive.R')
-analyze_top_clones <- function(p_var = 'normalized_frequency', 
-                               perc_thresh = .5) {
+
+# debugonce(prepare_TCR_chrono)
+
+analyze_top_clones <- function(p_var = 'normalized_frequency') {
   read_adaptive_seqs(force_reload = F)
   dtf <- rbindlist(
-    plyr::llply(arr[, naturalsort::naturalsort(auto_name(unique(patient)))], 
+    plyr::llply(arr[, naturalsort::naturalsort(auto_name(unique(patient)))],
               function(patient) {
     p_title <- format_patient_title(patient)
     print(p_title)
-    pat_arr <- prepare_TCR_chrono(patient = patient, 
-                                  p_var = p_var)
+    pat_arr <- prepare_TCR_chrono(patient = patient, p_var = p_var,
+                                  cluster_tcrs = F)
     if (null_dat(pat_arr)) return(NULL)
     pat_arr <- pat_arr[timepoint == 'On nivo']
     if (null_dat(pat_arr)) return(NULL)
-    browser()
-    percentage_new_among_50th <- 
+    frac_new <-
       pat_arr %>%
         { .[timepoint == 'On nivo'] } %>%
-        { .[order(value)] } %>%
-        { .[(cumsum(cluster_N * value) / 
-            sum(cluster_N * value, na.rm =T)) >= perc_thresh] } %>%
-        { .[, mean(shared_timepoints == 1)] }
-    if (is.nan(percentage_new_among_50th)) browser()
-    print(percentage_new_among_50th)
-    return(list('patient' = patient, 'frac_new' = percentage_new_among_50th,
-                'perc_thresh' = perc_thresh))
+        { .[value != 0] } %>%
+        ## Sort asscending
+        { .[order(value)] }
+    ## Select all clusters making up top frac_thresh of total repertoire
+    # frac_new[, (cumsum(cluster_N * value) / sum(cluster_N * value, na.rm = T)) >= frac_thresh]
+    frac_new[, 'perc_value' := (cumsum(value) / sum(value, na.rm = T))]
+    frac_new[, 'perc_value_binned' := cut(perc_value, breaks = seq(0, 1, by = .1))]
+    frac_new <- frac_new[, .('frac_new' = mean(shared_timepoints == 1),
+                             'clone_N' = .N), by = perc_value_binned]
+    frac_new[, 'patient' := patient]
+    return(frac_new)
+    # return(list('patient' = patient, 'frac_new' = frac_new,
+    #             'frac_thresh' = frac_thresh))
   }), fill = T)
-  dtf <- controlled_merge(dtf, patient_labels[timepoint == 'On nivo'])
+  dtf <- controlled_merge(dtf,
+                          patient_labels[timepoint == 'On nivo',
+                                         .(patient, arm, clinical_response)])
+  dtf <- dtf[naturalsort::naturalorder(patient)]
   return(dtf)
 }
-clear_object("frac_new_clones", sr = sr)
-sr(frac_new_clones <- analyze_top_clones())
+# clear_object("frac_new_clones", sr = sr)
+# sr(frac_new_clones <- map_dfr(seq(0.1, 1, by = .1),
+#                               function(x) analyze_top_clones(frac_thresh = x)))
+# sr(frac_new_clones <- analyze_top_clones())
+analyze_top_clones()
+frac_new_clones[, .(patient, frac_new, perc_value_binned)]
 ```
-
-## Composition of largest clones highly associated with clinical response
 
 Indeed, ordering the clones by size and computing the fraction of newly detected
 clones among the clones making up the top 50% of the TIL (roughly the top half
 of the plots shown above), we see much higher fractions on nivolumab in
 responders than in non-responders.
 
-```{r, warning=FALSE, echo=FALSE, fig.width = 3, fig.height = 3}
+```{r, eval = F, warning=FALSE, echo=FALSE, fig.width = 3, fig.height = 3}
 facet_var = NULL
 new_var_name <- 'Fraction of T cell clones newly detected\namong top 50%'
 # frac_new_clones[, as.integer(clinical_response)]
-frac_new_clones[, 'x_coord' := vipor::offsetX(frac_new, width = .4) + as.integer(clinical_response)] 
+frac_new_clones[, 'x_coord' := vipor::offsetX(frac_new, width = .4) + as.integer(clinical_response)]
+label_dat <- frac_new_clones[eps(perc_thresh, .5) &
+                             clinical_response == 'NR' &
+                             frac_new >=
+                             frac_new_clones[clinical_response == 'R',
+                                             min(frac_new)]]
 
-p <- ggplot(frac_new_clones,
+p <- ggplot(frac_new_clones[eps(perc_thresh, .5)],
        aes_string(x = 'x_coord', y = 'frac_new',
                   fill = 'clinical_response')) +
   geom_boxplot(outlier.size = 0) +
@@ -457,49 +483,75 @@ p <- ggplot(frac_new_clones,
   ggpubr::stat_compare_means(label = 'p.signif') +
   scale_fill_manual(name = '', values = resp_colors, guide = F) +
   scale_y_continuous(name = new_var_name) +
-  scale_x_continuous(name = '', breaks = c(1, 2), 
+  scale_x_continuous(name = '', breaks = c(1, 2),
                      labels = frac_new_clones[, levels(clinical_response)]) +
-  xlab('Clinical response') + 
-  
-  ggrepel::geom_label_repel(data = frac_new_clones[clinical_response == 'NR' &
-                            frac_new >= frac_new_clones[clinical_response == 'R', min(frac_new)]],
+  xlab('Clinical response') +
+
+  ggrepel::geom_label_repel(data = ,
              aes(label = patient), fill = 'white', size = 2)
 print(p)
 ```
 
-```{r, warning=FALSE, echo=FALSE, fig.width = 5, fig.height = 3}
+```{r, eval = F, warning=FALSE, echo=FALSE, fig.width = 5, fig.height = 3}
 p + facet_grid(as.formula(sprintf('~ %s ', 'arm')))
 frac_new_clones[patient == 'pat_48']
 frac_new_clones[frac_new > .59]
 ```
 
 This variable adds a little bit of information over the sample clonality
-measure, as the two are only weakly correlated. 
+measure, as the two are only weakly correlated.
 
 ```{r, warning=FALSE, echo=FALSE, fig.width = 3, fig.height = 3}
-ggplot(frac_new_clones, aes(x = sample_clonality, y = frac_new, 
+ggplot(frac_new_clones, aes(x = sample_clonality, y = frac_new,
                             colour = clinical_response)) +
   geom_point() +
   theme(aspect.ratio = 1) +
   scale_colour_manual(name = '',
                       values = tonic_color_palettes[['clinical_response']]) +
-  xlab('Sample clonality') + 
+  xlab('Sample clonality') +
   ylab(new_var_name)
+```
+
+Is this specific for the largest clones on nivo or responders just have more
+newly detected clones? We titrate the threshold X and compute the percentage of
+newly detected clones amongst the top X% of clones. These numbers decrease only
+minimally, showing that newly detected clones are among all strata of the immune
+infiltrate.
+
+```{r, warning=FALSE, echo=FALSE}
+frac_new_clones[is.na(clinical_response), clinical_response := 'NA']
+
+ggplot(frac_new_clones,
+       aes(x = perc_value_binned, y = frac_new, group = patient,
+           colour = clinical_response)) +
+  geom_point() +
+  geom_line() +
+  scale_colour_manual(name = '',
+                      values = tonic_color_palettes[['clinical_response']]) +
+  scale_x_discrete('Bracket within TIL repertoire on nivo',
+                     # breaks = seq(0.1, .9, by = .1),
+                     labels = identity) +
+  scale_y_continuous('Percentage of clones newly detected',
+                     labels = scales::percent)
+
 ```
 
 # Tracing of intratumoral clones in the blood
 
 Annotate blood TCRs with intratumoral presence
 
-
 ```{r, warning=FALSE, echo=FALSE}
+source('R/load_data.R')
+read_annotated_bloodadaptive_seqs()
+
 arr_merged[!is.na(it_timepoint) & .N > 1, .SD, by = .(patient, amino_acid)] %>%
   { .[order(patient, amino_acid)] }
 arr[amino_acid == 'GWSRTEAFF' & patient == 'pat_8']
 arr_merged[amino_acid == 'GWSRTEAFF' & patient == 'pat_8']
 arr_merged[grepl('Baseline', it_timepoints)]
-
 ```
+
+Parallel coordinates of blood measurements
 
 ```{r, warning=FALSE, echo=FALSE}
 source('R/plotting_nanostring.R')
@@ -507,10 +559,10 @@ source('R/plotting_adaptive.R')
 
 read_adaptive_seqs()
 
-plyr::llply(arr[, naturalsort::naturalsort(auto_name(unique(patient)))], 
+plyr::llply(arr[, naturalsort::naturalsort(auto_name(unique(patient)))],
             function(patient) {
   ps <- lapply(timepoints, function(t_tp) {
-    plot_TCR_chronological(patient = patient, 
+    plot_TCR_chronological(patient = patient,
                            allowed_timepoints = blood_timepoints,
                            colour_var = 'shared_timepoints',
                            grep_it_timepoints = t_tp,
@@ -518,8 +570,8 @@ plyr::llply(arr[, naturalsort::naturalsort(auto_name(unique(patient)))],
                            p_var = 'normalized_frequency') +
       ggtitle(sprintf('%s - intratumoral TCRs at %s', patient, t_tp))
   })
-  plot_panel_layout(ps, ncol = 3, 
-                    filename = file.path('plots', 
+  plot_panel_layout(ps, ncol = 3,
+                    filename = file.path('plots',
                                          sprintf('it_tils_in_blood_%s.pdf',
                                                  patient)))
 })
@@ -536,8 +588,10 @@ arr[, sum(productive_frequency, na.rm = T), by = adaptive_sample_name]
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
+## FIX ME
 source('R/plotting_nanostring.R')
 source('R/plotting_adaptive.R')
+source('R/load_data.R')
 
 analyse_frac_detected_it <- function(patient = 'pat_33',
                                      timepoint_v = 'timepoint',
@@ -546,32 +600,36 @@ analyse_frac_detected_it <- function(patient = 'pat_33',
                                      allowed_timepoints = blood_timepoints,
                                      p_var = 'normalized_frequency',
                                      compartment = 'blood') {
+  message(patient)
+  pat_arr <- read_annotated_bloodadaptive_seqs(patient = patient)
+  if (null_dat(pat_arr)) return(NULL)
   pat_arr <- prepare_TCR_chrono(patient = patient, timepoint_v = timepoint_v,
                                 facet_var = facet_var, colour_var = colour_var,
                                 allowed_timepoints = allowed_timepoints,
                                 cluster_tcrs = F,
                                 p_var = p_var, compartment = compartment)
   if (null_dat(pat_arr)) return(NULL)
-  ret_val <- rbindlist(lapply(pat_arr[, sort(unique(timepoint))], function(btp) {
+
+  ret_val <- rbindlist(lapply(blood_timepoints, function(btp) {
     frac_IT_of_blood <- pat_arr[timepoint == btp & productive_frequency > 0] %>%
-      { .[, .('cluster_N' = .N, 
+      { .[, .('cluster_N' = .N,
               'frac_T' = sum(normalized_frequency)), by = it_timepoints] } %>%
       arrange(it_timepoints)
     tumor_tp <- names(which(blood_timepoints_subs == btp))
     invisible(frac_IT_of_blood[, 'frac_T_norm' := frac_T / sum(frac_T)])
     invisible(frac_IT_of_blood[, 'cluster_N_norm' := cluster_N / sum(cluster_N)])
     frac_of_blood_T_cells <- frac_IT_of_blood[, sum(frac_T)]
-    frac_IT_of_blood_same_timepoint <- 
+    frac_IT_of_blood_same_timepoint <-
       frac_IT_of_blood[grepl(tumor_tp, it_timepoints), sum(frac_T)]
-    frac_IT_of_blood_any_timepoint <- 
+    frac_IT_of_blood_any_timepoint <-
       frac_IT_of_blood[it_timepoints != 'None', sum(frac_T)]
-    frac_IT_of_T_cells_same_timepoint <- 
+    frac_IT_of_T_cells_same_timepoint <-
       frac_IT_of_blood[grepl(tumor_tp, it_timepoints), sum(frac_T_norm)]
-    frac_IT_of_T_cells_any_timepoint <- 
+    frac_IT_of_T_cells_any_timepoint <-
       frac_IT_of_blood[it_timepoints == 'None', 1 - frac_T_norm]
     messagef('%s - %s: %s frac of blood nucleated cells found IT', patient,
              btp, frac_IT_of_blood_any_timepoint)
-    return(list('patient' = patient, 
+    return(list('patient' = patient,
                 'timepoint' = btp,
                 'frac_of_blood_T_cells' = frac_of_blood_T_cells,
                 ### Percentage of total nucleated cells
@@ -584,10 +642,13 @@ analyse_frac_detected_it <- function(patient = 'pat_33',
   return(ret_val)
 }
 
-frac_IT_dtf <- rbindlist(lapply(patient_labels[, naturalsort(unique(patient))], 
-                            function(l_patient) {  
+patient_list <-
+  intersect(blood_adaptive[, naturalsort(unique(patient))],
+            patient_labels[!is.na(adaptive_sample_name), patient])
+frac_IT_dtf <- rbindlist(lapply(patient_list, function(l_patient) {
   analyse_frac_detected_it(patient = l_patient)
-})) %>% controlled_merge(patient_labels[, .(patient, arm, clinical_response)])
+})) %>% 
+  controlled_merge(patient_labels[, .(patient, arm, clinical_response)])
 
 frac_IT_dtf[, timepoint := blood_timepoints_subs_inv[as.character(timepoint)]]
 frac_IT_dtf[, timepoint := factor(timepoint, timepoints)]
@@ -598,10 +659,10 @@ saveRDS(frac_IT_dtf, file.path('rds', 'frac_IT_dtf.rds'))
 sr(frac_IT_dtf)
 
 # frac_IT_dtf[, .(timepoint, blood_timepoints_subs_inv[as.character(timepoint)])]
-resp_vars <- setNames(c('frac_of_blood_T_cells', 
-               'frac_IT_blood_same_tp', 
+resp_vars <- setNames(c('frac_of_blood_T_cells',
+               'frac_IT_blood_same_tp',
                'frac_IT_blood_any_tp',
-               'frac_IT_T_cells_same_tp', 
+               'frac_IT_T_cells_same_tp',
                'frac_IT_T_cells_any_tp'),
              c('Fraction T-cells of nucleated cells [blood]',
                'Fraction of nucleated cells T-cell and intratumoral\n[same timepoint, blood]',
@@ -610,16 +671,19 @@ resp_vars <- setNames(c('frac_of_blood_T_cells',
                'Fraction of T-cells intratumoral\n[any timepoint, blood]'))
 
 plot_adaptive_stats_per_blood_tp <- function(resp_var) {
-  ggplot(frac_IT_dtf[timepoint %in% timepoints], 
-         aes_string(x = 'clinical_response', y = resp_var, 
-                    fill = 'clinical_response')) + 
+  ggplot(frac_IT_dtf[timepoint %in% timepoints],
+         aes_string(x = 'clinical_response', y = resp_var,
+                    fill = 'clinical_response')) +
     ggpubr::stat_compare_means() +
-    geom_boxplot() + 
+    geom_boxplot() +
     facet_wrap(~ timepoint) +
     scale_fill_manual(name = '', values = resp_colors, guide = F) +
     ylab(names(resp_vars)[which(resp_var == resp_vars)]) +
     xlab('Clinical response')
 }
 
-lapply(resp_vars, plot_adaptive_stats_per_blood_tp)
+plots <- lapply(resp_vars, plot_adaptive_stats_per_blood_tp)
+
+plot_panel_layout(plots, ncol = 1, nrow = 3,
+                  filename = file.path('plots2', 'pTcells_TIL.pdf'))
 ```

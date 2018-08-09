@@ -136,12 +136,11 @@ case "$1" in
         echo "args: $args"
 
         ## Create folder structure if not already present
-        # if [ ! -a $localloc ]; then
-        #   echo "Creating local structure $localloc"
-        #   mkdir -p "$localloc"
-        # fi
-        eval "rsync $FLAGS  $args --update $remoteloc $localloc"
-        echo "\n"
+        if [[ ! -d $localloc ]]; then
+          echo "Creating local structure $localloc"
+          mkdir -p "$localloc"
+        fi
+        eval "rsync $FLAGS $args --update $remoteloc $localloc"
         ;;
     synctofile|stf)
         head=${2/$PROOT/}
@@ -173,6 +172,9 @@ case "$1" in
         # for f in *.stan; do
         #   $0 sff $f
         # done
+        ;;
+    syncfastq)
+        rsync -avz m.slagter@coley:/DATA/users/m.slagter/TONIC/fastq ~/Projects/TONIC/ --include "*.html" --include="*.txt" --exclude="*.zip" --exclude="*.fastq.gz"
         ;;
     publish_results|pbr)
         cp ~/antigenic_space/maarten-analyses/knitr_output/tcrseq.html /Volumes/shared/Groups/Tonic/Data\ analyse/

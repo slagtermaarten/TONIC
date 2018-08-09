@@ -45,6 +45,7 @@ forge_mirror <- file.path(data_dir, 'forge', 'userdata',
 source('R/constants.R')
 sr(blood_adaptive)
 sr(patient_labels)
+source('R/misc.R')
 source('R/load_data.R')
 source('R/load_cache.R')
 source('R/read_DNASeq.R')
@@ -69,35 +70,3 @@ library(cowplot)
 # ggplot2::theme_set(theme_ms(base_size = 8,
 #                             text=element_text(size=8, family='Arial')))
 ggplot2::theme_set(theme_ms(base_size = 10))
-
-
-#' Filter out patients that have dubious annotation
-#'
-#'
-filter_patients <- name <- function(p_dat, ...) {
-  comb_vars <- as.character(...)
-  clinical_params <- c('response', 'clinical_response', 'comb_time_resp')
-  if (is.null(comb_vars)) return(p_dat)
-  if (any(comb_vars %in% clinical_params)) {
-    # resp_var <- comb_vars[which(comb_vars %in% clinical_params)]
-    p_dat <- p_dat[patient %nin% c('pat_63', 'pat_64')]
-    for (varn in clinical_params) {
-      if (varn %in% colnames(p_dat)) {
-        N <- p_dat[is.na(get(varn)), .N]
-        if (N > 0) {
-          messagef('Removing %d donors due to absence of %s', N, varn)
-          p_dat <- p_dat[!is.na(get(varn))]
-        }
-      }
-    }
-  }
-  if (F) {
-    pres_cols <-
-      intersect(colnames(p_dat), c('patient', 'arm', 'timepoint',
-                                   'blood_timepoint',
-                                   'filename', 'adaptive_sample_name'))
-    p_dat <- unique(p_dat, by = pres_cols)
-  }
-  return(p_dat)
-}
-

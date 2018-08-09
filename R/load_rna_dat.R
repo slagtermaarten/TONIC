@@ -16,8 +16,8 @@ rna_sample_annotation[, timepoint_biopsy :=
                              levels = timepoints)]
 rna_sample_annotation[, 'patient' := paste0('pat_', study_id)]
 rna_sample_annotation <-
-  clean_columns(instance = 'load_rna_dat.R', rna_sample_annotation, 
-                col_names = c('patient_id', 'induction_arm', 
+  clean_columns(instance = 'load_rna_dat.R', rna_sample_annotation,
+                col_names = c('patient_id', 'induction_arm',
                               'sequencing_number', 'study_id', 't-number'))
 rna_sample_annotation <- rna_sample_annotation[patient != 'pat_NA']
 setkey(rna_sample_annotation, patient)
@@ -25,28 +25,33 @@ setnames(rna_sample_annotation, 'timepoint_biopsy', 'timepoint')
 rna_sample_annotation <-
   rna_sample_annotation[naturalsort::naturalorder(patient)]
 rna_sample_annotation[, cf_number := tolower(cf_number)]
+patient_labels[, baseline_biopsy_site]
 rna_sample_annotation <- controlled_merge(rna_sample_annotation,
-      unique(patient_labels[, .(patient, arm, clinical_response, response)]),
+      unique(patient_labels[timepoint == 'Baseline',
+             .(patient, arm, clinical_response, response,
+               baseline_biopsy_site)]),
       by = 'patient')
 
 if (local_run) {
-  fastqc_res <- parse_fastqc(fastq_dir = file.path(p_root, 
+  fastqc_res <- parse_fastqc(fastq_dir = file.path(p_root,
                                                    'fastq', 'rna', 'fastqc'))
-  rna_sample_annotation <- 
+  rna_sample_annotation <-
     controlled_merge(rna_sample_annotation, fastqc_res, by = 'cf_number')
 
   gcf_rna_stats <- suppressWarnings(read_excel(file.path(data_dir,
-                                                         'gcf_stats_4698.xlsx'), 
+                                                         'gcf_stats_4698.xlsx'),
                                                  sheet = 1, na = c("", "NA"))) %>%
       as.data.table %>%
       normalize_colnames
   gcf_rna_stats <- gcf_rna_stats[, 1:18, with = F]
   gcf_rna_stats[, 'cf_number' := tolower(sample)]
-  gcf_rna_stats[, cf_number := gsub('\\d{4}_\\d{1,2}_(cf.*)_\\w{7}', 
+  gcf_rna_stats[, cf_number := gsub('\\d{4}_\\d{1,2}_(cf.*)_\\w{7}',
                                     '\\1', cf_number)]
-  gcf_rna_stats <- clean_columns(instance = '', 
-                                 fh = gcf_rna_stats, 
+  gcf_rna_stats <- clean_columns(instance = '',
+                                 fh = gcf_rna_stats,
                                  col_names = c('x__1', 'sample'))
+  gcf_rna_stats[, pool := as.factor(pool)]
+  gcf_rna_stats[, rin := as.factor(pool)]
   setnames(gcf_rna_stats,
     c("bioanalyzer_nm_(mol/l)_(yield_after_libprep)",
     "nr_of_genes_with_normalized_expression_>_0",
@@ -59,20 +64,19 @@ if (local_run) {
     "nr_of_genes_with_normalized_expression_>_10",
     "nr_of_genes_with_normalized_expression_>_15"))
 
-  rna_sample_annotation <- 
+  rna_sample_annotation <-
     controlled_merge(rna_sample_annotation, gcf_rna_stats, by = 'cf_number')
 
-  rna_sample_annotation <- 
-    controlled_merge(rna_sample_annotation, 
+  rna_sample_annotation <-
+    controlled_merge(rna_sample_annotation,
                      readRDS(file.path('rds', 'fastq_files.rds')))
 }
 
 
-
 if (F) {
   ## Read in RNA
-  rna_read_counts <- suppressWarnings(read_excel(file.path(data_dir, 
-                                                           'readcounts.xlsx'), 
+  rna_read_counts <- suppressWarnings(read_excel(file.path(data_dir,
+                                                           'readcounts.xlsx'),
                                                  sheet = 1, na = c("", "NA")))
   setDT(rna_read_counts)
   normalize_colnames(rna_read_counts)
@@ -150,16 +154,114 @@ if (F) {
 }
 
 if (T) {
-  tpms_salmon <- fread(file.path(p_root, 'salmon_rna', 
+  tpms_salmon <- fread(file.path(p_root, 'salmon_rna',
                                  'salmon_tpm_mat.tsv')) %>%
     column_to_rownames('hugo_symbol') %>%
     normalize_colnames
 
-  rna_read_counts_salmon <- fread(file.path(p_root, 'salmon_rna', 
+
+  rna_read_counts_salmon <- fread(file.path(p_root, 'salmon_rna',
                                   'salmon_count_mat.tsv')) %>%
     normalize_colnames
+
+
+  # colSums(rna_read_counts_salmon)
   rownames(rna_read_counts_salmon) <- rna_read_counts_salmon$hugo_symbol
   rna_read_counts_salmon$hugo_symbol <- NULL
+
+
+  dge <- DGEList(counts = rna_read_counts_salmon)
+  dge <- calcNormFactors(dge, method = 'TMM')
+  nF = dge$samples[,'lib.size'] * dge$samples[,'norm.factors']
+  rna_read_counts_salmon_tmm = sweep(dge$counts,2,nF,'/') %>% as.data.table
+  rownames(rna_read_counts_salmon_tmm) <- rownames(rna_read_counts_salmon)
+  rm(dge)
+
+  # tpms_salmon_rn <-
+  #   renormalize_tpms(dtf = tpms_salmon, search_term = 'ribosomal|mitochondrial')
+
+  # debugonce(renormalize_tpms)
+  tpms_salmon_rn <-
+    renormalize_tpms(dtf = tpms_salmon, search_term = 'protein_coding',
+                     search_var = 'gene_biotype', invert = T)
+
+  tpms_salmon_rn_qn <- quantile_normalisation(tpms_salmon_rn)
+
+  # rownames(tpms_salmon)
+  # rna_sample_annotation[, .(cf_number, prot_cod, 100 / prot_cod)]
+
+  ## Due to unequal distribution, check evenness of distributions
+  evenness_vals <- apply(tpms_salmon, 2, compute_evenness)
+  rna_sample_annotation$evenness <-
+    evenness_vals[rna_sample_annotation$cf_number]
+  rm(evenness_vals)
+
+  evenness_vals <- apply(tpms_salmon_rn, 2, compute_evenness)
+  rna_sample_annotation$evenness_rn <-
+    evenness_vals[rna_sample_annotation$cf_number]
+  rm(evenness_vals)
+
+  evenness_vals <- apply(tpms_salmon_rn_qn, 2, compute_evenness)
+  rna_sample_annotation$evenness_rn_qn <-
+    evenness_vals[rna_sample_annotation$cf_number]
+  rm(evenness_vals)
+
+  evenness_vals <- apply(rna_read_counts_salmon_tmm, 2, compute_evenness)
+  rna_sample_annotation$evenness_tmm <-
+    evenness_vals[rna_sample_annotation$cf_number]
+  rm(evenness_vals)
+}
+
+if (T) {
+  # clean_object('geneset_scores', sr)
+  # clear_object('geneset_scores_rn', sr)
+  sr(geneset_scores <- gen_gene_set_score_matrix(sum_func = median,
+                         exp_mat = tpms_salmon,
+                         sets = filter_gmt('h.all', 'HALLMARK'),
+                         log_transform = 'log2'))
+
+  sr(geneset_scores_rn <- gen_gene_set_score_matrix(sum_func = median,
+                            exp_mat = tpms_salmon_rn,
+                            sets = filter_gmt('h.all', 'HALLMARK'),
+                            log_transform = 'log2'))
+
+  sr(geneset_scores_tmm <- gen_gene_set_score_matrix(sum_func = median,
+                             exp_mat = rna_read_counts_salmon_tmm,
+                             sets = filter_gmt('h.all', 'HALLMARK'),
+                             log_transform = 'log2'))
+  rna_sample_annotation <-
+    controlled_merge(rna_sample_annotation,
+                     geneset_scores[, .('median_gs' = median(value)),
+                                    by = .(patient, timepoint)])
+
+  rna_sample_annotation <-
+    controlled_merge(rna_sample_annotation,
+                     geneset_scores_rn[, .('median_gs_rn' = median(value)),
+                                       by = .(patient, timepoint)])
+
+  rna_sample_annotation <-
+    controlled_merge(rna_sample_annotation,
+                     geneset_scores_tmm[, .('median_gs_tmm' = median(value)),
+                                       by = .(patient, timepoint)])
+}
+
+
+
+if (T && local_run) {
+  fastqc_vars <-  c('adapter_content', 'basic_statistics',
+                    'overrepresented_sequences', 'per_base_n_content',
+                    'per_base_sequence_content', 'per_base_sequence_quality',
+                    'per_sequence_gc_content', 'per_sequence_quality_scores',
+                    'per_tile_sequence_quality', 'sequence_duplication_levels',
+                    'sequence_length_distribution')
+  # t(rna_sample_annotation[, lapply(.SD, mean), .SDcols = fastqc_vars])
+
+  rna_sample_annotation$percentage_tests <-
+    apply(rna_sample_annotation[, fastqc_vars, with = F], 1, mean)
+
+  rna_sample_annotation$one_of_best_samples <-
+    eps(rna_sample_annotation$percentage_tests, .818)
+  # write_tsv(rna_sample_annotation, 'ext/rna_sample_annotation.tsv')
 }
 
 if (F) {
