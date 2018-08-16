@@ -1,0 +1,241 @@
+---
+title: "Correlates of T cell infiltration"
+author: "Maarten Slagter"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+    theme: united
+---
+
+Determine which genes correlate well with T cell infiltration as determined by
+Adaptive.  Then use this gene signature to determine an expression score and see
+what correlates to this expression signature.
+
+```{r, warning=FALSE, echo=FALSE, cache = F}
+knitr::opts_chunk$set(message = FALSE, cache = T, cache.lazy = F,
+                      cache.comments = F, autodep = T, warning = FALSE,
+                      results = 'hide', fig.keep = 'high',
+                      echo = TRUE, error = FALSE)
+knitr::opts_knit$set(progress = TRUE, verbose = TRUE)
+# knitr::clean_cache()
+# knitr::opts_chunk$get("cache.path")
+# knitr::knit_global()
+setwd('~/Projects/TONIC')
+source('R/init.R')
+source('R/load_rna_dat.R')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+patient_labels_tmp <-
+  patient_labels[timepoint %in% timepoints[c(1,2)], 
+                 .(patient, timepoint, adaptive_t_cells)] %>%
+  unique %>%
+  { .[naturalorder(patient), ] }
+
+# rna_sample_annotation[patient_labels_tmp[, .(patient, timepoint)], .N]
+setkey(rna_sample_annotation, patient, timepoint)
+patient_labels_tmp$rna_cf_number <- 
+  rna_sample_annotation[patient_labels_tmp[, .(patient, timepoint)], cf_number]
+
+patient_labels_tmp %<>% { .[!apply(., 1, function(x) any(is.na(x)))] }
+```
+
+```{r, warning=FALSE, echo=FALSE}
+entrez_table <- readRDS(file.path(p_root, 'rds', 'entrez_table.rds'))
+setkey(entrez_table, hgnc_symbol)
+
+t_cell_corrs <- 
+  ## Order samples identically as in patient_labels_tmp
+  rna_read_counts_salmon_tmm_M[, patient_labels_tmp$rna_cf_number, with = F] %>%
+  { apply(., 1, function(x) cor(x, patient_labels_tmp$adaptive_t_cells, 
+                                method = 'spearman')) } %>%
+  setNames(rownames(rna_read_counts_salmon_tmm_M))
+
+covs <- 
+  rna_read_counts_salmon_tmm_M %>%
+  { apply(., 1, function(x) sd(x, na.rm = T) / mean(x, na.rm = T)) } %>%
+  setNames(rownames(rna_read_counts_salmon_tmm_M))
+
+# plot(ecdf(abs(t_cell_corrs)))
+
+## Select genes associated with Adaptive T cell infiltration that vary over the
+## samples
+t_cell_genes <- names(t_cell_corrs[abs(t_cell_corrs) >= .3]) %>%
+  setdiff(NA) %>%
+  intersect(names(covs[covs >= 1]))
+
+t_dat <- data.table(hgnc_symbol = names(t_cell_corrs), 
+                    corr = t_cell_corrs,
+                    cova = covs,
+                    selected = names(t_cell_corrs) %in% t_cell_genes) %>%
+  mutate(cova_bin = cut(cova, 
+                        breaks = quantile(cova, 
+                                          probs = seq(0, 1, by = .25)))) %>%
+  controlled_merge(entrez_table[, .(hgnc_symbol, description)]) %>%
+  { .[!is.na(corr)] } %>%
+  arrange(corr) %>%
+  mutate(cor_rank = rank(corr, ties.method = 'max')) %>%
+  { mutate(., cor_rank = ifelse(corr > 0, 
+                                cor_rank - .[corr <= 0, .N], 
+                                .[corr <= 0, .N] - cor_rank - 1)) } 
+
+t_dat %>%
+  maartenutils::write_tsv(output_file = file.path('ext', 
+                                                  't_cell_correlated_genes.tsv'))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+ggplot(t_dat[!is.na(cova_bin)], aes(x = corr, fill = cova_bin)) + 
+  geom_histogram(bins = 200) +
+  scale_fill_manual(name = 'Coefficient of variation',
+                    values = rev(gen_color_vector('Spectral', 4))) +
+  theme(legend.position = c(.95, .95), legend.direction = 'vertical',
+        legend.justification = c(1, 1)) +
+  scale_x_continuous(name = 'correlation with Adaptive T cell infiltration',
+                     expand = c(0, 0)) +
+  scale_y_continuous(name = '# genes', expand = c(0, 0))
+```
+  
+
+```{r, warning=FALSE, echo=FALSE}
+## Test for associations with T cell infiltration
+search_term <- 'WNT'
+search_term <- 'DKK\\d'
+search_term <- '^CD8[A|B]$'
+search_term <- '^CD4$'
+search_term <- '^FOXP3$'
+t_dat %>% filter(grepl(search_term, hgnc_symbol))
+t_dat %>% filter(grepl(search_term, hgnc_symbol)) %>% select(corr) %>% sum
+```
+
+It seems as if both CD8 and CD4 (FoxP3) subsets increase with T cell
+infiltration, I should test whether the correlation is indeed that clear.
+
+```{r, warning=FALSE, echo=FALSE}
+patient_labels_tmp %<>%
+  maartenutils::controlled_merge(
+    compute_gene_set_score(timepoint = timepoints[c(1,2)], 
+                           gene_symbols = t_cell_genes,
+                           sum_func = sum) %>% 
+    dplyr::rename(rna_t_cell = gs_score))
+```
+
+If continueing along this track, perhaps first compute optimal weighting of each
+gene for T cell infiltration.
+
+What are the most variant genes?
+
+Annotate GO functions
+
+```{r, warning=FALSE, echo=FALSE}
+## Downloaded from http://www.geneontology.org/page/download-go-annotations
+go_terms <- fread(file.path(data_dir, 'goa_human.gaf'), header = F)
+setnames(go_terms, c('uni', 'bs', 'hgnc_symbol', 'empty', 'go_term', 'go_ref',
+                     'go_type', 'ref_link', 'some_letter', 'gene_description',
+                     'more_nonsense', 'protein', 'taxon', 'date', 'source',
+                     'rd1', 'rd2'))
+go_terms[, .(hgnc_symbol, go_term, go_ref)]
+```
+
+```{r, warning=FALSE, echo=FALSE}
+pacman::p_load(httr)
+url  <- "http://api.epdb.eu"
+path <- "eurlex/directory_code"
+raw.result <- GET(url = url, path = path)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+pacman::p_load(httr)
+url  <- "www.ebi.ac.uk/QuickGO/api/"
+path <- "annotation/search"
+raw.result <- GET(url = url, path = path)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+## Annotate annotation to GO IDs
+select(GO.db, keys = 'GO:0000001', columns = c('GOID', 'DEFINITION',
+                                               'ONTOLOGY', 'TERM'))
+
+```
+
+```{r, warning=FALSE, echo=FALSE}
+search_term = '^RPL'
+
+explore_in_browser(arrange(t_dat, -cova))
+
+t_dat %>% 
+  arrange(-cova) %>% 
+  mutate(order_rank = seq(.N, 1)) %>%
+  filter(grepl(search_term, hgnc_symbol)) %$%
+  { c('rank_sum' = sum(order_rank), 
+      'expected_rank_sum' = length(order_rank) * 21190 / 2,
+      'normalized_rank_sum' = sum(order_rank) / (length(order_rank) * 21190 / 2)) } 
+```
+
+```{r, warning=FALSE, echo=FALSE}
+graphics.off()
+source('R/plotting_rna.R')
+plot_scatter_cor(x_var = 'adaptive_t_cells',
+                 y_var = 'rna_t_cell',
+                 dtf = patient_labels_tmp,
+                 cor_method = 'spearman',
+                 point_alpha = .5,
+                 axis_labeller = tonic_cap,
+                 outlier_label_var = 'cf_number',
+                 position = 'topleft') 
+```
+
+```{r, warning=FALSE, echo=FALSE}
+# colnames(rna_t_dat)
+# rownames(rna_t_dat)
+plot_scatter_cor(x_var = 'FOXP3',
+                 y_var = 'CD8A',
+                 dtf = transpose_data.table(rna_read_counts_salmon_tmm_M) %>%
+                         rownames_to_column('cf_number') %>%
+                         dplyr::select_('cf_number', 'FOXP3', 'CD8A'),
+                 cor_method = 'spearman',
+                 point_alpha = .5,
+                 axis_labeller = tonic_cap,
+                 outlier_label_var = 'cf_number',
+                 position = 'topleft') 
+```
+
+```{r, warning=FALSE, echo=FALSE}
+plot_scatter_cor(x_var = 'adaptive_t_cells',
+                 y_var = 'rna_t_cell',
+                 dtf = patient_labels_tmp,
+                 cor_method = 'spearman',
+                 point_alpha = .5,
+                 axis_labeller = tonic_cap,
+                 outlier_label_var = 'cf_number',
+                 position = 'topleft') 
+```
+
+```{r, warning=FALSE, echo=FALSE}
+hist(patient_labels_tmp[, adaptive_t_cells], breaks = 100)
+```
+
+Horrendous reproduction of T cell infiltration relative order. Should I just
+order samples based on adaptive T cells and only cluster genes?
+
+```{r, warning=FALSE, echo=FALSE}
+devtools::load_all('~/libs/GSEAgenesets')
+source('R/rna.R')
+
+plot_gene_set(gs_name = 'T_cell_correlated',
+              # gene_symbols = t_cell_genes,
+              gene_symbols = t_dat[abs(corr) > .5, hgnc_symbol],
+              # setdiff(names(t_cell_corrs[abs(t_cell_corrs) >= .7]), NA),
+              cf_numbers = arrange(patient_labels_tmp, adaptive_t_cells)$rna_cf_number,
+              cf_ordered = T,
+              exp_mat = rna_read_counts_salmon_tmm_M,
+              sample_normalisation = 'lib_size',
+              # sample_normalisation = NULL,
+              gene_normalisation = F,
+              hclustfun = 'complete',
+              distfun = 'euclidean',
+              col_vars = c('timepoint', 'arm',
+                           'clinical_response', 'adaptive_t_cells'),
+              timepoints = c('Baseline', 'Post-induction'))
+```
