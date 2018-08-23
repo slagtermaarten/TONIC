@@ -24,7 +24,7 @@ maartenutils::set_dt_types(patient_labels,
                              'tis_score' = 'numeric'))
 patient_labels <- patient_labels[!is.na(patient)]
 patient_labels[, patient := paste0('pat_', patient)]
-merge_tests(idx = 0)
+# merge_tests(idx = 0)
 # stopifnot(patient_labels[is.na(arm), .N <= 3])
 
 if (T) {
@@ -484,7 +484,7 @@ if (T) {
                na = c('', 'NA', '<NA>', '\\<NA\\>')) %>%
     as.data.table %>%
     maartenutils::normalize_colnames() %>%
-    filter(!is.na(response)) %>%
+    dplyr::filter(!is.na(response)) %>%
     dplyr::select(patient, response, clinical_response) %>%
     unique
 
@@ -515,7 +515,26 @@ if (T) {
   patient_labels[patient == 'pat_64', 
                  .(timepoint, response, clinical_response)]
   patient_labels[patient == 'pat_1' & timepoint == 'Baseline', ] 
+  patient_labels[, response := 
+                 factor(response, levels = c('CR', 'PR', 'SD', 'PD', 'NA'))]
   merge_tests(idx = 16)
+}
+
+if (T) {
+  patient_labels_cor <-
+    ## Day - Month - Year
+    read_excel(file.path(data_dir, 'TONIC_pat_labels_changes_230818.xlsx'),
+               na = c('', 'NA', '<NA>', '\\<NA\\>')) %>%
+    as.data.table %>%
+    maartenutils::normalize_colnames() %>%
+    mutate(patient = sprintf('pat_%s', patient))
+  patient_labels <- controlled_merge(patient_labels, patient_labels_cor, 
+                                     by_cols = c('patient', 'timepoint'))
+  if (F) {
+    setkey(patient_labels, patient, timepoint)
+    patient_labels[patient_labels_cor[, .(patient, timepoint)],
+                   .(adaptive_sample_name, cf_number)]
+  }
 }
 
 if (T) {
