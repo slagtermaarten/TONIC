@@ -29,9 +29,6 @@ read_CONTRA <- function(patient = 'pat_1') {
 lookup_DNA_cf <- function(patient = 'pat_69', timepoint = 'Baseline') {
   ## Find DNA CF
   l_patient = patient
-  # patient_labels[timepoint == 'Baseline' & !is.na(cf_number), .N]
-  # patient_labels[timepoint == 'Baseline' & !is.na(cf_number), patient]
-  # patient_labels[patient == parent.frame(3)$patient]
   l_patient <- patient
   l_timepoint <- timepoint
   rel_subs <-
@@ -80,35 +77,18 @@ filter_VCF <- function(patient = 'pat_1', timepoint = 'Baseline',
   if (read_annotated) {
     full_fn <- gsub('\\.vcf$', '.annotated.vcf', full_fn)
   }
+
   if (!file.exists(full_fn)) {
     warningf('%s; %s does not exist', patient, full_fn)
     return(NULL)
   }
-  # less(full_fn)
-  # if (tumor) {
-  #   com <- sprintf("grep SOMATIC %s | grep -v '##'", full_fn)
-  # } else {
   com <- sprintf("grep -v '##' %s ", full_fn)
-  # }
   vcf <- suppressWarnings(
            tryCatch(fread(com, fill = T, sep = '\t'),
            error = function(e) { print(e); return(NULL) }))
   if (null_dat(vcf)) return(NULL)
-  # vcf <- vcf[!grepl('^#|GERMLINE', 1)]
-  # vcf <- vcf[!grepl('.*##.*', 1)]
-  # vcf <- vcf[!grepl('.*GERMLINE.*', 1)]
-  # vcf_colnames <- system(sprintf('cat %s | grep CHROM', full_fn), 
-  #                        intern = T)
 
   setnames(vcf, gsub('#', '', colnames(vcf)))
-  # setnames(vcf, vcf_colnames)
-  # vcf_colnames <- gsub('#', '', colnames(vcf))
-  # vcf_colnames <- strsplit(x = vcf_colnames, split = '\\t')
-  # vcf_colnames <- tryCatch(vcf_colnames[[1]], error = function(e) { print(e); browser() }) 
-  # browser(text = 'Unexpected column length of VCF (1)', 
-  #         expr = length(colnames(vcf)) != length(vcf_colnames))
-  # browser(text = 'Unexpected column length of VCF (2)', 
-  #         expr = length(colnames(vcf)) != 11)
   if (tumor) {
     vcf <- vcf[grepl('SOMATIC', INFO)]
     vcf[, 'tlod' := as.numeric(gsub('.*TLOD=(\\d*\\.*\\d*);.*', '\\1', INFO))]
@@ -116,21 +96,7 @@ filter_VCF <- function(patient = 'pat_1', timepoint = 'Baseline',
     vcf <- vcf[tlod >= tlod_threshold & nlod >= nlod_threshold]
     vcf <- vcf[FILTER == 'PASS']
   }
-  # com <- sprintf("grep '##INFO' %s", full_fn)
-  # td <- fread(com, fill = T)
-  # info_field_tags <- gsub('.*\\=(\\w*)', '\\1', unlist(td[, 1, with = F])) %>%
-  #   setNames(NULL)
-  # browser()
-  # less(full_fn)
   vcf[, 'ANN' := gsub('ANN\\=(.*)\\=*', '\\1', INFO)]
-  # vcf[, info]
-  # vcf[, ANN[1]]
-  # sapply(strsplit(vcf[1, INFO], ';')[[1]], function(x) { 
-  #   setNames(gsub('(.*)\\=(.*)', '\\1', x)
-  # })
-  # vcf[, (info_field_tags) := tstrsplit(INFO, '\\;')]
-
-  # vcf[, 'gene_id' := gsub('(ENSG=\\d*)', '\\1', INFO)]
   return(vcf)
 }
 
