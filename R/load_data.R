@@ -83,123 +83,18 @@ test_genes <- exp_levels[, unique(gene_symbol)] %>%
 test_gene_sets <- danaher_scores.m[, levels(variable)]
 
 
-## Read adaptive seq data if required
-read_adaptive_seqs <- function(force_reload = F, patient = NULL) {
-  fn <- file.path(p_root, 'data-raw', 'AdaptiveAllRearrangements.tsv')
-  if (is.null(patient)) {
-    if (exists('arr', envir = globalenv()) && !force_reload) {
-      return(invisible()) 
-    }
-    arr <- w_fread(fn, col_classes = c('productive_frequency' = 'numeric'))
-  } else {
-    ## Patient specific reading of files
-    browser()
-    l_patient <- patient
-    adaptive_samples <- 
-      sort(c(patient_labels[patient %in% l_patient,
-             unique(adaptive_sample_name)]))
-    grep_string <- 
-      sprintf('$1 == "%s"', adaptive_samples) %>%
-      { paste(., collapse = ' || ') }
-    read_com <- sprintf("awk '(%s || NR == 1) {print $0}' %s", grep_string, fn)
-    arr <- fread(read_com)
-  }
-  arr[, productive_frequency := as.numeric(productive_frequency)]
-  arr <- clean_columns(instance = '', fh = arr, col_names = "reads")
-  arr[amino_acid == 'na', amino_acid := NA]
-  arr[productive_frequency == 'na', productive_frequency := NA]
-  arr <- arr[!is.na(amino_acid) & !is.na(productive_frequency)]
-  setnames(arr, 'sample_name', 'adaptive_sample_name')
-
-  arr1 <-
-    controlled_merge(arr[grepl('T_', adaptive_sample_name)],
-                     patient_labels[, .(patient, adaptive_sample_name,
-                                        timepoint, arm, clinical_response,
-                                        response)],
-                     by_cols = 'adaptive_sample_name',
-                     all.x = T, all.y = F)
-  arr2 <-
-    controlled_merge(arr[grepl('B_', adaptive_sample_name)],
-                     blood_adaptive[, .(patient, adaptive_sample_name, arm,
-                                        blood_timepoint,
-                                        clinical_response, response)],
-                     by_cols = 'adaptive_sample_name',
-                     all.x = T, all.y = F)
-  setnames(arr2, 'blood_timepoint', 'timepoint')
-  arr <- rbind(arr1, arr2, fill = T)[patient != 'patient_64']
-  
-  arr[, timepoint := factor(as.character(timepoint), 
-                            levels = c(timepoints, blood_timepoints))]
-
-  ## Merge in 'Fraction T-cells of nucleated cells' 
-  arr <- 
-    controlled_merge(arr, 
-                     patient_labels[, .(adaptive_sample_name, 
-                                        adaptive_t_cells)],
-                     by_cols = 'adaptive_sample_name')
-  arr <- 
-    controlled_merge(arr, 
-                     blood_adaptive[, .(adaptive_sample_name, 
-                                        adaptive_t_cells)],
-                     by_cols = 'adaptive_sample_name')
-
-  arr[, 'normalized_frequency' := productive_frequency * adaptive_t_cells]
-  if (is.null(patient)) {
-    assign('arr', arr, envir = globalenv())
-    return(invisible())
-  } else {
-    return(arr)
-  }
-}
-
-read_annotated_bloodadaptive_seqs <- function(patient = 'pat_1', 
-                                              force_reload = F) {
-  arr <- read_adaptive_seqs(patient = patient)
-  if (null_dat(arr)) return(NULL)
-
-  arr_merged <- arr[, {
-    av_tps <- .SD[, unique(timepoint)]
-    if (!any(blood_timepoints %in% av_tps) && any(timepoints %in% av_tps)) {
-      .(NA)
-    }
-     
-    t1 <- .SD[timepoint %in% blood_timepoints]
-    t2 <- .SD[timepoint %in% timepoints, .(amino_acid, timepoint, normalized_frequency)] 
-    setnames(t2, 
-             c('timepoint', 'normalized_frequency'), 
-             ## The first denotes the timepoint at which the blood TCR was
-             ## detected intatumorally, the second the magnitude with which this
-             ## happened
-             c('it_timepoint', 'it_normalized_frequency'))
-    if (F && any(blood_timepoints %in% av_tps) && any(timepoints %in% av_tps)) {
-      browser()
-    }
-    merge(t1, t2, all.x = T, all.y = F, allow.cartesian = T, by = 'amino_acid')
-  }, by = patient]
-
-  # arr_merged[, it_timepoints := NULL]
-  arr_merged <- arr_merged[!is.na(productive_frequency)]
-  system.time(arr_merged[, 
-              'it_timepoints' := paste(sort(unique(it_timepoint)), 
-                                       collapse = ' - '), 
-              # 'it_timepoints' := as.list(as.integer(it_timepoint)),
-              by = .(patient, amino_acid)])
-  # arr_merged[, table(it_timepoint)]
-
-  # arr_merged[stringr::str_length(it_timepoints) > 30]
-  # arr_merged[patient == 'pat_14' & amino_acid == 'CA*SSQAYSYNSPLHF']
-  # arr[patient == 'pat_15' & amino_acid == 'CADRDEPLREQFF']
-  # arr_merged[patient == 'pat_15' & amino_acid == 'CADRDEPLREQFF']
-  # assign('arr_merged', arr_merged, envir = globalenv())
-  # return(invisible())
-  return(arr_merged)
-}
-
-
 vcfs <- list.files(file.path(forge_mirror, 'calls'), pattern = 'combined.vcf$') 
 vcf_table <- data.table(vcf_fn = vcfs)
 vcf_table[, 'tumor_cf' := gsub('.{2}_.{4}_.{1,2}_(CF\\d{5})_.*', 
                                '\\1', vcf_fn)]
+vcf_table[, 'normal_cf' :=
+          gsub('.{2}_.{4}_.{1,2}_CF\\d{5}_.{8}_vs_.{4}_.{1,2}_(CF\\d{5}).*', 
+                               '\\1', vcf_fn)]
+vcf_table[grepl('.vcf', normal_cf), 
+          'normal_cf' :=
+          gsub('.{2}_.{4}_.{1,2}_CF\\d{5}_.{8}_vs_.{4}_.{1,2}_(\\d{2}).*', 
+                               '\\1', vcf_fn)]
+wes_table <- vcf_table
 
 # vcf_table[, 'cf' := gsub('.{2}_.{4}_.{1,2}_(CF\\d{5})_.*(CF\\d{5}).*', 
 #                          '\\1-\\2', fn)]
@@ -207,23 +102,41 @@ vcf_table[, 'tumor_cf' := gsub('.{2}_.{4}_.{1,2}_(CF\\d{5})_.*',
 # vcf_table[, 'normal_cf' := gsub('(.*)-(.*)', '\\2', cf)]
 # vcf_table[, cf := NULL]
 
-contra_fns <- list.files(file.path(forge_mirror, 'contra', 'CNATable'), 
-                   pattern = '.txt$') 
-contra_fns <- data.table(contra_fn = contra_fns)
-contra_fns[, 'tumor_cf' := gsub('.{4}_.{1,2}_(CF\\d{5})_.*', 
-                                '\\1', contra_fn)]
-wes_table <- merge(contra_fns, vcf_table, all = T)
-rm(vcf_table)
-rm(contra_fns)
+if (F) {
+  contra_fns <- list.files(file.path(forge_mirror, 'contra', 'CNATable'),
+                           pattern = '.txt$') 
+  contra_fns <- data.table(contra_fn = contra_fns)
+  contra_fns[, 'tumor_cf' := gsub('.{4}_.{1,2}_(CF\\d{5})_.*', 
+                                  '\\1', contra_fn)]
+  wes_table <- controlled_merge(contra_fns, vcf_table, by_cols = 'tumor_cf')
+  rm(vcf_table)
+  rm(contra_fns)
+}
 
 sequenza_fns <- list.files(file.path(forge_mirror, 'sequenza_plots', 'seqres'), 
                            pattern = 'segments.txt$') 
 sequenza_fns <- data.table(sequenza_fn = sequenza_fns)
 sequenza_fns[, 'tumor_cf' := gsub('.{1,2}_(CF\\d{5})_.*', '\\1', sequenza_fn)]
 sequenza_fns[, sequenza_fn := file.path(forge_mirror, 'sequenza_plots', 'seqres', sequenza_fn)]
-wes_table <- controlled_merge(wes_table, sequenza_fns, dup_priority = 'b')
+wes_table %<>% controlled_merge(sequenza_fns, dup_priority = 'a')
 rm(sequenza_fns)
 
+vcfs <- list.files(file.path(forge_mirror, 'haplotypecaller-q100'), 
+                   pattern = 'q100.vcf$') 
+vcf_table <- data.table(germline_vcf = vcfs)
+vcf_table[, 'normal_cf' := gsub('.{2}_.{4}_.{1,2}_(CF\\d{5})_.*', 
+                               '\\1', germline_vcf)]
+vcf_table[grepl('\\.vcf$', normal_cf), 
+          normal_cf := gsub('.{2}_.{4}_.{1,2}_(\\d{2})_.*', '\\1', 
+                             germline_vcf)]
+wes_table %<>% controlled_merge(vcf_table, by_cols = 'normal_cf', 
+                                dup_priority = 'a')
+rm(vcfs)
+rm(vcf_table)
+maartenutils::write_tsv(wes_table, 
+                        file.path(p_root, 'ext', 'dnaseq_cf_numbers.tsv'))
+
+# vcf_table[!grepl('.vcf', normal_cf)]
 
 read_cibersort <- function(fn = file.path('data-raw', 'CIBERSORT.Output_Job2.csv')) {
   cibersort <- fread(fn) %>% normalize_colnames()
@@ -238,7 +151,7 @@ read_cibersort <- function(fn = file.path('data-raw', 'CIBERSORT.Output_Job2.csv
     controlled_merge(cibersort, 
                      rna_sample_annotation[, .(patient, arm, clinical_response)],
                      by_cols = 'patient')
-  # cibersort[, timepoint := factor(timepoint, levels = timepoints)]
+  cibersort[, timepoint := factor(timepoint, levels = timepoints)]
   cibersort[, timepoint := droplevels(timepoint)]
   cibersort[, cf_number := NULL]
   # cibersort[is.na(clinical_response), clinical_response := 'NA']
