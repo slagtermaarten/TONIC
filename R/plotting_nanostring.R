@@ -213,6 +213,8 @@ prep_geneset_parallel_coords <- function(gene_set = 'apm',
   ## Only compute medians for factor combinations with sufficient patients
   by_vars <- setdiff(c('timepoint', colour_var, facet_var),
                      c('clinical_response', 'response'))
+  by_vars <- c('timepoint', colour_var, facet_var)
+             
   # danaher_scores.m[, table(variable)]
   allowed <- danaher_scores.m[!is.na(value) & variable == gene_set] %>%
     { .[, .('N' = uniqueN(patient)), by = by_vars] } %>%
@@ -225,7 +227,7 @@ prep_geneset_parallel_coords <- function(gene_set = 'apm',
   # danaher_scores.m[allowed][!is.na(value)][variable == gene_set][arm == 'Cisplatin']
   sum_dat <- sum_dat[variable == gene_set] %>%
     { .[, .('value' = median(value, na.rm = T), 'patient' = 'median'),
-        by = c('timepoint', facet_var)] }
+        by = by_vars] }
 
   if (!is.null(colour_var) && colour_var %in% colnames(sum_dat)) {
     sum_dat <- sum_dat[!is.na(get(colour_var))]
@@ -244,6 +246,7 @@ plot_parallel_coords <- function(p_dat,
                                  timepoint_v = 'timepoint',
                                  man_colors = tonic_color_palettes[[colour_var]],
                                  swarm_width = .2,
+                                 sum_colors = T,
                                  unswarm_zero = F,
                                  overlay_boxplot = F,
                                  point_alpha = .7,
@@ -310,27 +313,44 @@ plot_parallel_coords <- function(p_dat,
   }
 
   if (!is.null(sum_dat)) {
-    sum_dat[, 'x_coord' := as.integer(get(timepoint_v)),
-            by = c(timepoint_v, facet_var)]
-    if (colour_var %nin% colnames(sum_dat)) {
-      sum_dat[, (colour_var) := NA]
-    }
-    p <- p + geom_point(aes_string(group = facet_var), shape = 21,
-                        size = 3, alpha = median_line_alpha, colour = 'black',
-                        fill = 'black',
-                        data = sum_dat, size = 2)
-    p <- p + geom_line(aes_string(group = facet_var), shape = 21,
-                        size = 2, alpha = median_line_alpha,
-                        lineend = 'round', colour = 'black',
-                        data = sum_dat, size = 2)
+    if (sum_colors == F) {
+      sum_dat[, 'x_coord' := as.integer(get(timepoint_v)),
+              by = c(timepoint_v, facet_var)]
+      if (colour_var %nin% colnames(sum_dat)) {
+        sum_dat[, (colour_var) := NA]
+      }
 
+      p <- p + geom_point(aes_string(group = facet_var), shape = 21,
+                          size = 3, alpha = median_line_alpha, colour = 'black',
+                          fill = 'black',
+                          data = sum_dat, size = 2)
+      p <- p + geom_line(aes_string(group = facet_var), shape = 21,
+                          size = 2, alpha = median_line_alpha,
+                          lineend = 'round', colour = 'black',
+                          data = sum_dat, size = 2)
+    } else {
+      sum_dat[, 'x_coord' := as.integer(get(timepoint_v)),
+              by = c(timepoint_v, colour_var, facet_var)]
+      if (colour_var %nin% colnames(sum_dat)) {
+        sum_dat[, (colour_var) := NA]
+      }
+
+      p <- p + geom_point(aes_string(group = facet_var), shape = 21,
+                          size = 3, alpha = median_line_alpha, 
+                          data = sum_dat, size = 2)
+      p <- p + geom_line(aes_string(group = facet_var), shape = 21,
+                          size = 2, alpha = median_line_alpha,
+                          lineend = 'round',
+                          data = sum_dat, size = 2)
+    }
   }
 
   if (!is.null(colour_var)) {
-    p <- p + aes_string(fill = colour_var, colour = colour_var)
+    p <- p + aes_string(fill = colour_var)
     p <- p + scale_fill_manual(name = var_to_label(colour_var),
-                               values = man_colors) +
-             scale_colour_manual(name = var_to_label(colour_var),
+                               values = man_colors)
+    p <- p + aes_string(colour = colour_var)
+    p <- p + scale_colour_manual(name = var_to_label(colour_var),
                                  values = man_colors)
   }
 
@@ -403,17 +423,20 @@ plot_parallel_coords_single_gene <- function(gene = 'CD274',
 
 
 plot_p_values_induction <- function(m, size_var = '1/p_val',
+                                    single_arms_only = T,
                                     tp1 = timepoints[1],
                                     tp2 = timeoints[3]) {
+  logfc_range <- m[, max(abs(range(logFC)))] %>% { . * c(-1, 1) }
+  if (single_arms_only) m <- m[arm != 'All arms']
   p <- ggplot(m, aes_string(x = 'arm', y = 'gene_set', fill = 'logFC',
-                     size = size_var)) +
-    geom_raster() +
+                            size = size_var)) +
+    geom_tile(size = 0) +
     geom_point() +
     rotate_x_labels(rotate_labels = 90) +
     scale_fill_gradient2(name = 'Log2 FC',
                          low = scales::muted('blue'),
                          high = scales::muted('red'),
-                         # limits = c(0, 1),
+                         limits = logfc_range,
                          na.value = 'white') +
     scale_size_continuous(name = 'Unadjusted p-value',
                           range = c(0.1, 2),
@@ -422,7 +445,7 @@ plot_p_values_induction <- function(m, size_var = '1/p_val',
                           # limits = c(1e-5, fdr_thresh),
                           # labels = function(x) x) +
                           labels = function(x) round(1/x, 3)) +
-    scale_y_discrete(name = '', expand = c(0, 0)) +
+    scale_y_discrete(name = '', expand = c(0, 0), labels = tonic_cap) +
     scale_x_discrete(name = '', expand = c(0, 0)) +
     ggtitle(m[1, sprintf('%s vs. %s', tp1, tp2)]) +
     theme(legend.position = 'right', legend.direction = 'vertical') +

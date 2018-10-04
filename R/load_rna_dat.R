@@ -26,11 +26,36 @@ rna_sample_annotation <-
   rna_sample_annotation[naturalsort::naturalorder(patient)]
 rna_sample_annotation[, cf_number := tolower(cf_number)]
 patient_labels[, baseline_biopsy_site]
-rna_sample_annotation <- controlled_merge(rna_sample_annotation,
-      unique(patient_labels[timepoint == 'Baseline',
-             .(patient, arm, clinical_response, response,
-               baseline_biopsy_site)]),
-      by = 'patient')
+rna_sample_annotation %<>% controlled_merge(
+                unique(patient_labels[timepoint == 'Baseline',
+                       .(patient, arm, clinical_response, response,
+                         baseline_biopsy_site)]),
+                by_cols = 'patient')
+
+## Some manual adjustments
+rna_sample_annotation[patient == 'Pat_2' & timepoint == 'Baseline',
+                      tissue_biopsy_site := 'Muscle']
+rna_sample_annotation[patient == 'Pat_2' & timepoint == 'Post-induction',
+                      tissue_biopsy_site := 'Lymphnode']
+rna_sample_annotation[patient == 'Pat_58' & timepoint == 'Baseline',
+                      tissue_biopsy_site := 'Mamma']
+rna_sample_annotation[patient == 'Pat_58' & timepoint == 'Post-induction',
+                      tissue_biopsy_site := 'Lymphnode']
+rna_sample_annotation[patient == 'Pat_64' & timepoint == 'Lymphnode',
+                      tissue_biopsy_site := 'Lymphnode']
+subtype_predictions <- readRDS('rds/subtype_predictions.rds')
+rna_sample_annotation %<>% 
+  controlled_merge(data.table('cf_number' = names(subtype_predictions$subtype),
+                              'pam50_subtype' = subtype_predictions$subtype,
+                              'pam50_confidence' =
+                                apply(subtype_predictions$subtype.proba, 1,
+                                      max)),
+                   by = 'cf_number')
+
+## Merge some more variables from patient_labels
+rna_sample_annotation %<>% 
+  controlled_merge(patient_labels[, .(patient, timepoint, adaptive_t_cells)],
+                   by = c('patient', 'timepoint'))
 
 if (local_run) {
   fastqc_res <- parse_fastqc(fastq_dir = file.path(p_root,
@@ -66,10 +91,16 @@ if (local_run) {
 
   rna_sample_annotation <-
     controlled_merge(rna_sample_annotation, gcf_rna_stats, by = 'cf_number')
+  rm(gcf_rna_stats)
 
   rna_sample_annotation <-
     controlled_merge(rna_sample_annotation,
                      readRDS(file.path('rds', 'fastq_files.rds')))
+
+  grep('>', colnames(rna_sample_annotation), value = T) %>%
+    setnames(rna_sample_annotation, ., gsub('>_', '', .))
+  rna_sample_annotation$percentage_tests <-
+    factor(rna_sample_annotation$percentage_tests)
 }
 
 
@@ -159,36 +190,64 @@ if (T) {
     column_to_rownames('hugo_symbol') %>%
     normalize_colnames
 
-
-  rna_read_counts_salmon <- fread(file.path(p_root, 'salmon_rna',
-                                  'salmon_count_mat.tsv')) %>%
-    normalize_colnames
-
-
-  # colSums(rna_read_counts_salmon)
-  rownames(rna_read_counts_salmon) <- rna_read_counts_salmon$hugo_symbol
-  rna_read_counts_salmon$hugo_symbol <- NULL
-
-
-  dge <- DGEList(counts = rna_read_counts_salmon)
-  dge <- calcNormFactors(dge, method = 'TMM')
-  nF = dge$samples[,'lib.size'] * dge$samples[,'norm.factors']
-  rna_read_counts_salmon_tmm = sweep(dge$counts,2,nF,'/') %>% as.data.table
-  rownames(rna_read_counts_salmon_tmm) <- rownames(rna_read_counts_salmon)
-  rm(dge)
-
-  # tpms_salmon_rn <-
-  #   renormalize_tpms(dtf = tpms_salmon, search_term = 'ribosomal|mitochondrial')
-
-  # debugonce(renormalize_tpms)
   tpms_salmon_rn <-
     renormalize_tpms(dtf = tpms_salmon, search_term = 'protein_coding',
                      search_var = 'gene_biotype', invert = T)
+  # tpms_salmon_rn <-
+  #   renormalize_tpms(dtf = tpms_salmon, search_term = 'ribosomal|mitochondrial')
 
   tpms_salmon_rn_qn <- quantile_normalisation(tpms_salmon_rn)
 
-  # rownames(tpms_salmon)
-  # rna_sample_annotation[, .(cf_number, prot_cod, 100 / prot_cod)]
+  TMM_readcounts <- function(fn = file.path(p_root, 'salmon_rna', 
+                                            'salmon_count_mat.tsv'),
+                             exclude_samples = c(),
+                             gene_id = 'hugo_symbol') {
+    dtf_p <- fread(fn) %>% normalize_colnames
+    row.names <- dtf_p[[gene_id]]
+    dtf_p <- dtf_p[, .SD, .SDcols = setdiff(colnames(dtf_p), 
+                                            c(gene_id, exclude_samples))]
+    rownames(dtf_p) <- row.names
+    dge <- DGEList(counts = dtf_p)
+    dge <- calcNormFactors(dge, method = 'TMM')
+    nF <- dge$samples[,'lib.size'] * dge$samples[,'norm.factors']
+    dtf_f <- sweep(dge$counts,2,nF,'/') %>% 
+      as.matrix %>% 
+      set_rownames(row.names) %>%
+      { . * 1e6 } %>%
+      { .[!eps(apply(., 1, sum), 0), ] } %>%
+      { .[!eps(apply(., 1, var), 0), ] } %>%
+      { .[apply(., 1, function(x) !any(is.na(x))), ] } 
+
+    row.names <- rownames(dtf_f)
+    dtf_f %<>% as.data.table(keep.rownames = F)
+    rownames(dtf_f) <- row.names
+    return(dtf_f)
+  }
+
+  if (F) {
+    ec_samples <- c('cf11590', 'cf14228')
+    rna_sample_annotation[cf_number %in% ec_samples]
+    #    patient timepoint cf_number  t_number          arm clinical_response
+    # 1:  pat_28  Baseline   cf11590 T16-07812 Radiotherapy                NR
+    # 2:  pat_45  Baseline   cf14228 T16-10800    Cisplatin                NR
+    read_counts_Lehmann <-
+      TMM_readcounts(file.path(p_root, 'salmon_rna', 'salmon_count_mat.tsv'),
+                     gene_id = 'hugo_symbol', 
+                     exclude_samples = ec_samples)
+    write.csv(read_counts_Lehmann,
+              file = file.path(p_root, 'ext', 'TMM_RNA_expression.csv'), 
+              quote = F)
+  }
+
+  rna_read_counts_salmon_tmm_M <-
+    TMM_readcounts(file.path(p_root, 'salmon_rna', 'salmon_count_mat.tsv'),
+                   gene_id = 'hugo_symbol')
+
+  rna_read_counts_salmon_tmm_M_ensg <-
+    TMM_readcounts(file.path(p_root, 'salmon_rna', 
+                             'salmon_count_mat_gene_id.tsv'),
+                   gene_id = 'gene_id')
+
 
   ## Due to unequal distribution, check evenness of distributions
   evenness_vals <- apply(tpms_salmon, 2, compute_evenness)
@@ -206,10 +265,10 @@ if (T) {
     evenness_vals[rna_sample_annotation$cf_number]
   rm(evenness_vals)
 
-  evenness_vals <- apply(rna_read_counts_salmon_tmm, 2, compute_evenness)
-  rna_sample_annotation$evenness_tmm <-
-    evenness_vals[rna_sample_annotation$cf_number]
-  rm(evenness_vals)
+  # evenness_vals <- apply(rna_read_counts_salmon_tmm, 2, compute_evenness)
+  # rna_sample_annotation$evenness_tmm <-
+  #   evenness_vals[rna_sample_annotation$cf_number]
+  # rm(evenness_vals)
 }
 
 if (T) {
@@ -303,3 +362,5 @@ if (F) {
 # rna_FC <- rna_read_counts[, .('FC' = compute_FC(.SD)),
 #                    by = c('patient', 'external_gene_id')]
 }
+
+source('R/GSEA_plotting.R')

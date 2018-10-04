@@ -11,6 +11,7 @@ knitr::opts_chunk$set(message = FALSE, cache = F, cache.lazy = F,
 knitr::opts_knit$set(progress = TRUE, verbose = TRUE)
 ```
 
+
 ```{r, warning=FALSE, echo=FALSE, include=F}
 source('R/init.R')
 source('R/load_rna_dat.R')
@@ -18,42 +19,6 @@ source('R/ML_RNASeq.R')
 ```
 
 # Check quality of data
-
-## PCA approach
-
-```{r, warning=FALSE, echo=FALSE}
-# rownames(rna_read_counts_salmon)
-# dimnames(rna_read_counts_salmon)[[1]] <- rownames(rna_read_counts_salmon)
-run_pca <- function(dtf = rna_read_counts_salmon) {
-  t_dtf <- as.matrix(dtf) %>% t 
-  colnames(t_dtf) <- rownames(dtf)
-  t_dtf <- t_dtf %>%  { .[, !eps(apply(., 2, var), 0, 1e-1)] }
-  # dimnames(t_rna_read_counts_salmon)
-  pca <- prcomp(t_dtf, center = T, scale = T)
-  return(pca)
-}
-pca <- run_pca(dtf = tpms_salmon)
-plot(pca, type = "l")
-```
-
-```{r, warning=FALSE, echo=FALSE}
-library(ggbiplot)
-
-g <- ggbiplot(pca, obs.scale = 1, var.scale = 1, 
-              # groups = rna_sample_annotation[match(rownames(t_rna_read_counts_salmon), cf_number), timepoint], 
-              groups =
-                rna_sample_annotation[match(rownames(t_rna_read_counts_salmon),
-                                            cf_number), arm], 
-              # groups =
-              #   rna_sample_annotation[match(rownames(t_rna_read_counts_salmon),
-              #                               cf_number), response], 
-              var.axes = F, 
-              arrow = F,
-              ellipse = F, circle = F)
-# g <- g + scale_color_discrete(name = '')
-# g <- g + theme(legend.direction = 'horizontal', legend.position = 'top')
-print(g)
-```
 
 ## Other approaches
 
@@ -73,6 +38,7 @@ glmnet_class_test_rnaseq(tp = 'Post-induction', type = 'genes')
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
+source('R/ML_RNASeq.R')
 layout(matrix(1:2, ncol = 2, nrow = 1, byrow = T))
 r_b <- glmnet_class_test_rnaseq(tp = 'Baseline', type = 'genes', alphas = 1)
 r_pi <- glmnet_class_test_rnaseq(tp = 'Post-induction', type = 'genes', alphas = 1)
@@ -80,11 +46,11 @@ r_pi <- glmnet_class_test_rnaseq(tp = 'Post-induction', type = 'genes', alphas =
 
 ```{r, warning=FALSE, echo=FALSE}
 plot(r_b$glmnet.fit)
-r_b %>% 
+r_b %>%
   { coef(.$glmnet.fit, .$lambda.min) } %>%
   { setNames(.[which(. != 0)], rownames(.)[which(. != 0)]) }
 
-r_pi %>% 
+r_pi %>%
   { coef(.$glmnet.fit, .$lambda.min) } %>%
   { setNames(.[which(. != 0)], rownames(.)[which(. != 0)]) } %>%
   { .[order(abs(.))] }
@@ -94,14 +60,39 @@ r_pi %>%
 
 ```{r, warning=FALSE, echo=FALSE}
 source('R/ML_RNASeq.R')
-t_dat <- prepare_ml_dat_rnaseq(tp = 'Post-induction', type = 'genes')
+t_dat <- prepare_ml_dat_rnaseq(tp = 'Post-induction', type = 'genes',
+                               # exp_mat = rna_read_counts_salmon_tmm)
+                               exp_mat = tpms_salmon)
+s2n_scores <- as.matrix(t_dat$t_dat) %>%
+  # { apply(., 2, function(x) ggsea::ggsea_s2n(x, as.matrix(t_dat$responses))) }
+  { apply(., 2, function(x) ggsea::ggsea_s2n(as.matrix(x), as.matrix(t_dat$responses))) }
+  # { apply(., 2, function(x) mean(x)) }
+  # { apply(., 2, function(x) str(x)) }
+s2n_scores %>% { .[abs(.) >= 1] }
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
 ctrl <- trainControl(method = 'repeatedcv',   # 10fold cross validation
                      repeats = 1,				      # do 5 repititions of cv
                      # Use AUC to pick the best model
-                     summaryFunction = twoClassSummary,	
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE)
+
+str(t_dat$t_dat)
+svm.tune <- train(x = t_dat$t_dat,
+                  y = t_dat$responses,
+                  method = 'gaussprPoly',
+                  tuneLength = 9,					        # 9 values of the cost function
+                  # preProc = c('center','scale'),  # Center and scale data
+                  metric = 'ROC',
+                  trControl = ctrl)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+ctrl <- trainControl(method = 'repeatedcv',   # 10fold cross validation
+                     repeats = 1,				      # do 5 repititions of cv
+                     # Use AUC to pick the best model
+                     summaryFunction = twoClassSummary,
                      classProbs = TRUE)
 
 svm.tune <- train(x = t_dat$t_dat,
@@ -198,7 +189,7 @@ rf_default <- caret::train(x = as.data.frame(select(x_dat, -response_bin)),
   method = "rf",
   tuneGrid = expand.grid(.mtry=ceiling(sqrt(ncol(x_dat - 1)))),
   trControl = trainControl(method="repeatedcv",
-  number=nrow(x_dat),
+  number = nrow(x_dat),
   savePredictions = T,
   repeats=10))
 ```
@@ -219,3 +210,337 @@ plot.roc(rf_default$pred$obs[selectedIndices],
          rf_default$pred$M)
 
 ```
+
+# Information content in gene set scores
+
+Collinearity much less of a problem here
+
+```{r, warning=FALSE, echo=FALSE}
+sr(geneset_scores_tmm <- gen_gene_set_score_matrix(sum_func = median,
+                           exp_mat = rna_read_counts_salmon_tmm,
+                           sets = filter_gmt('h.all', 'HALLMARK'),
+                           log_transform = 'log2'))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+cf_numbers <- rna_sample_annotation[timepoint == 'Post-induction', cf_number]
+
+gs_mat <- dcast(geneset_scores_tmm[cf_number %in% cf_numbers],
+      formula = patient ~ gene_set,
+      value.var = 'value')
+row_names <- rna_sample_annotation[match(cf_numbers, cf_number), patient]
+row_names <- gs_mat[, patient]
+rownames(gs_mat) <- row_names
+gs_mat[, patient := NULL]
+gs_mat[, cf_number := NULL]
+gs_mat <- as.matrix(gs_mat)
+rownames(gs_mat) <- row_names
+
+resp_vec <- patient_labels[match(rownames(gs_mat), patient), clinical_response]
+missing_idx <- which(is.na(resp_vec))
+resp_vec <- factor(resp_vec[-missing_idx], levels = c('R', 'NR'))
+gs_mat <- gs_mat[-missing_idx, ]
+cf_numbers <- cf_numbers[-missing_idx]
+```
+
+```{r, warning=FALSE, echo=FALSE}
+## Raw expression mat
+re_mat <- t(rna_read_counts_salmon_tmm_M)
+re_mat <- re_mat[match(rownames(re_mat), cf_numbers), ]
+re_mat <- re_mat[!is.na(rownames(re_mat)), ]
+colnames(re_mat) <- rownames(rna_read_counts_salmon_tmm_M)
+rownames(re_mat) <- rna_sample_annotation[match(rownames(re_mat), cf_number), patient]
+```
+
+```{r, warning=FALSE, echo=FALSE}
+library(XML)
+doc.html = htmlTreeParse('https://rdrr.io/cran/caret/man/models.html',
+                         useInternal = TRUE)
+doc.value <- xpathApply(doc.html, '//h2|//p', xmlValue)
+doc.html.value <- xpathApply(doc.html, '//h2|//p')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+train_caret <- function(weight_responders = 4,
+                        train_methods = c('AdaBag', 'elm', 'naive_bayes'),
+                        exp_mat = gs_mat) {
+  ctrl <- trainControl(method = 'repeatedcv',   # 10fold cross validation
+                       repeats = 10,				      # do 5 repititions of cv
+                       # Use AUC to pick the best model
+                       summaryFunction = twoClassSummary,
+                       classProbs = TRUE)
+  res <- lapply(train_methods, function(l_method) {
+    message(l_method)
+    # rownames(re_mat)
+    # colnames(re_mat)
+    model.tune <- train(x = exp_mat,
+                        y = resp_vec,
+                        weights = (weight_responders - 1) *
+                          as.numeric(resp_vec == 'R') + 1,
+                        method = l_method,    # Radial kernel
+                        tuneLength = 9,				# 9 values of the cost function
+                        preProc = c(),
+                        metric = 'ROC',
+                        trControl = ctrl)
+    return(model.tune)
+  })
+  return(reds)
+}
+models <- train_caret(exp_mat = gs_mat)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+res <- caret::confusionMatrix(svm.tune, mode = 'prec_recall')
+```
+
+# Dimension reduction
+
+## NMF decomposition of expression matrix
+
+```{r, warning=FALSE, echo=FALSE}
+# source('~/antigenic_space/bin/install_packages.R')
+devtools::load_all('~/libs/GSEAgenesets')
+# pacman::p_load('fastICA')
+setwd('~/Projects/TONIC')
+source('R/init.R')
+source('R/load_rna_dat.R')
+source('R/rna.R')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+pacman::p_load(NMF)
+sr(aout <- nmf(rna_read_counts_salmon_tmm_M_ensg, 40))
+w <- aout@fit@W
+h <- aout@fit@H
+approxa <- w %*% h
+## Element-wise comparison
+approx_quality <- 
+  { (approxa - rna_read_counts_salmon_tmm_M_ensg) /
+  rna_read_counts_salmon_tmm_M_ensg } %>% 
+  as.matrix
+approx_quality %<>% { which(!eps(rna_read_counts_salmon_tmm_M_ensg, 0)) }
+ind <- which(eps(rna_read_counts_salmon_tmm_M_ensg, 0), arr.ind = T)
+approx_quality[ind[1, 1], ind[1, 2]]
+approx_quality[ind] <- NA
+rownames(approx_quality) <- rownames(rna_read_counts_salmon_tmm_M_ensg)
+gene_qual <- apply(approx_quality, 1, 
+      function(x) quantile(x, probs = c(.1, .5, .9), na.rm = T))
+sample_qual <- apply(approx_quality, 2, 
+      function(x) quantile(x, probs = c(.1, .5, .9), na.rm = T))
+inspect_mat(gene_qual)
+inspect_mat(sample_qual)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+rownames(w) <- rownames(rna_read_counts_salmon_tmm_M_ensg)
+w[1, ]
+hist(log10(w[, 6] + 1), breaks = 200)
+hist(apply(w, 2, sum), breaks = 20)
+w[, 1] %>% { .[order(-.)] }
+# index <- which(!eps(rna_read_counts_salmon_tmm_M_ensg, 0), arr.ind = T)
+# approx_quality[]
+```
+
+## PCA
+
+```{r, warning=FALSE, echo=FALSE}
+# rownames(rna_read_counts_salmon)
+# dimnames(rna_read_counts_salmon)[[1]] <- rownames(rna_read_counts_salmon)
+source('R/rna.R')
+pca <- run_pca(dtf = rna_read_counts_salmon_tmm_M_ensg)
+pca <- run_pca(dtf = rna_read_counts_salmon_tmm_M_ensg, 
+               filter_covariates = F)
+
+hist(log10(pca$scale), breaks = 400)
+apply(pca$x, 2, squared_sum) %>% { ./sum(.) } %>%
+  named_vec_to_dt(name = 'PC', value = 'exp_var_prop') %>%
+  # dplyr::mutate(PC = factor(PC, levels = unique(PC))) %>%
+  dplyr::mutate(PC = as.numeric(gsub('PC', '', PC))) %>%
+  dplyr::mutate(cum_var = cumsum(exp_var_prop)) %>%
+  { qplot(x = PC, y = cum_var, data = .) } +
+  theme(panel.grid.major = element_line(size = .5, color = 'grey90'))
+hist(pca$rotation, breaks = 300)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+pca$rotation[, 2] %>%
+  { .[order(abs(.), decreasing = T)] } %>%
+  { .[abs(.) >= .02] }
+```
+
+```{r, warning=FALSE, echo=FALSE}
+library(ggbiplot)
+
+setkey(patient_labels, patient, timepoint)
+
+color_var <-
+patient_labels[rna_sample_annotation[match(rownames(pca$x), cf_number),
+                                     .(patient, timepoint)], adaptive_t_cells]
+
+g <- ggbiplot(pca, choices = 1:2, obs.scale = 1, var.scale = 1,
+              groups = color_var,
+              var.axes = F,
+              arrow = F,
+              ellipse = F, circle = F)
+g <- g + scale_color_continuous(name = 'Adaptive T-cells')
+g <- g + theme(legend.direction = 'horizontal',
+               legend.key.size = unit(5, 'mm'),
+               legend.text = element_text(size = 6),
+               legend.position = 'top')
+print(g)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+devtools::load_all(file.path('~/libs', 'maartenutils'))
+source('R/GSEA_plotting.R')
+
+for (idx in 1:10) {
+  rna_sample_annotation %<>%
+    controlled_merge(named_vec_to_dt(pca$x[, idx],
+                                     name_var = 'cf_number',
+                                     value_var = sprintf('PC%d_loading', idx)),
+                     by_cols = 'cf_number',
+                     dup_priority = 'a')
+
+  if (F) {
+    plot_pairwise_relationships(
+      y_var = sprintf('PC%d_loading', idx),
+      # y_var_trans = function(x) { log10(x + 1),
+      dtf = rna_sample_annotation,
+      var_labeller = tonic_cap,
+      blacklist_vars = c('cf_number', 't_number', 'one_of_best_samples', 'fn',
+                         grep('PC\\d+_loading', colnames(rna_sample_annotation),
+                              value = T)),
+      filename = file.path(img_dir, sprintf('PC%d_correlates.pdf', idx)))
+  }
+}
+# hist(rna_sample_annotation$PC1_loading, breaks = 200)
+```
+
+Liver samples seem enriched in PC1
+
+```{r, warning=FALSE, echo=FALSE}
+rna_sample_annotation[, .(PC1_loading, cf_number,
+                          baseline_biopsy_site), by = patient] %>%
+  arrange(-PC1_loading)
+```
+
+PAM50 and PC2 seem correlated as well
+
+```{r, warning=FALSE, echo=FALSE}
+summary(pca)
+rna_sample_annotation[, .(PC1_loading, cf_number,
+                          pam50_subtype), by = patient] %>%
+  arrange(-PC1_loading)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+qplot(data = rna_sample_annotation, x = pam50_subtype, y = adaptive_t_cells,
+      geom = 'boxplot') + 
+  ggpubr::stat_compare_means()
+```
+
+### PCs associated with PC2 loadings
+
+Seemed like an interesting way to detect T cell exclusion mechanisms.
+Unfortunately no PC loadings are strongly associated with PC2.
+
+```{r, warning=FALSE, echo=FALSE}
+library(corrplot)
+rot_mat <- pca$rotation
+rownames(rot_mat) <- gsub('\\.\\d+$', '', rownames(rot_mat))
+
+sr(GO_terms_db)
+GO_terms_db <- GO_terms_db[evidence != 'IEA']
+setkey(GO_terms_db, ensembl_gene_id)
+
+## PC2 is negatively associated with T cell levels
+## Any factor positively associated with it will indirectly decrease T cell
+## levels
+cor(rot_mat, use = 'everything', method = 'pearson')[, 2]
+cor(rot_mat, use = 'everything', method = 'spearman')[, 2]
+plot_scatter_cor('PC1', 'PC2', dtf = as.data.frame(rot_mat)) + geom_smooth()
+hist(rot_mat[, 1], breaks = 200)
+goi <- sort(rot_mat[, 1], decreasing = T) %>% { .[. >= 0.04] }
+goi <- sort(rot_mat[, 2], decreasing = T) %>% { .[. >= 0.02] }
+goi <- sort(rot_mat[, 5], decreasing = T) %>%
+goi <- rot_mat[, 5] %>% 
+  { .[squared_sum_norm(.) > quantile(squared_sum_norm(.), probs = .995)] }
+
+mean(names(goi) %in% GO_terms_db[, ensembl_gene_id])
+explore_in_browser(GO_terms_db[names(goi)])
+explore_in_browser(GO_terms_db[names(goi)][, .N, by = term][order(-N)])
+```
+
+```{r, warning=FALSE, echo=FALSE}
+## Show variation on variable scores on PCs
+goi <- c('WNT7A', 'SERPINB9')
+GO_terms_db[gene_symbol %in% goi] %>% 
+  unique(by = 'gene_symbol') %$% 
+  { set_rownames(rot_mat[rownames(rot_mat) %in% ensembl_gene_id, ], 
+                 gene_symbol) } %>% 
+  { apply(., 1, squared_sum_norm) } %>%
+  { pheatmap(., cluster_rows = F, cluster_cols = F, fontsize_row = 6) }
+```
+
+What other variables are big on PC7?
+
+```{r, warning=FALSE, echo=FALSE}
+rot_mat[, 7] %>% 
+  { .[squared_sum_norm(.) > quantile(squared_sum_norm(.), probs = .99)] } %>%
+  named_vec_to_dt %>%
+  set_colnames(c('ensembl_gene_id', 'PC7_loading')) %>%
+  controlled_merge(GO_terms_db[, .(ensembl_gene_id, gene_symbol)]) %>%
+  arrange(PC7_loading)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+recon <- pca$rotation %*% pca$x
+summary(pca)
+str(pca$rotation) 
+hist(pca$rotation, breaks = 200) 
+hist(pca$x, breaks = 200) 
+str(pca$x)
+squared_sum <- function(vec) sum(vec^2)
+squared_sum_norm <- function(vec) vec^2 / squared_sum(vec)
+apply(pca$x, 2, squared_sum) %>% { 100 * ./sum(.) }
+hist(pca$x[, 2]^2 / sum(pca$x[, 2]^2), breaks = 40)
+
+## Only plot samples most heavily scored on any given PC
+pca$x[, 2] %>% { .[which(squared_sum_norm(.) > .02)] } %>%
+  named_vec_to_dt(name = 'cf_number', value = 'PC2_score') %>%
+  controlled_merge(rna_sample_annotation[, .(cf_number, adaptive_t_cells)]) %>%
+  { plot_scatter_cor(x_var = 'PC2_score', y_var = 'adaptive_t_cells', 
+                     dtf = .) }
+
+  # { qplot(x = 'PC2_score', y = 'adaptive_t_cells', data = .) }
+lookup_cf <- function(cf_numbers) {
+  tolower(rna_sample_annotation$cf_number) %in% tolower(cf_numbers)
+  tolower(patient_labels$cf_number) %in% tolower(cf_numbers)
+}
+cf_numbers <- pca$x[, 2][c(which.min(pca$x[, 2]), which.max(pca$x[, 2]))]
+```
+
+```{r, warning=FALSE, echo=FALSE}
+library(pheatmap)
+graphics.off()
+# dev.off()
+loadings_mat <- pca$x[, 2:20]
+setkey(rna_sample_annotation, cf_number)
+ann_dat <- rna_sample_annotation[rownames(loadings_mat), 
+                                 .(cf_number, 
+                                   clinical_response, 
+                                   # timepoint,
+                                   baseline_biopsy_site)] %>% as.data.frame
+stopifnot(all(rownames(loadings_mat) == ann_dat$cf_number))
+colnames(ann_dat) %<>% 
+  mapvalues('baseline_biopsy_site', 'tissue') %>%
+  mapvalues('response', 'clinical_response')
+ann_dat$cf_number <- NULL
+
+aheatmap(loadings_mat, annRow = ann_dat, 
+         breaks = 0,
+         annColors = tonic_color_palettes[setdiff(colnames(ann_dat), 'cf_number')])
+         # color = gen_color_vector('Spectral', 5))
+```
+

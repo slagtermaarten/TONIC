@@ -5,13 +5,18 @@ sr(seq_stat_overview <-
 
 rank_percentile <- function(dtf, rank_var, continuous = F) {
   ranked_var <- sprintf('%s_ranked', rank_var)
+  setDT(dtf)
   if (continuous) {
     dtf[order(get(var)), (ranked_var) := (seq(1, .N) - 1) / (.N - 1)]
   } else {
-    dtf[, (ranked_var) := (frank(get(rank_var), 
-                                 ties.method = 'max') - 1) / (.N - 1)]
+    dtf[, (ranked_var) := frank(get(rank_var), ties.method = 'max')]
+    dtf[, (ranked_var) := (get(ranked_var) - 1) / (.N - 1)]
   }
   return(dtf)
+}
+
+rank_percentile_vec <- function(vec) {
+  frank(vec, ties.method = 'max') %>% { (. - 1) / (max(.) - 1) }
 }
 
 for (vn in grep('ranked', setdiff(colnames(seq_stat_overview), 'patient'),

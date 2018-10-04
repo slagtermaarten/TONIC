@@ -29,9 +29,9 @@ cpms <- limma::voom(cpms)
 FCs <- rbindlist(lapply(unique(rna_sample_annotation$patient), function(patient) {
   l_patient <- patient
   cf_bl <- rna_sample_annotation[patient == l_patient &
-                        timepoint == 'Baseline', cf_number]
+                                 timepoint == 'Baseline', cf_number]
   cf_pi <- rna_sample_annotation[patient == l_patient &
-                        timepoint == 'Post-induction', cf_number]
+                                 timepoint == 'Post-induction', cf_number]
   if (is.null(cf_bl) || is.null(cf_pi)) return(NULL)
   fcs <- as.list(cpms$E[, cf_pi] - cpms$E[, cf_bl], 'patient' = l_patient)
   return(fcs)
@@ -45,11 +45,12 @@ FCs[1:5, 1:5]
 
 ```{r, devel, eval = F, warning=FALSE, echo=FALSE}
 source('R/GSEA_funcs_paired.R')
-res <- gsea_wrapper(gene_sets = HALLMARK_pathways[1:3],
+res <- gsea_wrapper(gene_sets = HALLMARK_pathways,
                     patients = rna_sample_annotation[arm == 'No induction',
                                                      unique(patient)],
+                    exp_mat = rna_read_counts_salmon_tmm_M,
                     resp_exp = 'timepoint',
-                    nperm = 10,
+                    nperm = 100,
                     abs = F,
                     fn_extra = '')
 ```
@@ -59,11 +60,27 @@ res <- gsea_wrapper(gene_sets = HALLMARK_pathways[1:3],
 # devtools::load_all('~/libs/GSEAgenesets')
 # devtools::load_all(file.path('~/libs', 'maartenutils'))
 source('R/GSEA_plotting.R')
-res <- readRDS(file = 'rds2/GSEA_paired.rds')
-plot_es(res, legend.position = 'bottom', ptitle = 'paired',
-        # filename = sprintf('plots2/%s/GSEA_%s.pdf',
-        #                    format(Sys.time(), "%Y_%b_%d"), 'paired'),
-        subset_var = NULL, x_var = 'arm')
+# res <- readRDS(file = 'rds2/GSEA_paired.rds')
+res <- readRDS(file = 'rds2/GSEA_paired_TMM.rds')
+
+# filename <- sprintf('plots2/%s/GSEA_%s.pdf', format(Sys.time(), "%Y_%b_%d"), 'paired')
+# dirname(filename)
+dplyr::filter(res, arm != 'All arms' & grepl('HALLMARK', GeneSet)) %>%
+  plot_es(legend.position = 'right', ptitle = 'paired_hallmark',
+          subset_var = NULL, x_var = 'arm')
+
+dplyr::filter(res, arm != 'All arms' & !grepl('HALLMARK', GeneSet)) %>%
+  plot_es(legend.position = 'right', ptitle = 'paired_nonhallmark',
+          subset_var = NULL, x_var = 'arm')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+res <- readRDS(file = 'rds2/GSEA_paired_TMM_senescence.rds')
+dplyr::filter(res, arm != 'All arms') %>%
+  plot_es(legend.position = 'right', ptitle = 'paired_senescence',
+          # filename = sprintf('plots2/%s/GSEA_%s.pdf',
+          #                    format(Sys.time(), "%Y_%b_%d"), 'paired'),
+          subset_var = NULL, x_var = 'arm')
 ```
 
 ## Heatmaps for leading edge genes.
@@ -92,7 +109,28 @@ plot_leading_edge_gene_scores(dtf, allow_nonsensical = T,
                               res_name = 'paired_FC_leading_edge')
 ```
 
-# Unpaired testing
+# Unpaired testing with clinical response as response variable
+
+Combined timepoints, all arms only
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/GSEA_plotting.R')
+
+plot_cr_gsea_res(ptitle = 'unpaired',
+                 bl_fn = 'rds2/GSEA_unpaired_baseline_TMM.rds',
+                 pi_fn = 'rds2/GSEA_unpaired_postinduction_TMM.rds')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/GSEA_plotting.R')
+graphics.off()
+
+plot_cr_gsea_res(ptitle = 'unpaired_senescence',
+                 bl_fn = 'rds2/GSEA_unpaired_baseline_TMM_senescence.rds',
+                 pi_fn = 'rds2/GSEA_unpaired_postinduction_TMM_senescence.rds')
+```
+
+
 
 ## Baseline
 
@@ -102,6 +140,7 @@ res <- gsea_wrapper(gene_sets = HALLMARK_pathways[1:3],
                     patients = rna_sample_annotation[arm == 'No induction',
                                                      unique(patient)],
                     resp_exp = 'timepoint',
+                    exp_mat = rna_read_counts_salmon_tmm,
                     nperm = 10,
                     abs = F,
                     fn_extra = '')
@@ -112,7 +151,6 @@ res <- readRDS(file = 'rds2/GSEA_unpaired_baseline.rds')
 plot_es(res, legend.position = 'bottom', ptitle = 'unpaired',
         subset_var = NULL, x_var = 'arm')
 ```
-
 
 ### Heatmaps for leading edge genes.
 
@@ -132,7 +170,6 @@ dtf <- compute_leading_edge_gene_scores(res, fdr_thresh = .25)
 plot_leading_edge_gene_scores(dtf, allow_nonsensical = T,
                               res_name = 'BL_r_vs_nr_leading_edge')
 ```
-
 
 ## Post-induction
 
@@ -177,3 +214,87 @@ source('R/rna.R')
 plot_leading_edge_gene_scores(dtf, allow_nonsensical = T,
                               res_name = 'PI_r_vs_nr_leading_edge')
 ```
+
+# CA15.3 transcriptomic associations
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+source('R/load_rna_dat.R')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+readRDS(file = 'rds2/GSEA_ca15_3_baseline_TMM.rds') %>%
+  plot_es(legend.position = 'right', ptitle = 'paired_senescence',
+          # filename = sprintf('plots2/%s/GSEA_%s.pdf',
+          #                    format(Sys.time(), "%Y_%b_%d"), 'paired'),
+          subset_var = NULL, x_var = 'arm')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+readRDS(file = 'rds2/GSEA_ca15_3_postinduction_TMM.rds') %>%
+  plot_es(legend.position = 'right', ptitle = 'paired_senescence',
+          # filename = sprintf('plots2/%s/GSEA_%s.pdf',
+          #                    format(Sys.time(), "%Y_%b_%d"), 'paired'),
+          subset_var = NULL, x_var = 'arm')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/rna.R')
+
+rna_read_counts_salmon <-
+  file.path(p_root, 'salmon_rna', 'salmon_count_mat_gene_id.tsv') %>%
+  fread %>% 
+  normalize_colnames %>%
+  as.data.frame %>%
+  dplyr::mutate(gene_id = gsub('\\.\\d*', '', gene_id)) %>%
+  column_to_rownames('gene_id') %>%
+  as.matrix
+
+contrast_ca15_3 <- function(l_timepoint = 'Baseline') {
+  rna_subs <- rna_sample_annotation[timepoint == l_timepoint] %>%
+    controlled_merge(patient_labels[, .(patient, timepoint, ca15_3)]) %>%
+    mutate(ca15_3_bin = ca15_3 <= 
+           patient_labels[!is.na(ca15_3) & clinical_response == 'R', 
+                          max(ca15_3)])
+  rna_subs <- rna_subs[!is.na(ca15_3)] %>% unique
+
+  model_mat <- model.matrix(~ ca15_3_bin, rna_subs)
+  colnames(model_mat) <- gsub('ca15_3_binTRUE', 'ca15_3_bin', colnames(model_mat))
+  colnames(model_mat) <- gsub(':', '_', colnames(model_mat))
+  colnames(model_mat) <- gsub('\\(Intercept\\)', 'intercept',
+                              colnames(model_mat))
+  print(colnames(model_mat))
+  print(nrow(model_mat))
+  # rownames(model_mat) <- rna_subs[, cf_number]
+
+  idx  <- match(rna_subs$cf_number, colnames(rna_read_counts_salmon))
+  cpms <- rna_read_counts_salmon[, idx]
+  stopifnot(all(colnames(cpms) == rna_subs$cf_number))
+  rownames(cpms) <- rownames(rna_read_counts_salmon)
+  cpms <- cpms[!eps(apply(cpms, 1, var), 0, 1e-1), ]
+  cpms <- limma::voom(cpms, design = model_mat)
+
+  model_fit <- lmFit(cpms, design = model_mat)
+  e_fit <- eBayes(model_fit, trend = F)
+  return(e_fit)
+}
+
+bl_efit <- contrast_ca15_3(l_timepoint = 'Baseline')
+# pi_efit <- contrast_ca15_3(l_timepoint = 'Post-induction')
+# contrast_response(l_timepoint = 'Post-induction')
+my_tt(bl_efit, coef = 2, sort.by = 'p', number = 100)$gene_symbol %>% writeLines
+```
+
+```{r}
+source('R/rna.R')
+my_tt(bl_efit, coef = 2, sort.by = 'T', resort.by = 'logFC', number = 1000)
+my_tt(bl_efit, coef = 2, sort.by = 'p', number = 100)$gene_symbol %>% writeLines
+```
+
+```{r}
+prep_gsea(patients = patient_labels[!is.na(ca15_3) & 
+                                    timepoint == 'Baseline',
+                                    patient],
+          resp_exp = 'baseline_ca15_3_bin')
+```
+

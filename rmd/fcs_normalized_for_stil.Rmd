@@ -1,7 +1,7 @@
 ---
 title: "Gene expression FCs normalized for stromal TIL"
 author: "Maarten Slagter"
-output: 
+output:
   html_document:
     toc: true
     number_sections: true
@@ -10,14 +10,21 @@ output:
 
 
 ```{r, warning=FALSE, echo=FALSE, cache = F}
+setwd('~/TONIC')
+options(mc.cores = 2)
 knitr::opts_chunk$set(message = FALSE, cache = T, cache.lazy = F,
                       cache.comments = F, autodep = T, warning = FALSE,
                       results = 'hide', fig.keep = 'high',
                       echo = TRUE, error = FALSE)
 knitr::opts_knit$set(progress = TRUE, verbose = TRUE)
+pacman::p_load(tidybayes)
+# devtools::install_github('paul-buerkner/brms')
+library(brms)
+
 # knitr::clean_cache()
 # knitr::opts_chunk$get("cache.path")
 # knitr::knit_global()
+# setwd('~/Projects/TONIC')
 source('R/init.R')
 ```
 
@@ -54,57 +61,380 @@ and further specify exact parameters.
 
 ```{r, warning=FALSE, echo=FALSE}
 # source('R/test_associations.R')
+source('R/bayes.R')
 # debugonce(prepare_test_gene_set_difference)
-tp1 = 'Baseline'; tp2 = 'On nivo'
-prep_comp_data <- function(tp1 = 'Baseline', tp2 = 'On nivo') {
-  dtf <- prepare_test_gene_set_difference(gene_set = sig_gene_sets, 
-                                          tp1 = tp1,
-                                          tp2 = tp2)
-  invisible(dtf[, 'FC' := get(tp2) - get(tp1)])
-  dtf <- controlled_merge(dtf, patient_labels[, .(patient, s_til, ca15_3)], 
-                          by_cols = 'patient') %>%
-    { .[complete.cases(.), ] }
-  return(dtf)
-}
-
-dtf <- prep_comp_data(tp1 = 'Baseline', tp2 = 'On nivo')
 dtf <- prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction')
+dtf <- prep_comp_data(tp1 = 'Baseline', tp2 = 'On nivo')
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
-explore_confounder <- function(conf_var = 's_til') {
-  if (!require(ggExtra)) {
-    devtools::install_github('daattali/ggExtra')
-    library(ggExtra)
-  }
-  p1 <- ggplot(dtf, aes_string(x = conf_var, y = 'FC', colour = 'arm')) + 
-    scale_colour_manual(name = '', values = tonic_color_palettes[['arm']]) +
-    geom_point() +
-    scale_y_continuous(name = sprintf('log2 Fold change between %s and %s\nin the median of response-associated genesets scores', tp1, tp2)) +
-    scale_x_continuous(name = var_to_label(conf_var, label_reps)) +
-    ggplot2::theme(legend.position = 'left', legend.direction = 'vertical',
-                   aspect.ratio = 1)
-  ggMarginal(p1, groupColour = TRUE, groupFill = TRUE, type = 'histogram')
-}
 explore_confounder('s_til')
-# explore_confounder('ca15_3')
+explore_confounder('ca15_3')
 ```
 
 # Regression modelling of the observed FCs
 
 ```{r, brm1, warning=FALSE, echo=FALSE}
 source('R/bayes.R')
-brm_fc <- do.call('brm', 
-                  c(list(formula = bf(FC ~ 1 + (1 | arm), nl = F), 
-                         data = dtf, family = gaussian()),
-                         # prior = c(
-                         #   prior(student_t(3, 0, 10), "sd_g_Intercept"),
-                         #   prior(student_t(3, 0, 10), "sd")
-                         # ),
-                         brms_settings[c('warmup', 'iter', 
-                                         'chains', 'control')]))
-print(brm_fc)
+
+get_prior(FC ~ 0 + (1 | arm), data = dtf)
+
+priors <- list('def' = c(set_prior('student_t(3, 0, 5)', class = 'sd', group = 'arm')),
+               'wide' = c(set_prior('student_t(10, 0, 5)', class = 'sd', group = 'arm')),
+               'wider' = c(set_prior('student_t(20, 0, 5)', class = 'sd', group = 'arm')))
+
+sigma_priors <- list('def' = c(set_prior('student_t(3, 0, 5)',
+                               class = 'sigma')),
+                     'wide' = c(set_prior('student_t(10, 0, 5)', class = 'sigma')),
+                     'wider' = c(set_prior('student_t(20, 0, 5)', class = 'sigma')))
+
+sr(brm_fcs <- lapply(priors, function(l_prior) {
+  do.call('brm',
+          c(list(formula = bf(FC ~ 0 + (1 | arm), nl = F),
+                 data = dtf, family = gaussian(),
+                 prior = l_prior),
+            brms_settings[c('warmup', 'iter', 'chains', 'control')]))
+}))
+
+sr(sigma_brm_fcs <- lapply(sigma_priors, function(l_prior) {
+  do.call('brm',
+          c(list(formula = bf(FC ~ 0 + (1 | arm), nl = F),
+                 data = dtf, family = gaussian(),
+                 prior = l_prior),
+            brms_settings[c('warmup', 'iter', 'chains', 'control')]))
+}))
+# sr(sigma_brm_fcs)
+# brm(FC ~ 0 + (1 | arm), data = dtf, family = gaussian(),
+#     prior = set_prior('normal(0, 10)', class = 'Intercept', group = 'arm'))
+# print(brm_fcs)
 ```
+
+```{r, warning=FALSE, echo=FALSE}
+fit <- stan(model_code = stancode(sigma_brm_fcs[[1]]), model_name = "example",
+            data = dtf[, .(FC, arm)], iter = 2012, chains = 3, verbose = TRUE)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+library(rstan)
+h_model_s <- '
+data {
+  int prior_only;
+  int<lower=1> N_arm;  // number of arms (5)
+  int<lower=1> N_obs;  // number of observations
+  int<lower=1> arm[N_obs]; // factor variable
+  real mu_mean;
+  real<lower=0> mu_sd;
+  real sigma_mean;
+  real<lower=0> sigma_sd;
+  vector[N_obs] FC;  // response variable
+}
+parameters {
+  vector[N_arm] mu_arm;  // group-level means
+  vector<lower=0>[N_arm] sigma_obs; // group-level SDs
+}
+model {
+  // Vectorized statements
+  mu_arm ~ normal(mu_mean, mu_sd);
+  sigma_obs ~ normal(sigma_mean, sigma_sd);
+  if (!prior_only) {
+    for (n in 1:N_obs) {
+      target += normal_lpdf(FC[n] | mu_arm[arm[n]], sigma_obs[arm[n]]);
+    }
+  }
+}'
+
+# cond_rm("stan_dat")
+# cond_rm('hlm')
+dtf <- prep_comp_data(tp1 = 'Baseline', tp2 = 'On nivo')
+dtf <- prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction')
+stan_dat <- list(prior_only = 0,
+                 mu_mean = dtf[, mean(FC), by = arm][, mean(V1)],
+                 mu_sd = dtf[, mean(FC), by = arm][, sd(V1) / sqrt(.N)],
+                 sigma_mean = dtf[, sd(FC), by = arm][, mean(V1)],
+                 # sigma_sd = dtf[, sd(FC), by = arm][, sd(V1) / sqrt(.N)],
+                 sigma_sd = .10,
+                 N_arm = dtf[, uniqueN(arm)],
+                 N_obs = nrow(dtf),
+                 arm = as.integer(dtf[, arm]),
+                 FC = dtf[, FC])
+hlm <- stan(model_name='Hierarchical Model', model_code = h_model_s,
+            data = stan_dat, iter = 2000, chains = 2, verbose = FALSE)
+plot(hlm)
+print(hlm)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+h_model_shared_sigma <- '
+data {
+  int prior_only;
+  int<lower=1> N_arm; // number of arms (5)
+  int<lower=1> N_obs; // number of observations
+  int<lower=1> arm[N_obs]; // factor variable
+  real arm_fc_mean;
+  int<lower=0> arm_sd_degrees;
+  int<lower=0> sigma_degrees;
+  vector[N_obs] FC;  // response variable
+}
+parameters {
+  real<lower=0> sigma; // residual SD
+  vector[N_arm] mu_arm; // group-level means
+  vector<lower=0>[N_arm] sigma_arm; // group-level SDs
+}
+model {
+  // Vectorized statements
+  sigma ~ student_t(sigma_degrees, 0, 10);
+  sigma_arm ~ student_t(arm_sd_degrees, 0, 10);
+  mu_arm ~ normal(arm_fc_mean, sigma_arm);
+  if (!prior_only) {
+    for (n in 1:N_obs) {
+      target += student_t_lpdf(FC[n] | mu_arm[arm[n]], 0, sigma);
+    }
+  }
+}'
+
+
+stan_dat <- list(prior_only = 0,
+                 N_arm = dtf[, uniqueN(arm)],
+                 N_obs = nrow(dtf),
+                 arm = as.integer(dtf[, arm]),
+                 arm_fc_mean = dtf[, mean(FC), by = arm][, mean(V1)],
+                 arm_sd_degrees = 10,
+                 sigma_degrees = 10,
+                 FC = dtf[, FC])
+hlm <- stan(model_name='Hierarchical Model Simple',
+            model_code = h_model_shared_sigma,
+            data = stan_dat, iter = 2000, chains = 2, verbose = FALSE)
+plot(hlm)
+print(hlm)
+
+```
+
+```{r, warning=FALSE, echo=FALSE}
+stan_model_f <- ' data {
+  int prior_only;  // should the likelihood be ignored?
+  int<lower=1> N_arms; // number of induction arms
+  int<lower=1> N_obs;  // total number of observations
+  int arm[N_obs];
+  int<lower=0> df_sigma;
+  int<lower=0> sd_df;
+  vector[N_obs] FC;  // response variable
+}
+parameters {
+  real<lower=0> sigma;  // residual SD
+  vector<lower=0>[N_arms] sd_arm;  // group-level standard deviations
+  vector[N_arms] Y_arm;  // group-level effects
+}
+model {
+  // priors including all constants
+  sigma ~ student_t(df_sigma, 0, 5);
+  sd_arm ~ student_t(sd_df, 0, 5);
+  Y_arm ~ normal(0, sd_arm);
+
+  // likelihood including all constants
+  if (!prior_only) {
+    target += normal_lpdf(FC | Y_arm[arm], sigma);
+  }
+}'
+
+dtf <- prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction')
+dtf <- prep_comp_data(tp1 = 'Baseline', tp2 = 'On nivo')
+# ggplot(dtf, aes(x = Baseline, y = FC)) + geom_point()
+
+run_sim <- function(sigma_df = 1, sd_df = 3) {
+  stan_dat <- list(prior_only = 0,
+                   N_arms = dtf[, uniqueN(arm)],
+                   N_obs = nrow(dtf),
+                   arm = as.integer(dtf[, arm]),
+                   "sigma_df" = sigma_df,
+                   "sd_df" = sd_df,
+                   FC = dtf[, FC])
+  hlm <- stan(model_name='Hierarchical Model Simple',
+              model_code = stan_model_f,
+              data = stan_dat, iter = 2000, chains = 2, verbose = FALSE)
+  return(hlm)
+}
+
+hlm <- run_sim(10, 10)
+p <- stan_plot(hlm, pars = 'Y_arm') + theme_ms()
+p <- p + scale_x_continuous(name = 'Credible interval for mean of log2(FC)')
+p <- p + scale_y_discrete(name = 'Induction arm',
+                          limits = rev(grep('Y_arm', names(hlm), value = T)),
+                          labels = rev(treatment_arms))
+print(p)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+extract_rel_parms <- function(sigma_df = 1, sd_df = 3) {
+  hlm <- run_sim(sigma_df = sigma_df, sd_df = sd_df)
+  get_posterior_mean(hlm, grep('sd_arm|sigma', names(hlm), value = T)) %>%
+    { .[, 'mean-all chains'] }
+}
+
+if (F) {
+  hyper_param_scan <- expand.grid(sigma_df = 1:10, sd_df = 1:10) %>%
+    as.data.table %>%
+    # debug_pipe
+    { .[, extract_rel_parms(sigma_df = sigma_df, sd_df = sd_df),
+        by = .(sigma_df, sd_df)] }
+  hyper_param_scan$param_name <- names(extract_rel_parms(sigma_df = 1, sd_df = ))
+  hyper_param_scan <- dcast(hyper_param_scan, sigma_df + sd_df ~ param_name,
+                            value.var = 'V1')
+  sr(hyper_param_scan)
+}
+sr(hyper_param_scan)
+
+ggplot(hyper_param_scan, aes(x = as.factor(sigma_df), y = as.factor(sd_df),
+  fill = `sd_arm[4]`)) +
+ geom_tile() +
+ scale_x_discrete(expand = c(0, 0)) +
+ scale_y_discrete(expand = c(0, 0)) +
+ theme(legend.text = element_text(size = 5), legend.direction = 'vertical',
+       legend.position = 'right')
+```
+
+## Acount for baseline levels
+
+```{r}
+data_pi <- prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction')
+data_pi <- prep_comp_data(tp1 = 'Baseline', tp2 = 'On nivo')
+p <- ggplot(data_pi, aes(x = clinical_response, y = FC)) + geom_boxplot()
+p + facet_grid(~arm)
+p <- ggplot(data_pi, aes(x = clinical_response, y = FC_comp)) + geom_boxplot()
+p + facet_grid(~arm)
+data_pi[, .N, .(arm, clinical_response)][order(arm, clinical_response)]
+```
+
+
+```{r, warning=FALSE, echo=FALSE}
+run_sim <- function(data, df_sigma = 3, df_sd_arm = 3, df_b = 3,
+                    df_response_contrib = 3,
+                    use_prior_only = F,
+                    use_clinical_response = T,
+                    use_baseline = F) {
+  stan_dat <- list(prior_only = as.integer(use_prior_only),
+                   use_baseline = as.integer(use_baseline),
+                   use_clinical_response = as.integer(use_clinical_response),
+                   N_arms = data[, uniqueN(arm)],
+                   N_obs = nrow(data),
+                   arm = as.integer(data[, arm]),
+                   clinical_response = as.integer(data$clinical_response == 'R'),
+                   "df_sigma" = df_sigma,
+                   "df_b" = df_b,
+                   "df_sd_arm" = df_sd_arm,
+                   "df_response_contrib" = df_response_contrib,
+                   baseline = data[, Baseline],
+                   FC = data[, FC])
+  if (!use_baseline) {
+    stan_dat$baseline = rep(0, nrow(data))
+  }
+  if (!use_clinical_response) {
+    stan_dat$clinical_response = rep(0, nrow(data))
+  }
+  hlm <- stan(model_name = 'Hierarchical Model',
+              file = 'stan_model_cutting_edge.stan',
+              data = stan_dat, iter = 5e4, chains = 2, verbose = FALSE)
+  return(hlm)
+}
+
+data_pi <- prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction')
+hlm <- run_sim(data = data_pi, use_baseline = F, use_clinical_response = F)
+hlm_b <- run_sim(data = data_pi, use_baseline = T, use_clinical_response = F)
+hlm_r <- run_sim(data = data_pi, use_baseline = F, use_clinical_response = T)
+hlm_b_r <- run_sim(data = data_pi, use_baseline = T, use_clinical_response = T)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+data_on <- prep_comp_data(tp1 = 'Baseline', tp2 = 'On nivo')
+hlm_on <- run_sim(data = data_on, use_baseline = F, 
+                  use_clinical_response = F)
+hlm_on_b <- run_sim(data = data_on, use_baseline = T, 
+                    use_clinical_response = F)
+hlm_on_r <- run_sim(data = data_on, use_baseline = F, 
+                    use_clinical_response = T)
+hlm_on_b_r <- run_sim(data = data_on, use_baseline = T, 
+                      use_clinical_response = T)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/bayes.R')
+plot_params(p_dat = hlm, mn = 'post_induction')
+plot_params(p_dat = hlm_b, mn = 'post_induction_b')
+plot_params(p_dat = hlm_r, mn = 'post_induction_r')
+plot_params(p_dat = hlm_b_r, mn = 'post_induction_b_r')
+plot_params(p_dat = hlm_on_b_r, mn = 'on_nivo_b_r')
+```
+
+
+```{r, warning=FALSE, echo=FALSE}
+plots <-
+list(prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction') %>%
+       ggplot(aes(x = Baseline, y = FC)) + geom_point() + geom_smooth() +
+       ylab('log2 FC baseline vs. post-induction') +
+       xlab('Baseline gene set score'),
+     prep_comp_data(tp1 = 'Baseline', tp2 = 'On nivo') %>%
+       ggplot(aes(x = Baseline, y = FC)) + geom_point() + geom_smooth() +
+       ylab('log2 FC baseline vs. on nivolumab') +
+       xlab('Baseline gene set score'),
+     plot_params(hlm_pi, mn = 'post_induction', save_plot = F) +
+       ggtitle('Post-induction vs. baseline'),
+     plot_params(hlm_b_pi, mn = 'post_induction_use_baseline', save_plot = F) +
+       ggtitle('Post-induction vs. baseline\n\\w baseline score'),
+     plot_params(hlm, mn = 'on_nivo', save_plot = F) +
+       ggtitle('On nivolumab vs. baseline'),
+     plot_params(hlm_b, mn = 'on_nivo_use_baseline', save_plot = F) +
+       ggtitle('On nivolumab vs. baseline\n\\w baseline score')
+     )
+# { align_plots(plotlist = ., 'hv') }
+
+plot_panel_layout(plots, filename = file.path(img_dir, 'panel_bayesian.pdf'),
+                  ncol = 2)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+names(hlm_b)
+
+rstan::extract(hlm_b, pars = c('Y_arm[1]', 'Y_arm[4]')) %>%
+  as.data.table %>%
+  set_colnames(c('ref', 'test')) %>%
+  { .[, .(mean(test >= ref))] }
+rstan::extract(hlm_b, pars = c('Y_arm[1]', 'Y_arm[5]')) %>%
+  as.data.table %>%
+  set_colnames(c('ref', 'test')) %>%
+  { .[, .(mean(test >= ref))] }
+```
+
+
+```{r, warning=FALSE, echo=FALSE}
+brm_fc_s <- do.call('brm',
+                  c(list(formula = bf(FC ~ 0 + (1 | arm), nl = F),
+                          prior = set_prior('student_t(10, 0, 5)',
+                                            class = 'sd', group = 'arm'),
+                          data = dtf, family = gaussian()),
+                    brms_settings[c('warmup', 'iter', 'chains', 'control')]))
+stancode(brm_fcs[[3]])
+standata(brm_fc_s)
+```
+
+
+```{r, warning=FALSE, echo=FALSE}
+priors <- c("normal(0,10)"
+stancode(brm_fc)
+p_names <- names(brm_fc$fit@sim$samples[[1]])
+```
+
+```{r, warning=FALSE, echo=FALSE}
+p <- stanplot(sigma_brm_fcs[[3]], pars = '^r_.*(arm)',
+              type = 'intervals') + theme_ms()
+p <- p + scale_y_discrete(limits = rev(grep('r_arm',
+                                        names(brm_fc$fit@sim$samples[[1]]),
+                                        value = T)),
+                          labels = rev(treatment_arms))
+p <- p + xlab('Credible interval for log2(FC)')
+print(p)
+ggsave(p, filename = file.path(img_dir, 'bayesian_fc.pdf'))
+```
+
+
 
 ```{r, warning=FALSE, echo=FALSE}
 posterior_samples(brm_fc, "b")
@@ -121,14 +451,13 @@ plot(brm_fc)
 # source('R/bayes.R')
 # devtools::load_all(file.path('~/libs', 'maartenutils'))
 # debugonce(posterior_histogram)
-brm_fc_stil <- do.call('brm', 
-                       c(list(formula = bf(FC ~ s_til + (1 | arm), nl = F), 
+brm_fc_stil <- do.call('brm',
+                       c(list(formula = bf(FC ~ s_til + (1 | arm), nl = F),
                               data = dtf, family = gaussian()),
-                              brms_settings[c('warmup', 'iter', 
+                              brms_settings[c('warmup', 'iter',
                                               'chains', 'control')]))
 print(brm_fc_stil)
 ```
-
 
 Comparing the leave-one-out-cross-validation performance, the simpler model
 taking along just treatment arm actually prevails. This is not unexpected given
@@ -155,6 +484,7 @@ induction arms to the No induction arm?
 source('R/bayes.R')
 # brm_fc
 p_names <- names(brm_fc$fit@sim$samples[[1]])
+# debugonce(posterior_histogram)
 
 posterior_histogram(brms_object = brm_fc,
                     name = 'Model: Induction therapy',
@@ -162,28 +492,28 @@ posterior_histogram(brms_object = brm_fc,
                     cols = tonic_color_palettes[['arm']],
                     x_lab = 'Contribution to FC',
                     # variables = c('Doxorubicin', 'Cisplatin', 'No.induction')) +
-                    variables = gsub(' ', '\\.', treatment_arms)) + 
-  theme(legend.position = 'right') + 
+                    variables = gsub(' ', '\\.', treatment_arms)) +
+  theme(legend.position = 'right') +
   ggtitle('Baseline model')
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
 p <- stanplot(brm_fc, pars = '^r_.*(arm)', type = 'intervals') + theme_ms()
-p <- p + scale_y_discrete(limits = rev(grep('r_arm', 
-                                        names(brm_fc$fit@sim$samples[[1]]), 
-                                        value = T)), 
+p <- p + scale_y_discrete(limits = rev(grep('r_arm',
+                                        names(brm_fc$fit@sim$samples[[1]]),
+                                        value = T)),
                           labels = rev(treatment_arms))
 p <- p + xlab('Arm FC relative to all patients (log2)')
 print(p)
 fn <- file.path(img_dir, 'bayesian_FC_intercepts.pdf')
 ggsave(plot = p, file = fn,
-       width = 7, height = 10, units = 'cm')
+       width = 8, height = 8, units = 'cm')
 sys_file_open(fn)
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
-dtf <- extract_params(brm_fc, 
-               params = grep('r_arm', names(brm_fc$fit@sim$samples[[1]]), 
+dtf <- extract_params(brm_fc,
+               params = grep('r_arm', names(brm_fc$fit@sim$samples[[1]]),
                              value = T))
 lapply(dtf, function(x) quantile(x, probs = c(0.025, .975)))
 lapply(dtf, function(x) quantile(x, probs = c(0.05, .95)))
@@ -203,7 +533,7 @@ posterior_histogram(brms_object = brm_fc_stil,
 
 ```{r, warning=FALSE, echo=FALSE}
 compute_bayesian_p_val <- function(brms_object = brm_fc,
-                                   name = '', 
+                                   name = '',
                                    offset_val = 1,
                                    group_name = 'induction_therapy',
                                    param_capture = '.*\\[(.*),Intercept\\]',
@@ -213,17 +543,17 @@ compute_bayesian_p_val <- function(brms_object = brm_fc,
   ## Subselect group variables
   p_names <- names(brms_object$fit@sim$samples[[1]])
   p_names <- grep(param_capture, p_names, value = T)
-  p_names <- setNames(p_names, 
+  p_names <- setNames(p_names,
                       tolower(gsub(param_capture, '\\1', p_names)))
-  if (all(sapply(variables, is.null))) 
+  if (all(sapply(variables, is.null)))
     variables <- names(p_names)
-  
+
   p_dat <- as.data.frame(extract_params(brms_object, p_names))
   comp_vals <- setdiff(1:length(p_names), offset_val)
-  setNames(sapply(comp_vals, function(comp_val) 
+  setNames(sapply(comp_vals, function(comp_val)
            mean(p_dat[, offset_val] < p_dat[, comp_val])),
            names(p_names)[comp_vals])
-  sapply(setNames(comp_vals, names(p_names)[comp_vals]), 
+  sapply(setNames(comp_vals, names(p_names)[comp_vals]),
          function(x) quantile(p_dat[, x], probs = c(.025, .5, .975)))
 }
 compute_bayesian_p_val()

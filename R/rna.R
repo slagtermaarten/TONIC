@@ -2,13 +2,15 @@ prep_gene_set <- function(gs = NULL,
                           gene_symbols = c('TP53', 'ERBB2'),
                           gs_name = paste(gene_symbols, collapse = '_'),
                           cf_numbers = c(),
+                          cf_ordered = F,
                           patients = c(),
                           induction_arms = c(),
                           timepoints = c('Baseline'),
-                          var_thresh = 0,
+                          cov_thresh = 0,
                           log_transform = 'log2',
                           exp_mat = tpms_salmon,
                           gene_normalisation = T,
+                          sample_normalisation = NULL,
                           distfun = 'pearson',
                           hclustfun = 'average',
                           shuffle = F,
@@ -21,20 +23,22 @@ prep_gene_set <- function(gs = NULL,
   }
 
   ## Select CF numbers to plot
-  cf_numbers <- Reduce(union,
-    c(cf_numbers,
-      rna_sample_annotation$cf_number[match(patients,
-                        rna_sample_annotation$patient)],
-      rna_sample_annotation$cf_number[match(induction_arms,
-                        rna_sample_annotation$induction_arm)],
-      rna_sample_annotation$cf_number[as.character(rna_sample_annotation$timepoint) %in% timepoints]))
+  if (!cf_ordered) {
+    cf_numbers <- Reduce(union,
+      c(cf_numbers,
+        rna_sample_annotation$cf_number[match(patients,
+                          rna_sample_annotation$patient)],
+        rna_sample_annotation$cf_number[match(induction_arms,
+                          rna_sample_annotation$induction_arm)],
+        rna_sample_annotation$cf_number[as.character(rna_sample_annotation$timepoint) %in% timepoints]))
 
-  if (length(cf_numbers) < 2) {
-    warningf('Too little samples selected: %d. Timepoint: %s. Arms: %s', 
-             length(cf_numbers), 
-             ifelse(is.null(timepoints), 'unspecified', timepoints),
-             ifelse(is.null(induction_arms), 'unspecified', induction_arms))
-    return(invisible())
+    if (length(cf_numbers) < 2) {
+      warningf('Too little samples selected: %d. Timepoint: %s. Arms: %s', 
+               length(cf_numbers), 
+               ifelse(is.null(timepoints), 'unspecified', timepoints),
+               ifelse(is.null(induction_arms), 'unspecified', induction_arms))
+      return(invisible())
+    }
   }
 
   # ensgs <- rna_read_counts_ann[which(external_gene_id %in% gene_symbols),
@@ -45,7 +49,8 @@ prep_gene_set <- function(gs = NULL,
                                  gs_genes = gene_symbols,
                                  log_transform = log_transform,
                                  gene_normalisation = gene_normalisation,
-                                 var_thresh = NULL, symbol_var = NULL,
+                                 sample_normalisation = sample_normalisation,
+                                 cov_thresh = NULL, symbol_var = NULL,
                                  donor_ids = cf_numbers)
   browser(expr = is.null(p_dat) || nrow(p_dat) <= 1)
   if (F) {
@@ -74,17 +79,22 @@ plot_gene_set <- function(gs = NULL,
                           gene_symbols = c('TP53', 'ERBB2'),
                           gs_name = paste(gene_symbols, collapse = '_'),
                           cf_numbers = c(),
+                          cf_ordered = F,
                           patients = c(),
                           induction_arms = c(),
+                          gene_normalisation = T,
+                          sample_normalisation = NULL,
                           timepoints = c('Baseline'),
                           col_vars = c('timepoint', 'arm',
                                        'clinical_response', 'gs_score'),
-                          var_thresh = 0,
+                          cov_thresh = NULL,
                           ann_row = NA,
-                          exp_mat = tpms_salmon,
+                          exp_mat = rna_read_counts_salmon_tmm_M,
                           log_transform = 'log2',
-                          distfun = 'pearson',
-                          hclustfun = 'average',
+                          distfun = 'euclidean',
+                          distfun_horizontal = NULL,
+                          distfun_vertical = NULL,
+                          hclustfun = 'complete',
                           shuffle = F,
                           fn_extra = '') {
   if (class(gene_symbols) == 'list') {
@@ -95,37 +105,63 @@ plot_gene_set <- function(gs = NULL,
   }
   exp_object_name <-deparse(substitute(exp_mat))
 
-  ## Select CF numbers to plot
-  cf_numbers <- Reduce(union,
-    c(cf_numbers,
-      rna_sample_annotation$cf_number[match(patients,
-                        rna_sample_annotation$patient)],
-      rna_sample_annotation$cf_number[match(induction_arms,
-                        rna_sample_annotation$induction_arm)],
-      rna_sample_annotation$cf_number[as.character(rna_sample_annotation$timepoint) %in% timepoints]))
+  distfun_horizontal <- distfun_horizontal %||% distfun
+  distfun_vertical <- distfun_vertical %||% distfun
 
-  if (length(cf_numbers) < 2) {
-    warningf('Too little samples selected: %d', length(cf_numbers))
-    return(invisible())
+  if (!cf_ordered) {
+    ## Select CF numbers to plot
+    cf_numbers <- Reduce(union,
+      c(cf_numbers,
+        rna_sample_annotation$cf_number[match(patients,
+                          rna_sample_annotation$patient)],
+        rna_sample_annotation$cf_number[match(induction_arms,
+                          rna_sample_annotation$induction_arm)],
+        rna_sample_annotation$cf_number[as.character(rna_sample_annotation$timepoint) %in% timepoints]))
+
+    if (length(cf_numbers) < 2) {
+      warningf('Too little samples selected: %d', length(cf_numbers))
+      return(invisible())
+    }
   }
 
-  p_dat <- prep_gene_set(gs = gs, gene_symbols = gene_symbols,
+  p_dat <- prep_gene_set(gs = gs, 
+                         gene_symbols = gene_symbols,
                          exp_mat = exp_mat,
-                         gs_name = gs_name, cf_numbers = cf_numbers,
-                         patients = patients, induction_arms = induction_arms,
-                         timepoints = timepoints, var_thresh = var_thresh,
+                         gs_name = gs_name, 
+                         cf_numbers = cf_numbers,
+                         cf_ordered = cf_ordered,
+                         patients = patients, 
+                         induction_arms = induction_arms,
+                         gene_normalisation = gene_normalisation,
+                         sample_normalisation = sample_normalisation,
+                         timepoints = timepoints, 
+                         cov_thresh = cov_thresh,
                          log_transform = log_transform,
-                         distfun = distfun, hclustfun = hclustfun,
-                         shuffle = shuffle, fn_extra = fn_extra)
+                         distfun = distfun, 
+                         hclustfun = hclustfun,
+                         shuffle = shuffle, 
+                         fn_extra = fn_extra)
 
   if (null_dat(as.data.frame(p_dat))) return(NULL)
 
-  ann_col <-
-    cbind(rna_sample_annotation[match(cf_numbers,
-                                      rna_sample_annotation[, cf_number]),
-                          .(cf_number, timepoint, arm, clinical_response)],
-          patient_labels[match(cf_numbers, rna_sample_annotation[, cf_number]),
-                               .(efron_thisted_estimator, sample_clonality)])
+  # ann_col <-
+  #   cbind(rna_sample_annotation[match(cf_numbers,
+  #                                     rna_sample_annotation[, cf_number]),
+  #                               .(cf_number, timepoint, arm, clinical_response)],
+  #         patient_labels[match(cf_numbers, rna_sample_annotation[, cf_number]),
+  #                        .(efron_thisted_estimator, sample_clonality,
+  #                          adaptive_t_cells)])
+  ann_col <- data.table(cf_number = cf_numbers) %>%
+    controlled_merge(rna_sample_annotation[, .(cf_number, patient, arm,
+                                               timepoint)]) %>%
+    controlled_merge(patient_labels[, .(patient, timepoint,
+                                        clinical_response,
+                                        efron_thisted_estimator, 
+                                        sample_clonality,
+                                        adaptive_t_cells)])
+  setkey(ann_col, cf_number)
+  ann_col <- ann_col[cf_numbers]
+  stopifnot(all(ann_col$cf_number == cf_numbers))
 
   if ('gs_score' %in% col_vars) {
     gs <- compute_gene_set_score(timepoint = timepoints, 
@@ -136,7 +172,7 @@ plot_gene_set <- function(gs = NULL,
   }
   ann_col <- ann_col[, col_vars, with = F]
 
-  fn <- file.path('plots',
+  fn <- file.path(img_dir,
                   sprintf('heatmap_%s_%s%s%s%s%s%s%s.pdf',
                     sprintf('_%s', gs_name),
                     exp_object_name,
@@ -153,7 +189,7 @@ plot_gene_set <- function(gs = NULL,
   if (!all(is.na(ann_row))) {
     ## Ensure p_dat and ann_row are in same order
     i_names <- intersect(rownames(ann_row), rownames(p_dat))
-    p_dat <- p_dat[match(i_names, rownames(p_dat)), ]
+    ann_row <- ann_row[match(i_names, rownames(p_dat)), ]
     if (ncol(ann_row) == 1) {
       ann_row <- ann_row[match(i_names, rownames(ann_row)), ]
       ann_row <- data.frame('subtype' = ann_row)
@@ -162,19 +198,37 @@ plot_gene_set <- function(gs = NULL,
       ann_row <- ann_row[match(i_names, rownames(ann_row)), ]
     }
   }
+
+  if (cf_ordered) {
+    stopifnot(all(cf_numbers == colnames(p_dat)))
+    # cf_numbers == arrange(patient_labels_tmp, adaptive_t_cells)$rna_cf_number
+  }
   # p_dat <- p_dat[rownames(p_dat) != 'NA', ]
   # p_dat <- p_dat[!apply(p_dat, 1, function(x) any(is.na(x))), ]
 
-  NMF::aheatmap(p_dat,
-                labRow = NULL,
-                labCol = NULL,
-                distfun = distfun,
-                hclustfun = hclustfun,
-                annRow = ann_row,
-                annCol = ann_col,
-                # annColors = ann_colors,
-                filename = fn,
-                main = tonic_cap(paste0(tolower(gs_name), fn_extra)))
+  if (F) {
+    pheatmap::pheatmap(p_dat,
+                       clustering_distance_rows = distfun_horizontal,
+                       clustering_distance_cols = distfun_vertical,
+                       # clustering_method = hclustfun,
+                       # annotation_row = ann_row,
+                       # annotation_col = ann_col,
+                       # annotation_colors = tonic_color_palettes,
+                       filename = fn,
+                       main = tonic_cap(paste0(tolower(gs_name), fn_extra)))
+  } else {
+    NMF::aheatmap(p_dat,
+                  labRow = NULL,
+                  labCol = NULL,
+                  Colv = ifelse(cf_ordered, NA, T),
+                  distfun = distfun,
+                  hclustfun = hclustfun,
+                  annRow = ann_row,
+                  annCol = ann_col,
+                  # annColors = ann_colors,
+                  filename = fn,
+                  main = tonic_cap(paste0(tolower(gs_name), fn_extra)))
+  }
   sys_file_open(fn)
 }
 
@@ -195,7 +249,7 @@ compute_gene_set_score <- function(timepoint = 'Baseline',
                                    gene_symbols = filter_gmt(gmt_pat =
                                                              'h.all')[1],
                                    log_transform = NULL,
-                                   exp_mat = tpms_salmon,
+                                   exp_mat = rna_read_counts_salmon_tmm_M,
                                    sum_func = median) {
   t_dat <- prep_gene_set(gene_symbols = gene_symbols,
                          gene_normalisation = F,
@@ -216,7 +270,7 @@ compute_gene_set_score <- function(timepoint = 'Baseline',
 gen_gene_set_score_matrix <- function(sets = filter_gmt(gmt_pat = 'h.all'),
                                       sum_func = median,
                                       log_transform = NULL,
-                                      exp_mat = tpms_salmon,
+                                      exp_mat = rna_read_counts_salmon_tmm_M,
                                       timepoints = c('Baseline', 
                                                      'Post-induction',
                                                      'On nivo')) {
@@ -340,7 +394,7 @@ plot_leading_edge_gene_scores <- function(dtf, res_name = 'paired',
 #'
 my_tt <- function(e_fit, coef = ncol(model_mat), ...) {
   tt <- limma::topTable(e_fit, coef = coef, ...)
-  if (any(grepl('ENSG', rownames(tt)[1:5]))) {
+  if (F && any(grepl('ENSG', rownames(tt)[1:5]))) {
     tt$gene_symbol <-
       rna_read_counts_ann[match(rownames(tt),
                                 rna_read_counts_ann[, ensembl_gene_id]),
@@ -366,4 +420,22 @@ compute_evenness <- function(x) {
   x_norm <- x / sum(x, na.rm = T)
   ## Divide observed entropy by maximally obtainable entropy
   -sum(log((x_norm)^(x_norm))) / log(length(x))
+}
+
+
+#' Wrapper around prcomp
+#'
+#'
+run_pca <- function(dtf = rna_read_counts_salmon_tmm_M_ensg, 
+                    scale = T, center = T, filter_covariates = T) {
+  t_dtf <- as.matrix(dtf) %>% t
+  colnames(t_dtf) <- rownames(dtf)
+  if (filter_covariates) {
+    t_dtf %<>%  { .[, !eps(apply(., 2, var), 0, 1e-1)] }
+    t_dtf %<>%  { .[, apply(., 2, mean) > 1] }
+    t_dtf %<>%  { .[, apply(., 2, function(x) sd(x) / mean(x)) > 1] }
+  }
+  # dimnames(t_rna_read_counts_salmon)
+  pca <- prcomp(t_dtf, center = center, scale = scale)
+  return(pca)
 }

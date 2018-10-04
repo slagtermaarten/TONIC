@@ -21,7 +21,8 @@ if (T) {
                                'tis_score' = 'numeric'))
   # length(intersect(patient_labels[, filename], colnames(exp_levels)))
   # length(colnames(exp_levels))
-  stopifnot(all(patient_labels[!is.na(filename), filename] %in% colnames(exp_levels)))
+  stopifnot(all(patient_labels[!is.na(filename), filename] %in% 
+                               colnames(exp_levels)))
 }
 
 
@@ -95,6 +96,14 @@ vcf_table[grepl('.vcf', normal_cf),
           gsub('.{2}_.{4}_.{1,2}_CF\\d{5}_.{8}_vs_.{4}_.{1,2}_(\\d{2}).*', 
                                '\\1', vcf_fn)]
 wes_table <- vcf_table
+wes_table[, 'base_fn' := gsub('^m2_|-combined.vcf$', '', vcf_fn)]
+brca_labels <- fread(file.path(data_dir, 'BRCA1.like.txt')) %>%
+                   set_colnames(c('base_fn', 'brca1_like'))
+brca_labels[, base_fn := gsub('^X', '', base_fn)]
+# head(wes_table)
+# head(brca_labels)
+wes_table <- controlled_merge(wes_table, brca_labels)
+rm(brca_labels)
 
 # vcf_table[, 'cf' := gsub('.{2}_.{4}_.{1,2}_(CF\\d{5})_.*(CF\\d{5}).*', 
 #                          '\\1-\\2', fn)]

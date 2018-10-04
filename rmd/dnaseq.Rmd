@@ -1,18 +1,26 @@
 ```{r, warning=FALSE, echo=FALSE}
-source('R/init.R')
+source('~/TONIC/R/init.R')
 source('R/load_rna_dat.R')
+# install.packages(c('gdata', 'gridExtra'))
+# install.packages(c('NMF'))
 devtools::load_all('~/libs/GSEAgenesets')
 ```
 
-# FastQC analyses
+# QC
+
+## FastQC analyses
 
 ```{r, warning=FALSE, echo=FALSE}
-parse_fastqc(fastq_dir = sprintf('%s/fastq/dna/fastq_files_NORMAL/fastqc', 
-                                 p_root))
+fastqc_dat <-
+  rbind(parse_fastqc(fastq_dir = sprintf('%s/fastq/dna/fastq_files_NORMAL/fastqc',
+                                         p_root)),
+        parse_fastqc(fastq_dir = sprintf('%s/fastq/dna/fastq_files_TUMOR/fastqc',
+                                         p_root)))
+fastqc_dat[, lapply(.SD, mean)]
+fastqc_dat[, per_sequence_gc_content]
 ```
 
-# VC inconsistencies
-
+## VC inconsistencies
 
            tumor   normal
     Pat 33 CF15398 CF16621
@@ -39,6 +47,8 @@ fh[6793, 'checked' := 'confirmed_germline_swap']
 fh[3966, 'checked' := 'confirmed_germline_swap']
 fh[234, 'checked' := 'confirmed_somatic']
 fh[234, .(CHROM, POS)]
+wes_table[tumor_cf == 'CF15398']
+patient_labels[cf_number == 'CF15398']
 sample(fh[, grep('rs', ID)])[1]
 ```
 
@@ -120,7 +130,7 @@ view_sequenza(patient = 'pat_69', timepoint = 'Baseline')
 # all_effects <- fh[1, 'effect' := tstrsplit(ANN, ';')[12], by = 1:nrow(fh)]
 # all_effects <- fh[1, 'effect' := tstrsplit(ANN, ';')[12]]
 # all_effects <- fh[, 'effect' := strsplit(strsplit(ANN, ',')[[1]], '\\;')[[11]], by = 1:nrow(fh)]
-# all_effects <- fh[, 'effect' := 
+# all_effects <- fh[, 'effect' :=
 #                   strsplit(strsplit(strsplit(ANN, ',')[[1]], '\\;')[[11]],
 #                               '\\|')[[2]], by = 1:nrow(fh)]
 # all_effects <- lapply(unlist(fh[1, strsplit(ANN, ',')]), function(x)
@@ -132,13 +142,51 @@ view_sequenza(patient = 'pat_69', timepoint = 'Baseline')
 # ANN_parsed <- strsplit(unlist(fh[, strsplit(ANN, ',')]), '\\|')
 ```
 
+## All genes
+
+Determine which genes are aberrated most frequently
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+source('R/read_DNASeq.R')
+sr(entrez_table)
+all_gene_dat <- combine_all_aberrations(unique(entrez_table[, hgnc_symbol]))
+saveRDS(all_gene_dat, 'rds/all_gene_dat.rds')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/read_DNASeq.R')
+cond_rm('mutation_overview')
+clear_object('mutation_overview', sr)
+sr(mutation_overview <- map_dfr(unique(patient_labels$patient),
+                                function(patient) {
+  message(patient)
+  vcf_fh <- filter_VCF(patient = patient) %>% annotate_effects
+  if (null_dat(vcf_fh)) return(NULL)
+  setDT(vcf_fh)
+  vcf_fh$patient = patient
+  vcf_fh$variant_classification <- simple_cap(vcf_fh$variant_classification)
+  return(vcf_fh)
+}))
+mutation_overview[, .N, variant_classification]
+```
+
+```{r, warning=FALSE, echo=FALSE}
+mutation_overview[, .N, hugo_symbol][order(N)] %>% tail(n = 100)
+mutation_overview[hugo_symbol == 'TNFRSF14']
+mutation_overview[hugo_symbol == 'TP53']
+mutation_overview %>%
+ .[, .N, .(effect, hugo_symbol)] %>%
+  { .[, .('N_muts' = sum(N), effect,
+          'rel_frac' = N / sum(N)), by = hugo_symbol] }
+```
+
 ## TP53
 
 ```{r, warning=FALSE, echo=FALSE}
 source('R/read_DNASeq.R')
 # positions <- data.table('chromosome' = c('15', '15', '17'),
 #                         'gene_symbol' = c('B2M', 'B2M', 'TP53'),
-#                         'ensg' = c('ENSG00000166710', 'ENSG00000273686', 
+#                         'ensg' = c('ENSG00000166710', 'ENSG00000273686',
 #                                    'ENSG00000141510'),
 #                         'variant_classification' = c('B2M', 'B2M', 'TP53'),
 #                         'start_position' = c(44711547, 44711547, 7669609),
@@ -160,7 +208,7 @@ tp53_gene_dat[patient == 'pat_33']
 tp53_gene_dat[patient == 'pat_25']
 tp53_gene_dat[naturalorder(patient), .N, by = patient]
 
-write_tsv(tp53_gene_dat, 
+write_tsv(tp53_gene_dat,
           path = file.path('rds', 'TP53_mutation_list_TONIC.tsv'))
 # tp53_gene_dat[, .N, by = patient]
 ```
@@ -185,10 +233,10 @@ table_dat$LOH <- grepl('LOH', table_dat$variant_classification)
 table_dat$LOH[is.na(table_dat$variant_classification)] <- NA
 table('B2M_mut' = table_dat$mutated, table_dat$clinical_response) %>%
   { print(.); fisher.test(.) }
-table('LOH' = grepl('LOH', table_dat$variant_classification), 
+table('LOH' = grepl('LOH', table_dat$variant_classification),
       'clinical_response' = table_dat$clinical_response) %>%
   { print(.); fisher.test(.) }
-table('loss' = grepl('loss', table_dat$variant_classification), 
+table('loss' = grepl('loss', table_dat$variant_classification),
       'clinical_response' = table_dat$clinical_response) %>%
   { print(.); fisher.test(.) }
 # table_dat %>% arrange(desc(clinical_response))
@@ -209,36 +257,708 @@ b2m_gene_dat[!is.na(CNt)][patient == 'pat_65']
 source('R/read_DNASeq.R')
 # debugonce(intersect_sequenza)
 # debugonce(filter_var_list)
-gene_dat <- combine_all_aberrations(c('MLH1', 'MLH3', 'MSH2', 'MSH3', 
-                                      'MSH6', 'PMS1', 'PMS2'))
 ```
 
-# Stransky plots
-
+## BRCA germline variants
 
 ```{r, warning=FALSE, echo=FALSE}
+source('R/read_DNASeq.R')
+# dtf <- filter_germline_gene_symbol(patient = 'pat_11',
+#                                    gene_symbols = c('BRCA1', 'BRCA2'))
+# dtf <- filter_germline_gene_symbol(patient = 'pat_27',
+#                                    gene_symbols = c('BRCA1', 'BRCA2'))
+options(error = traceback)
+
+sr(brca_variants <-
+   map_dfr(naturalsort(unique(patient_labels$patient)), function(l_patient) {
+     message(l_patient)
+     dtf <- filter_germline_gene_symbol(patient = l_patient,
+                                        gene_symbols = c('BRCA1', 'BRCA2'))
+     if (null_dat(dtf)) return(NULL)
+     dtf %<>% annotate_effects
+     cond_setnames(dtf, 'donor_id', 'patient')
+     return(dtf)
+}))
+
+overlap_pts <- patient_labels[timepoint == 'Baseline' &
+               patient %in% paste0('pat_', c(12, 22, 27, 33, 40, 74)),
+               .(patient, timepoint, cf_number)] %>%
+  .[!is.na(cf_number), patient]
+
+brca_variants[order(effect)] %>%
+ .[patient %in% overlap_pts] %>%
+ { .[, .SD[1, .(chromosome, start_position, effect, aa_change)], by = .(patient, hugo_symbol)] }
+```
+
+```{r, warning=FALSE, echo=FALSE}
+brca_variants[, gsub('\\s*', '', ANN)]
+brca_variants[grepl('.p', ANN), ANN]
+brca_variants[order(effect), .SD[1], .(patient, hugo_symbol)] %>%
+ .[order(patient, hugo_symbol)] %>%
+ explore_in_browser()
+brca_variants[, .N, by = .(patient, hugo_symbol)]
+brca_variants[, .N, by = .(ID)]
+brca_variants[, .N, by = .(aa_change)]
+brca_variants[bp_change == 'n.4563A>G']
+brca_variants[, .N, .(hugo_symbol, effect)]
+brca_variants[effect == 'HIGH']
+source('R/read_DNASeq.R')
+draw_lolliplot(variant_list = brca_variants, hugo_symbol = 'BRCA1')
+draw_lolliplot(variant_list = brca_variants, hugo_symbol = 'BRCA2')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+rs_ids <- fread(file.path(data_dir, 'variant-table.brca1.csv'))[, dbSNP]
+brca_variants[hugo_symbol == 'BRCA1', any(ID %in% rs_ids), by = patient]
+rs_ids <- fread(file.path(data_dir, 'variant-table.brca2.csv'))[, dbSNP]
+brca_variants[hugo_symbol == 'BRCA2', any(ID %in% rs_ids), by = patient]
+## Check SnpEff effect score, this is indeed HIGH
+brca_variants[hugo_symbol == 'BRCA2' & ID %in% rs_ids, .SD, by = patient]
+```
+
+```{r, eval=F, warning=FALSE, echo=FALSE}
+source('R/read_DNASeq.R')
+patient_labels[patient == 'pat_33', cf_number]
+fh <- filter_VCF('pat_33')
+lookup_WES_fn('pat_33')
+lookup_DNA_cf(patient = 'pat_33')
+vcf_fh <- filter_VCF(patient = 'pat_33')
+vcf_fh <- filter_VCF(patient = 'pat_69')
+```
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+oncop_dat[11]
+glm(mut_load ~ purity + ploidy, data = oncop_dat)
+plot(glm(mut_load ~ purity, data = oncop_dat))
+plot(glm(mut_load ~ ploidy, data = oncop_dat))
+ggplot(oncop_dat, aes(y = mut_load, x = purity, colour = clinical_response)) +
+  geom_point() +
+  geom_smooth(method = 'glm')
+```
+
+# Oncoplot: integrate datatypes with a focus on DNA damage
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+# track_style <- theme(#legend.position = 'bottom',
+#                      #legend.direction = 'horizontal',
+#                      # legend.position = 'none',
+#                      legend.position = 'right',
+#                      legend.direction = 'vertical',
+#                      plot.margin = unit(c(0, 0, 0, 0), 'cm'),
+#                      # aspect.ratio = 1/32,
+#                      panel.grid.major = element_blank(),
+#                      panel.grid.minor = element_blank(),
+#                      axis.text.x = element_blank(),
+#                      axis.title = element_blank(),
+#                      axis.ticks = element_blank(),
+#                      axis.text = element_blank())
+```
+
+
+# cBioportal style onco/mutational load plot
+
+```{r, warning=FALSE, echo=FALSE}
+setwd('/DATA/users/m.slagter/TONIC')
 source('R/plotting_adaptive.R')
 source('R/read_DNASeq.R')
+# source('R/load)
+# clear_object('MMR_dat', sr)
+# clear_object('B2M_gene_dat', sr)
+# clear_object('BRCA_gene_dat', sr)
+# clear_object('oncop_dat', sr)
+# options(warning = browser)
+# clear_object('MMR_dat', sr)
+# cond_rm('MMR_dat')
+# cond_rm('B2M_gene_dat')
+# cond_rm('BRCA_gene_dat')
+# sr(MMR_dat <- combine_all_aberrations(c('MLH1', 'MLH3', 'MSH2', 'MSH3', 'MSH6',
+#                                         'PMS1', 'PMS2', 'POLE')))
+## Prepare oncop_dat
+# sr(B2M_gene_dat <-
+#    combine_all_aberrations(gene_symbols = 'B2M'))
+sr(BRCA_gene_dat <-
+   combine_all_aberrations(gene_symbols = c('B2M', 'BRCA1', 'BRCA2', 'POLE')))
+
+# debugonce(compute_dnaseq_stats)
+# compute_dnaseq_stats('pat_65')
+clear_object('oncop_dat', sr)
+# debugonce(compute_dnaseq_stats)
+cond_rm('oncop_dat')
+sr(oncop_dat <- map_dfr(unique(patient_labels$patient), function(patient) {
+  message(patient)
+  fh <- compute_dnaseq_stats(patient)
+  return(as.data.table(fh))
+}))
+
+oncop_dat %<>%
+  controlled_merge(patient_labels[timepoint == 'Baseline',
+                                  .(patient, response, brca1_like,
+                                    ca15_3, s_til, pd_l1_immunoinfiltrate,
+                                    clinical_response, arm)]) %>%
+  controlled_merge(rna_sample_annotation[timepoint == 'Baseline',
+                                         .(patient, baseline_biopsy_site)]) %>%
+  dplyr::arrange(dplyr::desc(clinical_response), dplyr::desc(mut_load)) %>%
+  # dplyr::filter(patient %nin% c('pat_33', 'pat_69')) %>%
+  mutate(patient = factor(patient, levels = unique(patient)))
+
+# oncop_dat[patient == 'pat_65']
+
+oncop_dat[is.na(clinical_response), clinical_response := 'NA']
+oncop_dat[is.na(response), response := 'NA']
+
+patient_ordering <- levels(oncop_dat$patient)
+
+clean_columns('', col_names = c('clinical_response', 'response'),
+              fh = rna_sample_annotation)
+
+clear_object('mutation_specific_mut_loads')
+sr(mutation_specific_mut_loads <- 
+  purrr::map_dfr(oncop_dat[, patient], function(pat) {
+  vcf_fh <- filter_VCF(patient = pat)
+  if (null_dat(vcf_fh)) return(NULL)
+  vcf_fh %<>% annotate_effects
+  cbind(vcf_fh[, .N, by = variant_classification], 'patient' = pat)
+}))
+```
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+## Investigate correlations between oncoplot variables directly
+pacman::p_load('GGally')
+onco_corrs <- oncop_dat %>% dplyr::select(-patient) %>%
+  { GGally::ggpairs(data = ., upper = list(continuous = wrap('cor', size = 10)), 
+                    lower = list(continuous = 'smooth')) }
+fn <- file.path(img_dir, 'pairwise_oncoplot_vars.pdf')
+ggsave(onco_corrs, filename = fn, width = 50, height = 50, units = 'cm')
+sys_file_open(fn)
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
-library(GenVisR)
-vignette(package = "GenVisR")
-```
+source('R/constants.R')
 
-# DNASeq stats
+track_style <- theme(#legend.position = 'bottom',
+                     #legend.direction = 'horizontal',
+                     # legend.position = 'none',
+                     legend.position = 'right',
+                     legend.direction = 'vertical',
+                     plot.margin = unit(c(0, 0, 0, 0), 'cm'),
+                     # aspect.ratio = 1/32,
+                     legend.title = element_text(size = 6),
+                     legend.text = element_text(size = 5),
+                     legend.justification = 'left',
+                     panel.border = element_blank(),
+                     panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank(),
+                     axis.text.x = element_blank(),
+                     axis.title = element_blank(),
+                     axis.ticks = element_blank(),
+                     axis.text = element_blank())
+
+my_continuous_fill <- function(name = '') {
+  scale_fill_gradient2(name = name,
+    low = 'white',
+    # high = muted('red'),
+    high = darken(tonic_color_palettes[['clinical_response']][1], 1.5),
+    na.value = 'grey50')
+}
+
+
+mut_load_hist <- oncop_dat %>%
+  copy %>%
+  ggplot(aes(x = patient, y = mut_load / 30 )) +
+  geom_col() +
+  scale_x_discrete(name = '', expand = c(0, 0)) +
+  scale_y_continuous(name = 'Exonic mutational load (# / Mbs)',
+                     expand = c(0, 0)) +
+  track_style +
+  theme(axis.title.y = element_text(size = 10, hjust = .5),
+        axis.text.y = element_text(size = 6, vjust = .5, hjust = .5))
+
+mutation_specific_mut_loads[variant_classification == 'Start Lost']
+mutation_specific_mut_loads[, .N, by = .(patient, variant_classification)]
+mutation_specific_mut_loads[variant_classification == 'Frameshift Variant' & 
+                            patient == 'pat_26']
+
+sr(mutation_specific_mut_loads)
+# oncop_dat[, 'purity_r' := rank_percentile_vec(purity)]
+# oncop_dat[mut_load == 0, patient]
+# res <- filter_VCF('pat_14')
+# res <- filter_VCF('pat_5')
+mut_load_hist <- mutation_specific_mut_loads %>%
+  unique(by = c('patient', 'variant_classification')) %>%
+  .[variant_classification %in% mut_load_var_types] %>%
+  .[grepl('Inframe', variant_classification), 
+    variant_classification := 'Inframe Indel'] %>%
+  .[grepl('Frameshift Variant', variant_classification), 
+    variant_classification := 'Frameshift Indel'] %>%
+  .[grepl('Stop Retained Variant', variant_classification), 
+    variant_classification := 'Missense Variant'] %>%
+  .[, patient := factor(patient, levels = patient_ordering)] %>%
+  .[, variant_classification := factor(variant_classification,
+    levels = names(tonic_color_palettes[['var_type_colors']]))] %>%
+  ## Ensure last patient is shown over entire width
+  rbind(data.frame('patient' = 'pat_29', 'N' = 1e-10, 
+                   variant_classification = 'Frameshift Indel')) %>%
+  ggplot(aes(x = patient, y = N / 30, fill = variant_classification)) +
+  geom_col(color = 'black', linetype = 1, width = .8, size = .00) +
+  scale_fill_manual(name = 'Somatic variant type',
+                    values = tonic_color_palettes[['var_type_colors']]) +
+  scale_x_discrete(name = '', expand = c(0, 0), drop = F) +
+  scale_y_continuous(name = 'Exonic mutational load (# / Mbs)',
+                     expand = c(0, 0)) +
+  theme(legend.position = c(.95, .95),
+        legend.justification = c(1, 1),
+        legend.direction = 'vertical',
+        axis.title.y = element_text(size = 6, hjust = .5),
+        axis.text.y = element_text(size = 6, vjust = .5, hjust = .5))
+
+gen_cr_track <- function(patient_ordering = levels(oncop_dat$patient)) {
+  oncop_dat %>%
+    copy %>%
+    { .[, patient := factor(patient, levels = patient_ordering)] } %>%
+    { .[, y_var := 'RECIST'] } %>%
+    ggplot(aes(x = patient, y = y_var, fill = response)) +
+    geom_rounded_tile(color = 'black') +
+    scale_x_discrete(expand = c(0, 0), drop = F) +
+    scale_y_discrete(expand = c(0, 0)) +
+    scale_fill_manual(name = 'RECIST response',
+                      values = tonic_color_palettes[['recist']])
+}
+cr_track <- gen_cr_track(patient_ordering)
+
+arm_track <- oncop_dat %>%
+  copy %>%
+  { .[, y_var := 'cohort'] } %>%
+  ggplot(aes(x = patient, y = y_var, fill = arm)) +
+  geom_rounded_tile(color = 'black') +
+  scale_x_discrete(expand = c(0, 0), drop = F) +
+  scale_fill_manual(name = 'Induction treatment',
+                    values = tonic_color_palettes[['arm']]) +
+  scale_x_discrete(expand = c(0, 0), drop = F) +
+  scale_y_discrete(expand = c(0, 0))
+
+brcaness_track <- oncop_dat %>%
+  copy %>%
+  { .[, y_var := 'BRCA1-like'] } %>%
+  { .[, brca1_like := as.character(brca1_like)] } %>%
+  { .[brca1_like == 'TRUE', brca1_like := 'BRCA1-like'] } %>%
+  { .[brca1_like == 'FALSE', brca1_like := 'non BRCA1-like'] } %>%
+  { .[is.na(brca1_like) | brca1_like == 'NA', brca1_like := 'NA'] } %>%
+  { .[, patient := factor(patient, levels = patient_ordering)] } %>%
+  ggplot(aes(x = patient, y = y_var, fill = brca1_like)) +
+  geom_rounded_tile(color = 'black') +
+  scale_x_discrete(expand = c(0, 0), drop = F) +
+  scale_fill_manual(name = 'BRCA1-like CN profile',
+                    values = tonic_color_palettes[['brcaness']]) +
+  scale_x_discrete(expand = c(0, 0), drop = F) +
+  scale_y_discrete(expand = c(0, 0))
+
+SCNA_track <- oncop_dat %>%
+  copy %>%
+  { .[, y_var := 'SCNA'] } %>%
+  ggplot(aes(x = patient, y = y_var, fill = gen_SCNA_score)) +
+  geom_rounded_tile(color = 'black') +
+  scale_x_discrete(expand = c(0, 0), drop = F) +
+  scale_y_discrete(expand = c(0, 0)) +
+  my_continuous_fill('SCNA score')
+
+germline_variants_track <-
+  read_excel(file.path(data_dir, 'BRCA_kiembaan.xlsx'),
+             na = c('', 'NA', '<NA>', '\\<NA\\>')) %>%
+  as.data.table %>%
+  { .[, patient := factor(patient, levels = patient_ordering)] } %>%
+  setkey(patient) %>%
+  { .[patient_ordering] } %>%
+  { .[gBRCA == 'wt', gBRCA := 'WT'] } %>%
+  { .[is.na(gBRCA), gBRCA := 'NA'] } %>%
+  { .[, gBRCA := factor(gBRCA,
+                        levels = c('NA', 'WT',
+                                   'BRCA1-mut', 'BRCA2-mut'))] } %>%
+  { .[, y_var := 'germline BRCA'] } %>%
+  ggplot(aes(x = patient, y = y_var, fill = gBRCA)) +
+  geom_rounded_tile(color = 'black') +
+  scale_x_discrete(expand = c(0, 0), drop = F) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_fill_manual(name = 'Germline BRCA variants',
+                    values = tonic_color_palettes[['brca_pathology']])
+
+tissue_track <- oncop_dat %>%
+  copy %>%
+  { .[, y_var := 'Tissue'] } %>%
+  { .[, patient := factor(patient, levels = patient_ordering)] } %>%
+  ggplot(aes(x = patient, y = y_var, fill = baseline_biopsy_site)) +
+  geom_rounded_tile(color = 'black') +
+  scale_x_discrete(expand = c(0, 0), drop = F) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_fill_manual(name = 'Tissue biopsy',
+                    values = tonic_color_palettes[['tissue']])
+
+ca15.3_track <- oncop_dat %>%
+  copy %>%
+  { .[, y_var := 'CA15.3'] } %>%
+  { .[, 'ca15_3_b' := as.character(ca15_3 >= median(ca15_3, na.rm = T))] } %>%
+  { .[is.na(ca15_3_b) | ca15_3_b == 'NA', ca15_3_b := 'NA'] } %>%
+  { .[, ca15_3_b := plyr::mapvalues(ca15_3_b, c('TRUE', 'FALSE', 'NA'),
+                                    c('CA15.3 high', 'CA15.3 low', 'NA'))] } %>%
+  { .[, ca15_3_b :=
+         factor(ca15_3_b, levels = c('CA15.3 high', 'CA15.3 low', 'NA'))] } %>%
+  { .[, patient := factor(patient, levels = patient_ordering)] } %>%
+  ggplot(aes(x = patient, y = y_var, fill = ca15_3_b)) +
+  geom_rounded_tile(color = 'black') +
+  scale_x_discrete(expand = c(0, 0), drop = F) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_fill_manual(name = 'CA15.3',
+    values = tonic_color_palettes[['brcaness']] %>%
+      setNames(c('CA15.3 low', 'CA15.3 high', 'NA')))
+
+s_til_track <- oncop_dat %>%
+  copy %>%
+  { .[, y_var := 'Stromal TIL'] } %>%
+  { .[, 's_til_b' := as.character(s_til >= median(s_til, na.rm = T))] } %>%
+  { .[is.na(s_til_b) | s_til_b == 'NA', s_til_b := 'NA'] } %>%
+  { .[, s_til_b := plyr::mapvalues(s_til_b, c('TRUE', 'FALSE', 'NA'),
+                                    c('sTIL high', 'sTIL low', 'NA'))] } %>%
+  { .[, s_til_b :=
+         factor(s_til_b, levels = c('sTIL high', 'sTIL low', 'NA'))] } %>%
+  { .[, patient := factor(patient, levels = patient_ordering)] } %>%
+  ggplot(aes(x = patient, y = y_var, fill = s_til_b)) +
+  geom_rounded_tile(color = 'black') +
+  scale_x_discrete(expand = c(0, 0), drop = F) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_fill_manual(name = 'Stromal TIL',
+    values = tonic_color_palettes[['brcaness']] %>%
+      setNames(c('sTIL low', 'sTIL high', 'NA')))
+
+pdl1_immuno_track <- oncop_dat %>%
+  copy %>%
+  { .[, y_var := 'immune cell PD-L1'] } %>%
+  { .[, 'pdl1_b' := as.character(pd_l1_immunoinfiltrate >=
+      median(pd_l1_immunoinfiltrate, na.rm = T))] } %>%
+  { .[is.na(pdl1_b) | pdl1_b == 'NA', pdl1_b := 'NA'] } %>%
+  { .[, pdl1_b := plyr::mapvalues(pdl1_b, c('TRUE', 'FALSE', 'NA'),
+                                    c('PD-L1 high', 'PD-L1 low', 'NA'))] } %>%
+  { .[, pdl1_b :=
+         factor(pdl1_b, levels = c('PD-L1 high', 'PD-L1 low', 'NA'))] } %>%
+  { .[, patient := factor(patient, levels = patient_ordering)] } %>%
+  ggplot(aes(x = patient, y = y_var, fill = pdl1_b)) +
+  geom_rounded_tile(color = 'black') +
+  scale_x_discrete(expand = c(0, 0), drop = F) +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_fill_manual(name = 'immune cell PD-L1',
+    values = tonic_color_palettes[['brcaness']] %>%
+      setNames(c('PD-L1 low', 'PD-L1 high', 'NA')))
+
+w_SCNA_track <- oncop_dat %>%
+  copy %>%
+  { .[, y_var := 'wSCNA'] } %>%
+  ggplot(aes(x = patient, y = y_var, fill = weighted_gen_SCNA_score)) +
+  geom_rounded_tile(color = 'black') +
+  scale_x_discrete(expand = c(0, 0), drop = F) +
+  scale_y_discrete(expand = c(0, 0)) +
+  my_continuous_fill()
+
+LOH_track <- oncop_dat %>%
+  copy %>%
+  { .[, y_var := 'LOH'] } %>%
+  ggplot(aes(x = patient, y = y_var, fill = perc_LOH)) +
+  geom_rounded_tile(color = 'black') +
+  scale_x_discrete(expand = c(0, 0), drop = F) +
+  scale_y_discrete(expand = c(0, 0)) +
+  my_continuous_fill('Fraction LOH')
+
+HRD_LOH_track <- oncop_dat %>%
+  copy %>%
+  { .[, y_var := 'HRD_LOH'] } %>%
+  ggplot(aes(x = patient, y = y_var, fill = HRD_LOH)) +
+  geom_rounded_tile(color = 'black') +
+  scale_x_discrete(expand = c(0, 0), drop = F) +
+  scale_y_discrete(expand = c(0, 0)) +
+  my_continuous_fill('HRD LOH')
+
+ntAI_track <- oncop_dat %>%
+  copy %>%
+  { .[, y_var := 'ntAI'] } %>%
+  ggplot(aes(x = patient, y = y_var, fill = ntAI)) +
+  geom_rounded_tile(color = 'black') +
+  scale_x_discrete(expand = c(0, 0), drop = F) +
+  scale_y_discrete(expand = c(0, 0)) +
+  my_continuous_fill('ntAI')
+
+w_LOH_track <- oncop_dat %>%
+  copy %>%
+  { .[, y_var := 'wLOH'] } %>%
+  ggplot(aes(x = patient, y = y_var, fill = weighted_perc_LOH)) +
+  geom_rounded_tile(color = 'black') +
+  scale_x_discrete(expand = c(0, 0), drop = F) +
+  scale_y_discrete(expand = c(0, 0)) +
+  my_continuous_fill()
+
+source('R/plot_DNASeq.R')
+source('R/constants.R')
+sr(B2M_gene_dat)
+B2M_track <- gen_oncoplot(rbind(B2M_gene_dat, BRCA_gene_dat, fill = T))
+oncop_dat[, fisher.test(brca1_like, clinical_response == 'R')]
+oncop_dat[, fisher.test(gen_SCNA_score >= median(gen_SCNA_score, na.rm = T),
+                        clinical_response == 'R')]
+oncop_dat[, 'clinical_response_b' := clinical_response == 'R']
+oncop_dat[!is.na(clinical_response_b),
+          wilcox.test(gen_SCNA_score ~ clinical_response_b)]
+oncop_dat[!is.na(clinical_response_b),
+          wilcox.test(gen_SCNA_score ~ clinical_response_b)]
+oncop_dat
+plot(oncop_dat[, .(gen_SCNA_score, clinical_response_b)])
+oncop_dat[, 'cr_b' := as.factor(clinical_response %in% c('R', 'CR', 'PR', 'SD'))]
+oncop_dat[, table(cr_b)]
+# oncop_dat[, wilcox.test(cr_b ~ gen_SCNA_score)]
+# print(B2M_track)
+source('R/pam50_plots.R')
+```
 
 ```{r, warning=FALSE, echo=FALSE}
-## Patient with LOH and two variants interfering internally with the polypeptide
-## structure
-source('R/read_DNASeq.R')
-# compute_vcf_stats('pat_25')
-ov <- compute_DNASeq_stats()
+source('R/load_rna_dat.R')
+rna_sample_annotation %<>%
+  controlled_merge(patient_labels[, .(patient, clinical_response, response)],
+                   by_cols = c('patient'), dup_priority = 'a')
+rna_patient_ordering <- rna_sample_annotation[order(response), unique(patient)]
+rna_cr_track <- gen_cr_track(rna_patient_ordering)
 ```
 
+
 ```{r, warning=FALSE, echo=FALSE}
-## T-cell infiltration overview
-source('R/plotting_adaptive.R')
-source('R/read_DNASeq.R')
-plot_cor_mat()
+# MMR_dat[order(-effect)]
+# interesting_combs <-
+#   MMR_dat[, .N, by = .(patient, hugo_symbol)][N > 1][, .(patient, hugo_symbol)]
+# setkey(MMR_dat, patient, hugo_symbol)
+# print(as.tibble(MMR_dat[interesting_combs]), n = 400)
+#   arrange(patient, hugo_symbol)
+
+plots <- list(mut_load_hist + track_style + 
+              theme(legend.position = c(.95, .95),
+                    legend.justification = c(1, 1),
+                    legend.direction = 'vertical',
+                    axis.title.y = element_text(size = 6, hjust = .5),
+                    axis.text.y = element_text(size = 6, vjust = .5, 
+                                               hjust = .5)),
+              cr_track + track_style +
+               theme(axis.text.y = element_text(size = 6)) +
+               theme(legend.position = 'none'),
+              arm_track + track_style +
+               theme(axis.text.y = element_text(size = 6)) +
+               theme(legend.position = 'none'),
+
+              ca15.3_track + track_style +
+               theme(axis.text.y = element_text(size = 6)) +
+               theme(legend.position = 'none'),
+              s_til_track + track_style +
+               theme(axis.text.y = element_text(size = 6)) +
+               theme(legend.position = 'none'),
+              pdl1_immuno_track + track_style +
+               theme(axis.text.y = element_text(size = 6)) +
+               theme(legend.position = 'none'),
+
+              germline_variants_track + track_style +
+               theme(axis.text.y = element_text(size = 6)) +
+               theme(legend.position = 'none'),
+              # w_SCNA_track,
+              brcaness_track + track_style +
+               theme(axis.text.y = element_text(size = 6)) +
+               theme(legend.position = 'none'),
+              SCNA_track + track_style +
+               theme(axis.text.y = element_text(size = 6)) +
+               theme(legend.position = 'none'),
+              # ntAI_track + track_style +
+              #  theme(axis.text.y = element_text(size = 6)),
+              # HRD_LOH_track + track_style +
+              #  theme(axis.text.y = element_text(size = 6)),
+              # w_LOH_track,
+              # LOH_track + track_style +
+              #  theme(axis.text.y = element_text(size = 6)) +
+              #  theme(legend.position = 'none'),
+
+              B2M_track + track_style +
+               theme(axis.text.y = element_text(size = 6)) +
+               theme(legend.position = 'none'),
+              'pam50' = pam50_track_BL + track_style +
+               theme(legend.position = 'none'),
+
+              'pam50_nano' = pam50_nano_track_BL + track_style +
+               theme(legend.position = 'none'))
+sth <- .6 * .3
+plots[[5]] + 
+stopifnot(length(heights <- c(8, sth, sth,
+                              sth, sth, sth,
+                              sth, sth, sth, #sth, sth, sth,
+                              4 * sth, 3 * sth, 3 * sth)) ==
+          length(plots))
+mut_height <- heights[1] / sum(heights)
+grid.draw(get_legend(B2M_track))
+
+main <- plots %>% 
+  { ggpubr::ggarrange(plotlist = .,
+                      ncol = 1,
+                      nrow = length(plots),
+                      align = 'v',
+                      heights = heights) }
+rm(heights)
+
+legends <- plots %>%
+  { .[2:length(.)] } %>%
+  { .[!grepl('nano', names(.))] } %>%
+  purrr:::map(function(p) 
+              tryCatch(get_legend(p +theme(legend.position = 'right')),
+              error = function(e) { return(NULL) }) ) %>%
+  { .[!sapply(., is.null)] } %>%
+  { ggpubr::ggarrange(plotlist = .,
+                      ncol = 1,
+                      nrow = length(.),
+                      align = 'none',
+                      heights = c(1, 1, 1, 1, 1, 1)) }
+
+library(grid)
+graphics.off()
+dev.new(width = 17.4 / 2.54, height = 17 / 2.54)
+vp1 <- viewport(x=0, y=0, width=0.8, height=1, just = c(0, 0))
+vp2 <- viewport(x=0.8, y=0,width=.2,
+                # height= 1 - mut_height,
+                height= 1,
+                just = c(0, 0))
+print(main, vp = vp1)
+print(legends, vp = vp2)
+
+pdf(file.path(img_dir, 'oncoplot.pdf'),
+    width = 17.4 / 2.54, height = 17 / 2.54)
+print(main, vp = vp1)
+print(legends, vp = vp2)
+dev.off()
 ```
+
+
+```{r, warning=FALSE, echo=FALSE}
+levels(oncop_dat$patient)
+MMR_dat[patient == 'pat_26']
+```
+
+
+```{r, warning=FALSE, echo=FALSE}
+plot_scatter_cor(x_var = 'perc_LOH', y_var = 'mut_load', dtf = oncop_dat)
+plot_scatter_cor(x_var = 'gen_SCNA_score', y_var = 'mut_load', dtf = oncop_dat)
+```
+
+# Predict clinical response based on combined features
+
+```{r, warning=FALSE, echo=FALSE}
+pacman::p_load(glmnet)
+
+lbs_fun <- function(fit, ...) {
+  L <- length(fit$lambda)
+  x <- log(fit$lambda[L])
+  y <- fit$beta[, L]
+  text(x, y, labels = names(y), adj = 0, ...)
+}
+
+plot_cv_glmnet <- function(tp = 'Post-induction', modelversion, cv.glmnet, predicted) {
+  layout(c(1, 2, 3))
+
+  plot(cv.glmnet, main = sprintf('%s %s', tp, modelversion),
+       xlab = 'log(Lambda)')
+  # abline(a = null_performance, b = 0, col = 'red', lwd = 2)
+  null_performance <-
+  print(coef(cv.glmnet, s = "lambda.min"))
+
+  plot(cv.glmnet$glmnet.fit, label = F, xvar = 'lambda', xlab = 'log(Lambda)')
+  abline(v = log(cv.glmnet$lambda.min), lty =3)
+  abline(v = log(cv.glmnet$lambda.1se), lty =3)
+  lbs_fun(cv.glmnet$glmnet.fit)
+
+  boxplot(predicted$actual, predicted$predicted)
+}
+
+rank_percentile <- function(v) {
+  (frank(v, ties.method = 'max') - 1) / (length(v) - 1)
+}
+
+range_transform <- function(v) {
+  (v - min(v)) / (max(v) - min(v))
+}
+# c(1, 4, 6, 5) %>% range_transform
+# c(1, 4, 6, 5) %>% rank_percentile
+
+norm_method = 'none'
+norm_method = 'Z'
+alpha = 0
+alpha = 1
+plot_glmnet_analyses <- function(norm_method = 'range', alpha = 1,
+                                 tp = 'Post-induction',
+                                 tp = 'Baseline',
+                                 iterative_plotting = F) {
+  measures = c('sample_clonality', 'efron_thisted_estimator',
+               'adaptive_t_cells', 'ntAI', 'HRD_LOH', 'mut_load')
+  measures = c('sample_clonality', 'efron_thisted_estimator',
+               'adaptive_t_cells')
+  t_dat <- controlled_merge(patient_labels[timepoint == tp],
+                            oncop_dat, by_cols = 'patient')
+  t_dat <- t_dat[, c('clinical_response', measures), with = F]
+  t_dat %<>% { .[complete.cases(.)] }
+
+  if (t_dat[, .N] <= 10) next
+
+  ## Single covariates
+  X_mat <- as.matrix(t_dat[, seq_along(measures)+1, with = F])
+  if (norm_method == 'Z') {
+    X_mat <- apply(X_mat, 2, function(x) (x - mean(x)) / sd(x))
+  } else if (norm_method == 'rank') {
+    X_mat <- apply(X_mat, 2, rank_percentile)
+  } else if (norm_method == 'range') {
+    X_mat <- apply(X_mat, 2, range_transform)
+  }
+  y_vec <- as.integer(t_dat[, 1] == 'R')
+  null_performance <- mean(y_vec) %>% { ifelse(. > .5, 1 - ., .) }
+  cv.glmnet <- cv.glmnet(x = X_mat, y = y_vec, family = 'binomial',
+                         alpha = alpha, nfolds = nrow(X_mat))
+  predicted <- data.frame('actual' = as.factor(y_vec),
+                          'predicted' = predict(cv.glmnet, newx = X_mat,
+                                                s = 'lambda.min')[, 1])
+  predicted %>%
+    group_by(actual) %>%
+    dplyr::summarise(median(predicted)) %>%
+    print
+
+  plot_cv_glmnet(tp, 'simple', cv.glmnet, predicted)
+  if (iterative_plotting && interactive())
+    invisible(readline(prompt = 'Press [enter] to continue'))
+
+  ## Add interaction terms
+  # X_mat <- as.matrix(t_dat[, 1:3])
+  iter <- 1
+  for (i in seq(1, length(measures) - 1)) {
+    for (j in seq(i + 1, length(measures))) {
+      X_mat %<>% cbind(X_mat[, i] * X_mat[, j])
+      colnames(X_mat)[3 + iter] <- sprintf('%s.%s', measures[i], measures[j])
+      iter <- iter + 1
+    }
+  }
+  if (norm_method == 'Z') {
+    X_mat <- apply(X_mat, 2, function(x) (x - mean(x)) / sd(x))
+  } else if (norm_method == 'rank') {
+    X_mat <- apply(X_mat, 2, rank_percentile)
+  } else if (norm_method == 'range') {
+    X_mat <- apply(X_mat, 2, range_transform)
+  }
+  cv.glmnet <- cv.glmnet(x = X_mat, y = y_vec, family = 'binomial',
+                         alpha = alpha)
+  plot_cv_glmnet(tp, 'simple', cv.glmnet,
+                 data.frame('actual' = as.factor(y_vec),
+                            'predicted' = predict(cv.glmnet, newx = X_mat,
+                                                  s = 'lambda.min')[, 1]))
+  if (iterative_plotting && interactive())
+    invisible(readline(prompt = 'Press [enter] to continue'))
+}
+
+pdf(file.path(img_dir, 'logistic_regression_adaptive_summary_statistics.pdf'),
+    width = 7, height = 10)
+plot_glmnet_analyses()
+dev.off()
+
+# data.frame('actual' = as.factor(y_vec),
+#            'predicted' = predict(cv.glmnet, newx = X_mat, s = 'lambda.min')[, 1]) %>%
+#   ggplot(aes(x = actual, y = predicted)) + geom_boxplot()
+# cv.glmnet

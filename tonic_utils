@@ -39,8 +39,13 @@ GITSTATUSCOM='git --no-pager diff'
 case "$1" in
     ctags|ct)
         curdir=$(pwd)
-        echo "running ctags on R files under project root: $PROOT"
-        eval cd $PROOT
+        if [[ $(hostname) = 'coley' ]]; then
+          temproot=$REMOTEPROOT
+        else
+          temproot=$PROOT
+        fi
+        echo "running ctags on R files under project root: ${temproot}"
+        eval cd ${temproot}
         ctags **/*.R ~/libs/**/*.R
         eval cd $curdir
         ;;
@@ -86,10 +91,10 @@ case "$1" in
           ssh -t $SSHCOM "tail -f ~/$LF"
           exit
         elif [[ "$2" == "-l" ]]; then
-          ssh -t $SSHCOM "less ~/$LF"
+          ssh-t $SSHCOM "less ~/$LF"
           exit
         else
-          $0 synccodedelete
+          $0 synccode
           echo "Will evaluate on $SERVER:\n$COM"
           ssh $SSHCOM $COM
           $0 rr -f
@@ -106,7 +111,7 @@ case "$1" in
           ssh $SSHCOM "killall -r R -u $REMOTEUNAME"
         fi
         ;;
-    synccodedelete|scdc)
+    synccode|sc)
         # First sync results, some of which are in maarten-analyses, so as not
         # to delete them remotely if they're not present locally yet
         # $0 stf fas_shared_analyses -d
@@ -116,6 +121,8 @@ case "$1" in
         eval "rsync $FLAGS ~/libs/GSEAgenesets $SSHCOM:~/libs"
         eval "rsync $FLAGS ~/antigenic_space/bin/install_packages.R $SSHCOM:~/antigenic_space/bin"
         eval "rsync $FLAGS $PROOT $SSHCOM:$REMOTEPROOT"
+        $0 stf rmd
+        $0 stf R
         echo "Finished syncing code to remote"
         ;;
     syncfromfile|sff)
@@ -167,6 +174,7 @@ case "$1" in
         ;;
     syncrds|srds)
         $0 sff "rds"
+        $0 sff "rds2"
         $0 sff "plots"
         # $0 sff "stan_test"
         # for f in *.stan; do
@@ -176,8 +184,15 @@ case "$1" in
     syncfastq)
         rsync -avz m.slagter@coley:/DATA/users/m.slagter/TONIC/fastq ~/Projects/TONIC/ --include "*.html" --include="*.txt" --exclude="*.zip" --exclude="*.fastq.gz"
         ;;
+    syncgcf)
+        cd $PROOT/data-raw
+        wget -r -np -A '.txt' -A '.pdf' http://forge/userdata/sLpLDXtXQNrqruxTWwnV2GSuNVSSGAdgP60YoQzR/TONIC_stage1_WES/
+        ;;
     publish_results|pbr)
         cp ~/antigenic_space/maarten-analyses/knitr_output/tcrseq.html /Volumes/shared/Groups/Tonic/Data\ analyse/
+        ;;
+    syncadaptive)
+        rsync -avz --delete --include='*.tsv' --exclude='*' data-raw/ m.slagter@coley:TONIC/data-raw/
         ;;
     *)
         echo "Usage: ${0:t} (TODO"

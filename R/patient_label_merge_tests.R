@@ -1,6 +1,38 @@
 cond_rm('blood_adaptive')
 cond_rm('patient_labels')
 
+
+#' Filter out patients that have dubious annotation
+#'
+#'
+filter_patients <- name <- function(p_dat, ...) { 
+  comb_vars <- as.character(...)
+  clinical_params <- c('response', 'clinical_response', 'comb_time_resp')
+  if (is.null(comb_vars)) return(p_dat)
+  if (any(comb_vars %in% clinical_params)) {
+    # resp_var <- comb_vars[which(comb_vars %in% clinical_params)]
+    p_dat <- p_dat[patient %nin% c('pat_63', 'pat_64')]
+    for (varn in clinical_params) {
+      if (varn %in% colnames(p_dat)) {
+        N <- p_dat[is.na(get(varn)), .N]
+        if (N > 0) {
+          messagef('Removing %d donors due to absence of %s', N, varn)
+          p_dat <- p_dat[!is.na(get(varn))]
+        }
+      }
+    }
+  }
+  if (F) {
+    pres_cols <- 
+      intersect(colnames(p_dat), c('patient', 'arm', 'timepoint', 
+                                   'blood_timepoint',
+                                   'filename', 'adaptive_sample_name'))
+    p_dat <- unique(p_dat, by = pres_cols)
+  }
+  return(p_dat)
+}
+
+
 merge_tests <- function(idx = 1) {
   if (patient_labels[, uniqueN(arm) > 1, by = patient][, any(V1)]) {
     print('prob 1')
@@ -52,12 +84,14 @@ merge_tests <- function(idx = 1) {
   }
 
   bool <- filter_patients(patient_labels, 'clinical_response') %>%
-    filter(timepoint == 'On nivo' & is.na(clinical_response)) %>%
+    dplyr::filter(as.character(timepoint) == 'On nivo' & 
+                  is.na(clinical_response)) %>%
+    as.data.table %>%
     { .[, .N > 0] }
-  if (bool) {
+  if (length(bool) > 0 && bool) {
     print('prob 8')
     filter_patients(patient_labels, 'clinical_response') %>%
-      filter(timepoint == 'On nivo' & is.na(clinical_response))
+      dplyr::filter(timepoint == 'On nivo' & is.na(clinical_response))
     browser()
   }
 
@@ -96,6 +130,24 @@ merge_tests <- function(idx = 1) {
   if (patient_labels[, any(grepl('Pat', patient))]) {
     print('prob 11')
     browser()
+  }
+
+  if (patient_labels[, .N, by = .(patient, timepoint)] %>%
+              dplyr::filter(!is.na(patient)) %>%
+              dplyr::filter(N > 1) %>% nrow != 0) {
+    print('prob 12: multiple entries per patient/timepoint combination')
+    patient_labels[, .N, by = .(patient, timepoint)] %>%
+      .[N > 1, unique(patient)] %>%
+      { patient_labels[patient == .] }
+    browser()
+  }
+  
+  if (idx > 1 && 'cf_number' %in% colnames(patient_labels)) {
+    sc <- patient_labels[patient == 'pat_33' & cf_number == 'CF15398', .N]
+    if (sc > 0) {
+      print('prob 13: incorrect sample annotation')
+      browser()
+    }
   }
 }
 

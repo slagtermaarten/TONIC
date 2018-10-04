@@ -140,7 +140,7 @@ prepare_adaptive_FC <- function(# facet_var = NULL,
                                 facet_var = 'arm',
                                 alpha_lev = .8,
                                 epsilon = 1,
-                                timepoints = timepoints,
+                                timepoints = it_timepoints,
                                 # var1 = 'pielou_evenness',
                                 var1 = 'sample_clonality',
                                 var2 = 'efron_thisted_estimator') {
@@ -272,23 +272,24 @@ plot_FC <- function(agg_tp,
                                  names(timepoint_colors)))
   }
 
-  s_plot <- s_plot +
-    scale_x_continuous(sprintf('%s [log2 FC from Baseline]',
-                               var_to_label(var1, label_reps)),
-                       trans = 'identity',
-                       expand = c(0.1, 0.1)) +
-    scale_y_continuous(sprintf('%s [log2 FC from Baseline]',
-                               var_to_label(var2, label_reps)),
-                       trans = 'identity',
-                       expand = c(0.1, 0.1)) +
-    theme(legend.position = 'top', legend.direction = 'vertical') +
-    gg_legend_alpha_cancel
+  if (!is.null(colour_var) && colour_var == 'clinical_response') {
+    s_plot <- s_plot + aes_string(colour = colour_var) +
+      # scale_fill_manual(values = timepoint_colors) +
+      scale_colour_manual(name = '',
+                          values = tonic_color_palettes[['clinical_response']])
+  }
 
   if (!is.null(facet_var)) {
     s_plot <- s_plot +
       facet_wrap(as.formula(sprintf('~ %s',
                                     paste(facet_var, collapse = ' + '))),
                  nrow = length(facet_var))
+  }
+
+  if (!is.null(facet_var)) {
+    fv_u <- agg_tp[, uniqueN(get(facet_var))]
+  } else {
+    fv_u <- 1
   }
 
   if (plot_counts) {
@@ -300,17 +301,17 @@ plot_FC <- function(agg_tp,
       counts <- counts[!(v1 == 0 & v2 == 0)]
       counts[, 'perc' := N / sum(N), by = fv]
       setnames(counts, 'fv', facet_var)
-      fv_u <- counts[, uniqueN(get(facet_var))]
     } else {
       ## Untested
       counts <- counts[, .N, by = .('v1' = sign(get(var1)), 
                                     'v2' = sign(get(var2)))] 
       counts <- counts[!(v1 == 0 & v2 == 0)]
-      counts[, 'perc' := N / sum(N), by = fv]
+      counts[, 'perc' := N / sum(N)]
       fv_u <- 1
     }
     counts[, 'total' := sum(N), by = facet_var]
     degree <- .95
+    # browser()
     counts[, v1 := ifelse(v1 == -1, 1-degree, degree)]
     counts[, v2 := ifelse(v2 == -1, 1-degree^(1/fv_u), degree^(1/fv_u))]
     counts[, (var1) := interpolate_in_gg_range(s_plot, 'x', degree = v1)]
@@ -321,8 +322,21 @@ plot_FC <- function(agg_tp,
     s_plot <- s_plot + geom_text(data = counts, 
                        aes_string(group = NULL, colour = NULL,
                                   x = var1, y = var2, label = 'label'),
-                       size = 3, guide = F)
+                       size = 2.5, guide = F)
   }
+
+  s_plot <- s_plot +
+    scale_x_continuous(sprintf('%s [log2 FC from Baseline]',
+                               var_to_label(var1, label_reps)),
+                       trans = 'identity',
+                       expand = c(0.1, 0.00)) +
+    scale_y_continuous(sprintf('%s [log2 FC from Baseline]',
+                               var_to_label(var2, label_reps)),
+                       trans = 'identity',
+                       expand = c(0.1, 0.00)) +
+    theme(legend.position = 'top', legend.direction = 'vertical') +
+    gg_legend_alpha_cancel
+
   return(s_plot)
 }
 
@@ -995,5 +1009,6 @@ plot_TCR_chronological <- function(patient = 'pat_11',
      colour = guide_legend(order = 2),
      fill = guide_legend(order = 2)
     )
+
   return(p)
 }

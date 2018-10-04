@@ -1,7 +1,6 @@
 ```{r, warning=FALSE, echo=FALSE}
 # source('~/antigenic_space/bin/install_packages.R')
 devtools::load_all('~/libs/GSEAgenesets')
-setwd('~/Projects/TONIC')
 source('R/init.R')
 source('R/load_rna_dat.R')
 source('R/rna.R')
@@ -9,6 +8,26 @@ source('R/rna.R')
 
 # QC
 
+## PAM50 subtype vs. CF number
+
+```{r, warning=FALSE, echo=FALSE}
+subtype_predictions <- 
+  readRDS('rds/subtype_predictions.rds') %>%
+  { .$subtype.proba } %>%
+  as.data.frame %>%
+  rownames_to_column('cf_number') %>%
+  melt(id.vars = 'cf_number') %>%
+  controlled_merge(rna_sample_annotation[, .(cf_number, patient, timepoint)],
+                   by_cols = 'cf_number') %>%
+  dplyr::filter(timepoint == 'Baseline') %>%
+  dplyr::mutate(cf_number = factor(cf_number, levels =
+                                   naturalsort(unique(cf_number)))) %>%
+  arrange(cf_number)
+
+ggplot(subtype_predictions, aes(x = cf_number, value)) + geom_point() + 
+  facet_wrap(~variable) +
+  rotate_x_labels(90)
+```
 
 ## Correspondence gene set scores and evenness
 
@@ -29,7 +48,7 @@ rna_sample_annotation[c(40, 31, 2)]
 ```{r, warning=FALSE, echo=FALSE}
 dev.off()
 layout(matrix(1:6, nrow = 3, byrow = T))
-plot(lm(median_gs ~ median_gs_rn, 
+plot(lm(median_gs ~ median_gs_rn,
         data = rna_sample_annotation[, .(median_gs, median_gs_rn)]),
      labels.id = rna_sample_annotation[, cf_number],
      which = 1:6, ask = F)
@@ -187,15 +206,39 @@ plot_panel_layout(plots = plots, filename = 'plots2/tophat_salmon_cor.pdf',
                   ncol = 3, nrow = 5, labels = NULL)
 ```
 
+## TPM vs TMM normalization
+
+```{r, warning=FALSE, echo=FALSE}
+exp_mat_1 <- gen_gene_set_score_matrix(sum_func = median,
+                          sets = filter_gmt('h.all', 'HALLMARK'),
+                          exp_mat = rna_read_counts_salmon_tmm_M,
+                          log_transform = 'log2')
+
+exp_mat_2 <- gen_gene_set_score_matrix(sum_func = median,
+                          sets = filter_gmt('h.all', 'HALLMARK'),
+                          exp_mat = tpms_salmon,
+                          log_transform = 'log2')
+
+setnames(exp_mat_1, 'value', 'tmm_value')
+setnames(exp_mat_2, 'value', 'tpm_value')
+merged <- controlled_merge(exp_mat_1, exp_mat_2)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+plot_scatter_cor('tmm_value', 'tpm_value', dtf = merged) + facet_wrap(~patient)
+```
+
 # PAM50 subtypes
 
 ```{r, eval = F, warning=FALSE, echo=FALSE}
 source("https://bioconductor.org/biocLite.R")
-biocLite("org.Mm.eg.db")
+if (!require("org.Mm.eg.db")) {
+  biocLite("org.Mm.eg.db")
+}
 library(AnnotationDbi)
 library(org.Mm.eg.db)
-AnnotationDbi::select(org.Mm.eg.db, keys=genes, columns='ENTREZID',
-                      keytype='SYMBOL')
+# AnnotationDbi::select(org.Mm.eg.db, keys=genes, columns='ENTREZID',
+#                       keytype='SYMBOL')
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
@@ -209,7 +252,7 @@ if (F) {
                        'hgnc_symbol',
                        'description',
                        'chromosome_name', 'start_position', 'end_position'),
-          filters = 'hgnc_symbol', values = rownames(tpms_salmon), 
+          filters = 'hgnc_symbol', values = rownames(tpms_salmon),
           mart = ensembl)
   clear_object('entrez_table', sr)
   setDT(entrez_table)
@@ -226,10 +269,13 @@ if (F) {
 # source("https://bioconductor.org/biocLite.R")
 # biocLite("genefu")
 library(genefu)
-t_dat <- t(tpms_salmon)
-# dimnames(t_dat)
-# annot_df
-colnames(t_dat) <- rownames(tpms_salmon)
+# clear_object('subtype_predictions', sr)
+sr(entrez_table)
+# t_dat <- t(tpms_salmon)
+t_dat <- t(rna_read_counts_salmon_tmm_M)
+rownames(t_dat)
+# colnames(t_dat) <- rownames(tpms_salmon)
+colnames(t_dat) <- rownames(rna_read_counts_salmon_tmm_M)
 entrez_table <- entrez_table[!is.na(entrezgene)]
 t_dat <- t_dat[, colnames(t_dat) %in% entrez_table[, hgnc_symbol]]
 setnames(entrez_table, c('hgnc_symbol', 'entrezgene'),
@@ -238,7 +284,30 @@ subtype_predictions <- molecular.subtyping(sbt.model = 'pam50',
   data = as.data.frame(t_dat),
   annot = entrez_table[, .(Gene.Symbol, EntrezGene.ID)],
   do.mapping = F)
-table(subtype_predictions$subtype)
+# sr(subtype_predictions)
+saveRDS(subtype_predictions, 'rds/subtype_predictions.rds')
+
+# subtype_predictions <- readRDS('rds/subtype_predictions.rds')
+rna_sample_annotation %<>%
+  controlled_merge(data.table('cf_number' = names(subtype_predictions$subtype),
+                              'pam50_subtype' = subtype_predictions$subtype,
+                              'pam50_confidence' =
+                                apply(subtype_predictions$subtype.proba, 1,
+                                      max)),
+                   by = 'cf_number')
+
+write_tsv(rna_sample_annotation[, .(patient, arm, timepoint,
+                                    pam50_subtype, pam50_confidence)],
+          file.path(p_root, 'ext/pam50_subtypes.tsv'))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+options(max.print = 200)
+rna_sample_annotation[, .N, by = .(baseline_biopsy_site, pam50_subtype)] %>%
+  dplyr::arrange(baseline_biopsy_site, pam50_subtype) %>%
+  dplyr::group_by(baseline_biopsy_site) %>%
+  dplyr::mutate(N / sum(N)) %>%
+  print(n = 40)
 ```
 
 # Transcriptomic processes
@@ -287,7 +356,7 @@ source('R/rna.R')
 ann_row <-
   rbindlist(imap(filter_gmt(gmt_pat = 'burstein'), function(x, y)
      data.frame(x, 'subtype' = gsub('BURSTEIN-', '', y))
-     )) %>% as.data.frame %>% column_to_rownames('x')
+  )) %>% as.data.frame %>% column_to_rownames('x')
 class(ann_row)
 # rownames(ann_cols)
 
@@ -298,7 +367,7 @@ class(ann_row)
 
 plot_gene_set(gs_name = 'Burstein_subtypes',
               gene_symbols = rownames(ann_cols),
-              exp_mat = tpms_salmon,
+              exp_mat = rna_read_counts_salmon_tmm_M,
               ann_row = ann_row,
               timepoints = c('Baseline', 'Post-induction'))
               # timepoints = 'Post-induction')
@@ -316,15 +385,24 @@ burstein_scores <- gen_gene_set_score_matrix(sum_func = median,
 #                   by = .(patient, timepoint)]
 burstein_scores[, gene_set := gsub('BURSTEIN-', '', gene_set)]
 burstein_scores[, 'certainty' := 1 - compute_evenness(value),
-           by = .(patient, timepoint)]
-burstein_scores[, .N == 8, by = patient]
-burstein_scores[measurement_count == T,
-                sum(value, na.rm = T),
-                by = .(timepoint, arm, gene_set)]
+                by = .(patient, timepoint)]
+# burstein_scores[, .N == 8, by = patient]
+# burstein_scores[measurement_count == T,
+#                 sum(value, na.rm = T),
+#                 by = .(timepoint, arm, gene_set)]
 
 burstein_scores <- burstein_scores[, .SD[which.max(value)],
                                    by = .(patient, timepoint)] %>%
   { .[naturalorder(patient)] }
+
+burstein_scores %>%
+  dplyr::select(patient, timepoint, gene_set, value, certainty) %>%
+  # tidyr::spread(key = timepoint, value = value) %>%
+  # dcast(patient + gene_set + certainty ~ timepoint, value.var = 'value')
+  maartenutils::write_tsv(file.path(p_root, 'ext', 'burstein_scores.tsv'))
+```
+
+```{r, warning=FALSE, echo=FALSE}
 
 # burstein_scores[, uniqueN(gene_set), by = patient]
 # burstein_scores <- burstein_scores[measurement_count == T]
@@ -442,7 +520,7 @@ evenness_vals <- apply(log2tpms, 2, compute_evenness)
 rna_sample_annotation$log_evenness <- evenness_vals[rna_sample_annotation$cf_number]
 rm(evenness_vals)
 ## Gene set score dists per patient
-gs_mat <-
+s_mat <-
   controlled_merge(gs_mat,
                    rna_sample_annotation[, .(patient, timepoint, log_evenness)])
 ```
@@ -488,10 +566,6 @@ ggplot(gs_mat, aes(x = patient, y = value, fill = log_evenness)) +
   )
 ```
 
-## Correct gene set scores for `prot_cod`
-
-`prot_cod` turned out to be a major influence on evenness and gene set scores
-
 # Limma DEG
 ## Multivariate model
 
@@ -530,11 +604,14 @@ hist(unlist(log2tpms[2000, ]))
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
-cpms <- as.matrix(rna_read_counts)
-rownames(cpms) <- ensgs
+cpms <- as.matrix(rna_read_counts_salmon)
+rownames(cpms) <- rownames(rna_read_counts_salmon)
 cpms <- cpms[!eps(apply(cpms, 1, var), 0, 1e-1), ]
 cpms <- limma::voom(cpms)
 class(cpms)
+```
+
+```{r, warning=FALSE, echo=FALSE}
 normality_tests <- sapply(apply(cpms, 1, shapiro.test),
                           function(x) { x$p.value })
 table(normality_tests < 0.05)
@@ -626,8 +703,6 @@ cont.matrix <- makeContrasts(R = CR,
                              levels = model_mat)
 c_fit <- eBayes(contrasts.fit(e_fit, cont.matrix))
 my_tt(c_fit, adjust = "fdr")
-
-
 ```
 
 ## Arm specific analyses
@@ -705,6 +780,14 @@ plot(o_ana)
 ```{r, warning=FALSE, echo=FALSE}
 source('R/rna.R')
 
+rna_read_counts_salmon <-
+  file.path(p_root, 'salmon_rna', 'salmon_count_mat.tsv') %>%
+  fread %>% 
+  normalize_colnames %>%
+  as.data.frame %>%
+  column_to_rownames('hugo_symbol') %>%
+  as.matrix
+
 contrast_response <- function(l_timepoint = 'Baseline') {
   rna_subs <- rna_sample_annotation[timepoint == l_timepoint]
   rna_subs <- rna_subs[!is.na(clinical_response)] %>% unique
@@ -719,7 +802,7 @@ contrast_response <- function(l_timepoint = 'Baseline') {
   # rownames(model_mat) <- rna_subs[, cf_number]
 
   idx  <- match(rna_subs$cf_number, colnames(rna_read_counts_salmon))
-  cpms <- as.matrix(rna_read_counts_salmon[, idx, with = F])
+  cpms <- rna_read_counts_salmon[, idx]
   stopifnot(all(colnames(cpms) == rna_subs$cf_number))
   rownames(cpms) <- rownames(rna_read_counts_salmon)
   cpms <- cpms[!eps(apply(cpms, 1, var), 0, 1e-1), ]
@@ -743,3 +826,357 @@ my_tt(pi_efit, coef = 2, sort.by = 'p', number = 3e4) %>%
   filter(adj.P.Val <= 0.05)
 my_tt(e_fit, coef = 2, sort.by = 'p', number = 3e4)
 ```
+
+# Sample overlap with NanoString analyses
+
+```{r, warning=FALSE, echo=FALSE}
+paired_ns_pts <- patient_labels[!is.na(filename) &
+                                 timepoint %in% timepoints[c(1,2)],
+                                .N, by = patient][N == 2, patient]
+paired_rna_pts <- rna_sample_annotation[, .N, by = patient][N == 2, patient]
+
+length(intersect(paired_ns_pats, paired_rna_pts)) /
+  length(union(paired_ns_pats, paired_rna_pts))
+
+setkey(patient_labels, patient)
+patient_labels[setdiff(paired_ns_pts, paired_rna_pts), .(patient, arm)] %>%
+  unique
+#    patient          arm
+# 1:   pat_5 Radiotherapy
+
+patient_labels[setdiff(paired_rna_pts, paired_ns_pts), .(patient, arm)] %>%
+  unique
+#    patient              arm
+# 1:  pat_14 Cyclophosphamide
+# 2:  pat_33     No induction
+# 3:  pat_69        Cisplatin
+# 4:  pat_73      Doxorubicin
+```
+
+# Correlation betweeen samples
+
+Investigate the correlation between samples, is the patient source dominant?
+Formally test whether correlation coefficient between patients are higher than
+expected? Herein, stratify by arm and clinical response.
+
+```{r, warning=FALSE, echo=FALSE}
+library(corrplot)
+
+cor_mat <- cor(rna_read_counts_salmon_tmm_M %>%
+               { .[rownames(.) %in% t_dat[cova >= 1, hgnc_symbol]] },
+             method = 'pearson')
+invisible(rna_sample_annotation[, 'pat_tp' := sprintf('%s - %s', patient, timepoint)])
+invisible(rna_sample_annotation[, pat_tp := gsub('^pat_', '', pat_tp)])
+invisible(rna_sample_annotation[, pat_tp := gsub('Baseline', 'BL', pat_tp)])
+invisible(rna_sample_annotation[, pat_tp := gsub('Post-induction', 'PI', pat_tp)])
+
+colnames(cor_mat) <- rna_sample_annotation[match(colnames(cor_mat), cf_number),
+                                           pat_tp]
+rownames(cor_mat) <- rna_sample_annotation[match(rownames(cor_mat), cf_number),
+                                           pat_tp]
+cor_mat <- cor_mat[naturalsort(rownames(cor_mat)), naturalsort(rownames(cor_mat))]
+allowed_pats <- gsub(' - .+$', '', rownames(cor_mat)) %>%
+  table %>% { names(.)[. == 2] } %>% naturalsort
+
+cor_mat_bool <- grepl(paste(sprintf('^%s - .*', allowed_pats), collapse = '|'), rownames(cor_mat))
+cor_mat <- cor_mat[cor_mat_bool, cor_mat_bool]
+
+percentile_cor_dat <-
+  map_dfr(patient_labels[, naturalsort(gsub('pat_', '', unique(patient)))],
+       function(patient_id) {
+    stopifnot(all(colnames(cor_mat) == rownames(cor_mat)))
+    bools <- grepl(sprintf('^%s - \\w+', patient_id), colnames(cor_mat))
+    if (sum(bools) != 2) return(NULL)
+    idx <- which(bools)
+    obs <- cor_mat[idx[1], idx[2]]
+    controls <- as.vector(cor_mat[idx[1], setdiff(1:ncol(cor_mat), idx[2])])
+    cor_percentile <- mean(obs >= controls)
+    # browser(expr = is.na(cor_percentile))
+    return(list('patient' = sprintf('pat_%s', patient_id),
+                'cor_percentile' = 1 - cor_percentile,
+                'row_i' = idx[1],
+                'col_i' = idx[2]))
+  }) %>%
+  as.data.table %>%
+  { .[!is.na(cor_percentile), ] } %>%
+  controlled_merge(patient_labels[, .(patient, arm, timepoint,
+                                      clinical_response)]) %>%
+  { .[naturalorder(patient)] } %>%
+  mutate('colname' = sprintf('%s - %s', gsub('pat_', '', patient), timepoint))
+
+setkey(percentile_cor_dat, patient)
+p_mat <- matrix(0, nrow = ncol(cor_mat), ncol = nrow(cor_mat),
+                dimnames = list('a' = rownames(cor_mat),
+                                'b' = colnames(cor_mat)))
+for (i in 1:nrow(percentile_cor_dat)) {
+  p_mat[percentile_cor_dat[i, row_i], percentile_cor_dat[i, col_i]] <- percentile_cor_dat[i, cor_percentile]
+  p_mat[percentile_cor_dat[i, col_i], percentile_cor_dat[i, row_i]] <- percentile_cor_dat[i, cor_percentile]
+}
+
+
+corrplot(cor_mat,
+         p.mat = p_mat,
+         addrect = 6,
+         tl.col = 'gray40',
+         pch.col = 'white',
+         pch.cex = .6,
+         # order = 'AOE',
+         # order = "hclust",
+         order = 'original',
+         sig.level = .95,
+         # tl.pos = 'ld',
+         # type = 'lower',
+         tl.cex = .9,
+         # sig.level = sig_level,
+         # insig = "label_sig",
+         method = 'color',
+         mar = c(0,0,0,0), # http://stackoverflow.com/a/14754408/54964
+         title = '')
+```
+
+# GO annotation of gene
+
+```{r, warning=FALSE, echo=FALSE}
+get.ensg.GO <- function(ensg) {
+  ## Strip ENSG of version numbers
+  ensg %<>% { gsub('\\.\\d+$', '', .) } %>% unique
+  ## Convert ENSG to Entrez Gene ID
+  xx3 <- as.list(org.Hs.egENSEMBL2EG)
+  entrz <- unlist(xx3[names(xx3) %in% ensg])
+  ## Lookup GO terms for Entrez Gene IDs
+  xx4 <- as.list(org.Hs.egGO[mappedkeys(org.Hs.egGO)])
+  ret_val <- purrr::imap_dfr(xx4[names(xx4) %in% entrz],
+                             function(x, y) cbind(rbindlist(x),
+                                                  'entrez_gene_id' = y))
+  ## Merge original Ensembl Gene ID back in
+  ret_val %<>%
+    controlled_merge(named_vec_to_dt(entrz, name_var = 'ensembl_gene_id',
+                                     value_var = 'entrez_gene_id'),
+                     by = 'entrez_gene_id')
+
+  ## Merge gene symbols
+  if (exists('entrez_table')) {
+    ret_val %<>%
+      controlled_merge(entrez_table[, .(ensembl_gene_id, Gene.Symbol)])
+  }
+
+  ## Merge GO term descriptions
+  library(GO.db)
+  ret_val[, 'term' := Term(GOID)]
+
+  ret_val %<>% normalize_colnames
+  return(ret_val)
+}
+
+# GO_terms_db[goid == 'GO:0003674']
+# GO_terms_db[term %nin% c('biological_process', 'molecular_function', 'cellular_component')]
+sr(GO_terms_db <- get.ensg.GO(rownames(rna_read_counts_salmon_tmm_M_ensg)))
+# setnames(GO_terms_db, 'description', 'term')
+# setnames(GO_terms_db, 'ensg', 'ensembl_gene_id')
+# normalize_colnames(GO_terms_db)
+# GO_terms_db %<>%
+#   controlled_merge(entrez_table[, .(ensembl_gene_id, Gene.Symbol)])
+
+# saveRDS(GO_terms_db, file = file.path(p_root, 'rds', 'GO_terms_db.rds'))
+setdiff(rownames(rna_read_counts_salmon_tmm_M_ensg) %>%
+        { gsub('\\.\\d+$', '', .) },
+        GO_terms_db[, unique(ensembl_gene_id)])
+```
+
+R session info during the production of above object
+
+	> sessionInfo()
+	R version 3.4.2 (2017-09-28)
+	Platform: x86_64-apple-darwin15.6.0 (64-bit)
+	Running under: macOS High Sierra 10.13.6
+
+	Matrix products: default
+	BLAS: /Library/Frameworks/R.framework/Versions/3.4/Resources/lib/libRblas.0.dylib
+	LAPACK: /Library/Frameworks/R.framework/Versions/3.4/Resources/lib/libRlapack.dylib
+
+	locale:
+	[1] en_US.UTF-8/en_US.UTF-8/en_US.UTF-8/C/en_US.UTF-8/en_US.UTF-8
+
+	attached base packages:
+	 [1] stats4    grid      parallel  utils     stats     grDevices graphics
+	 [8] datasets  methods   base
+
+	other attached packages:
+	 [1] org.Hs.eg.db_3.5.0      GO.db_3.5.0             AnnotationDbi_1.40.0
+	 [4] IRanges_2.12.0          S4Vectors_0.16.0        NMF_0.21.0
+	 [7] rngtools_1.2.4          pkgmaker_0.22           registry_0.5
+	[10] BiocInstaller_1.28.0    maartenutils_0.1.0.0    genefu_2.11.2
+	[13] AIMS_1.10.0             e1071_1.6-8             iC10_1.1.3
+	[16] iC10TrainingData_1.0.1  pamr_1.55               cluster_2.0.6
+	[19] biomaRt_2.34.2          mclust_5.4              survcomp_1.28.5
+	[22] prodlim_1.6.1           survival_2.41-3         bindrcpp_0.2
+	[25] ggbiplot_0.55           plyr_1.8.4              naturalsort_0.1.3
+	[28] readxl_1.0.0            GSEAgenesets_0.0.0.9000 cowplot_0.9.2
+	[31] brms_2.1.3              Rcpp_0.12.18            rstan_2.17.3
+	[34] StanHeaders_2.17.2      shinystan_2.4.0         shiny_1.0.5
+	[37] glmnet_2.0-13           foreach_1.4.4           Matrix_1.2-12
+	[40] caret_6.0-78            lattice_0.20-35         DEoptimR_1.0-8
+	[43] mlbench_2.1-1           randomForest_4.6-12     serializer_0.0.0.9000
+	[46] edgeR_3.20.5            limma_3.34.5            ggsea_1.1
+	[49] forcats_0.3.0           stringr_1.3.1           purrr_0.2.4
+	[52] readr_1.1.1             tidyr_0.8.0             tibble_1.4.2
+	[55] tidyverse_1.2.1         magrittr_1.5            Biobase_2.38.0
+	[58] BiocGenerics_0.24.0     dtplyr_0.0.2            scales_0.5.0.9000
+	[61] pacman_0.4.6            nvimcom_0.9-27          ggplot2_3.0.0
+	[64] dplyr_0.7.4             devtools_1.13.5         data.table_1.11.4
+
+	loaded via a namespace (and not attached):
+		[1] ggthemes_3.4.0         ModelMetrics_1.1.0     coda_0.19-1
+		[4] bit64_0.9-7            dygraphs_1.1.1.4       wesanderson_0.3.6.9000
+		[7] rpart_4.1-13           inline_0.3.14          RCurl_1.95-4.10
+	 [10] doParallel_1.0.11      RSQLite_2.1.1          commonmark_1.4
+	 [13] bit_1.1-12             colorout_1.1-3         xml2_1.2.0
+	 [16] lubridate_1.7.4        httpuv_1.3.6.2         assertthat_0.2.0
+	 [19] amap_0.8-14            gower_0.1.2            hms_0.4.2
+	 [22] bayesplot_1.4.0        progress_1.2.0         igraph_1.2.1
+	 [25] DBI_1.0.0              htmlwidgets_1.0        ddalpha_1.3.1.1
+	 [28] crosstalk_1.0.0        ggpubr_0.1.6.999       markdown_0.8
+	 [31] gridBase_0.4-7         abind_1.4-5            withr_2.1.2
+	 [34] sfsmisc_1.1-2          robustbase_0.92-8      xts_0.10-1
+	 [37] prettyunits_1.0.2      mnormt_1.5-5           lazyeval_0.2.1
+	 [40] crayon_1.3.4           recipes_0.1.2          pkgconfig_2.0.1
+	 [43] SuppDists_1.1-9.4      labeling_0.3           nlme_3.1-131.1
+	 [46] nnet_7.3-12            bindr_0.1.1            rlang_0.2.0.9001
+	 [49] miniUI_0.1.1           colourpicker_1.0       survivalROC_1.0.3
+	 [52] modelr_0.1.1           cellranger_1.1.0       matrixStats_0.53.1
+	 [55] loo_1.1.0              zoo_1.8-1              base64enc_0.1-3
+	 [58] bootstrap_2017.2       bitops_1.0-6           KernSmooth_2.23-15
+	 [61] blob_1.1.1             DRR_0.0.3              rmeta_2.16
+	 [64] memoise_1.1.0          gdata_2.18.0           threejs_0.3.1
+	 [67] compiler_3.4.2         rstantools_1.4.0       RColorBrewer_1.1-2
+	 [70] dimRed_0.1.0           cli_1.0.0              Brobdingnag_1.2-4
+	 [73] MASS_7.3-49            tidyselect_0.2.4       stringi_1.2.3
+	 [76] locfit_1.5-9.1         bridgesampling_0.4-0   tools_3.4.2
+	 [79] rstudioapi_0.7         foreign_0.8-69         gridExtra_2.3
+	 [82] digest_0.6.15          lava_1.6               operator.tools_1.6.3
+	 [85] broom_0.4.4            httr_1.3.1             rsconnect_0.8.8
+	 [88] psych_1.8.3.3          kernlab_0.9-25         colorspace_1.3-2
+	 [91] rvest_0.3.2            XML_3.98-1.13          CVST_0.2-1
+	 [94] splines_3.4.2          RcppRoll_0.2.2         shinythemes_1.1.1
+	 [97] xtable_1.8-2           jsonlite_1.5           timeDate_3043.102
+	[100] ipred_0.9-6            formula.tools_1.7.1    R6_2.2.2
+	[103] pillar_1.2.1           htmltools_0.3.6        mime_0.5
+	[106] glue_1.2.0             DT_0.4                 class_7.3-14
+	[109] codetools_0.2-15       utf8_1.1.3             mvtnorm_1.0-7
+	[112] gtools_3.5.0           shinyjs_1.0            roxygen2_6.0.1
+	[115] munsell_0.4.3          iterators_1.0.9        haven_1.1.1
+	[118] reshape2_1.4.3         gtable_0.2.0
+
+# Correlation with dysfunction and exclusion signatures
+ 
+Signatures defined in Jiang et al., (2018)
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+source('R/load_rna_dat.R')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+fn <- file.path(data_dir, 'Liu_signatures.xlsx')
+liu_scores <- Reduce(function(x, y) { merge(x, y, all = T) }, 
+  lapply(1:8, function(idx) {
+    fh <- read_excel(fn, sheet = idx, na = c("", "NA"))
+    setnames(fh, 'Symbol', 'hugo_symbol')
+    setnames(fh, colnames(fh)[3], gsub('`', '', colnames(fh)[3]))
+    setnames(fh, colnames(fh), gsub(' ', '_', colnames(fh)))
+    setnames(fh, colnames(fh), tolower(colnames(fh)))
+    return(fh)
+  })) %>%
+  as.data.table %>%
+  { .[, hit := NULL] } %>%
+  { .[, x__1 := NULL] }
+
+liu_scores <- as.matrix(liu_scores[, 2:ncol(liu_scores)]) %>% 
+  set_rownames(liu_scores[, hugo_symbol])
+
+## Reorder expression matrix to be consistent with liu_scores first
+M <- as.matrix(rna_read_counts_salmon_tmm_M)
+rownames(M) <- rownames(rna_read_counts_salmon_tmm_M)
+i_g <- intersect(rownames(liu_scores), rownames(M))
+liu_scores %<>% { .[setdiff(match(i_g, rownames(.)), NA), ] }
+M %<>% { .[setdiff(match(i_g, rownames(.)), NA), ] }
+stopifnot(all(rownames(M) == rownames(liu_scores)))
+
+liu_corrs <- cor(M, liu_scores, use = 'pairwise.complete.obs')
+liu_corrs[1, 1] == cor(M[, 1], liu_scores[, 1], use = 'pairwise.complete.obs')
+
+rna_sample_annotation %<>%
+  controlled_merge(rownames_to_column(as.data.frame(liu_corrs), 'cf_number'),
+                   by_cols = 'cf_number')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+pacman::p_load('GGally')
+pan_bl <- rna_sample_annotation[timepoint == 'Baseline', 
+   c('clinical_response', colnames(liu_scores)), with = F] %>%
+  { GGally::ggpairs(data = ., upper = list(continuous = wrap('cor', size = 10)), 
+                    lower = list(continuous = 'smooth')) }
+ggsave(pan_bl, filename = file.path(img_dir, 'pairwise_plots_jiang_corrs_bl.pdf'),
+       width = 31, height = 26, units = 'cm')
+
+pan_pi <- rna_sample_annotation[timepoint == 'Post-induction', 
+   c('clinical_response', colnames(liu_scores)), with = F] %>%
+  { GGally::ggpairs(data = ., upper = list(continuous = wrap('cor', size = 10)), 
+                    lower = list(continuous = 'smooth')) }
+ggsave(pan_pi, filename = file.path(img_dir, 'pairwise_plots_jiang_corrs_pi.pdf'),
+       width = 31, height = 26, units = 'cm')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/plotting_adaptive.R')
+
+pdf(file.path(img_dir, 'liu_signature_dynamics.pdf'),
+    width = 17.4 / 2.54, height = 17 / 2.54)
+prepare_adaptive_FC(rna_sample_annotation, facet_var = 'arm', 
+                    var1 = 'mdsc', var2 = 't_exhaust') %>%
+  plot_FC(facet_var = 'arm', 
+          colour_var = 'clinical_response', var1 = 'mdsc', var2 = 't_exhaust')
+
+prepare_adaptive_FC(rna_sample_annotation, facet_var = 'clinical_response', 
+                    var1 = 'mdsc', var2 = 't_exhaust') %>%
+  plot_FC(facet_var = NULL, 
+          colour_var = 'clinical_response', var1 = 'mdsc', var2 = 't_exhaust')
+
+dplyr::mutate(rna_sample_annotation, value = mdsc) %>%
+  dplyr::mutate(timepoint, timepoint = factor(timepoint, levels = it_timepoints)) %>%
+  plot_parallel_coords(colour_var = 'clinical_response',
+                       facet_var = 'arm') +
+  ggtitle('MDSC')
+
+dplyr::mutate(rna_sample_annotation, value = t_exhaust) %>%
+  dplyr::mutate(timepoint, timepoint = factor(timepoint, levels = it_timepoints)) %>%
+  plot_parallel_coords(colour_var = 'clinical_response',
+                       facet_var = 'arm') + 
+  ggtitle('T exhaust')
+dev.off()
+```
+
+## Junk
+
+```{r, warning=FALSE, echo=FALSE}
+rna_read_counts_salmon_tmm_M
+# sink('ext/ensgs.txt')
+sink('ext/ensgs_noversion.txt')
+rownames(rna_read_counts_salmon_tmm_M_ensg) %>%
+  { gsub('\\.[0-9]*$', '', .) } %>%
+  unique %>%
+  { paste(., collapse = ' ') }
+sink()
+```
+
+```{r, warning=FALSE, echo=FALSE}
+# source("http://bioconductor.org/biocLite.R")
+# biocLite("goseq")
+library(goseq)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+supportedOrganisms()[supportedOrganisms()$Genome=="hg19",]
+```
+
+

@@ -45,7 +45,7 @@ test_gene_set_association <- function(gene_set = 'tis', timepoint = 'On nivo',
 
   comp_levels <- p_dat[, levels(get(y_var))]
   res <- p_dat[, .('p_val' = wilcox.test(as.formula(sprintf('value ~ %s', y_var)),
-                     data = .SD)$p.val,
+                     data = .SD, exact = F)$p.val,
                    'log2FC' = median(.SD[get(y_var) == comp_levels[2], value],
                                      na.rm = T) - 
                               median(.SD[get(y_var) == comp_levels[1], value],

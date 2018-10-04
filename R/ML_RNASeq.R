@@ -1,4 +1,6 @@
-prepare_ml_dat_rnaseq <- function(tp = 'Baseline', type = 'genes') {
+prepare_ml_dat_rnaseq <- function(tp = 'Baseline', type = 'genes',
+                                  cpm_normalize = F,
+                                  exp_mat = rna_read_counts_salmon_tmm_M) {
   type <- match.arg(type, choices = c('genes', 'gene_sets'), several.ok = F)
 
   t_dat_info <- rna_sample_annotation[timepoint %in% tp,
@@ -9,10 +11,10 @@ prepare_ml_dat_rnaseq <- function(tp = 'Baseline', type = 'genes') {
   ## does not need to be consistent with the actual experiment
   design_mat <- stats::model.matrix(as.formula(sprintf('~ 0 + clinical_response')), 
                                     as.data.frame(t_dat_info))
-  idx <- match(t_dat_info[, cf_number], colnames(rna_read_counts_salmon))
-  RCs <- rna_read_counts_salmon[, idx, with = F]
-  rownames(RCs) <- rownames(rna_read_counts_salmon)
-  # RCs$ensembl_gene_id <- rownames(rna_read_counts_salmon)
+  idx <- match(t_dat_info[, cf_number], colnames(exp_mat))
+  RCs <- exp_mat[, idx, with = F]
+  rownames(RCs) <- rownames(exp_mat)
+  # RCs$ensembl_gene_id <- rownames(exp_mat)
   # RCs$gene_symbol <-
   #   rna_read_counts_ann[match(RCs$ensembl_gene_id, ensembl_gene_id),
   #                       external_gene_id]
@@ -20,10 +22,15 @@ prepare_ml_dat_rnaseq <- function(tp = 'Baseline', type = 'genes') {
   # RCs <- RCs[, lapply(.SD, sum), by = gene_symbol]
   # RCs <- as.data.frame(RCs) %>% column_to_rownames('gene_symbol')
   stopifnot(ncol(RCs) == nrow(t_dat_info))
-  cpms <- limma::voom(RCs, design_mat, plot = F, span = .1)
-  cpms <- t(cpms$E)
-  colnames(cpms) <- rownames(rna_read_counts_salmon)
-  str(dimnames(cpms))
+  if (cpm_normalize) {
+    cpms <- limma::voom(RCs, design_mat, plot = F, span = .1)
+    cpms <- t(cpms$E)
+    colnames(cpms) <- rownames(exp_mat)
+    str(dimnames(cpms))
+  } else {
+    cpms <- as.matrix(t(RCs))
+    colnames(cpms) <- rownames(exp_mat)
+  }
 
   if (type == 'genes') {
   } else if (type == 'gene_sets') {

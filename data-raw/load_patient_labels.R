@@ -10,6 +10,17 @@ tonic_cleanup <- function(dtf) {
   dtf[, clinical_response := zoo::na.locf(clinical_response),
       by = patient]
   dtf[, arm := zoo::na.locf(arm), by = patient]
+  dtf[, arm := factor(arm, levels = treatment_arms)]
+  if ('timepoint' %in% colnames(dtf) &&
+      any(timepoints %in% dtf[, unique(timepoint)])) {
+    dtf[, timepoint := factor(timepoint, levels = timepoints)]
+  }
+
+  if ('comb_time_resp' %in% colnames(dtf)) {
+    sr(comb_time_resp_palette)
+    dtf[, comb_time_resp := factor(comb_time_resp, 
+                                   levels = names(comb_time_resp_palette))]
+  }
   return(dtf)
 }
 
@@ -24,6 +35,10 @@ maartenutils::set_dt_types(patient_labels,
                              'tis_score' = 'numeric'))
 patient_labels <- patient_labels[!is.na(patient)]
 patient_labels[, patient := paste0('pat_', patient)]
+patient_labels[, timepoint := factor(timepoint, levels = timepoints)]
+patient_labels[, arm := factor(arm, levels = treatment_arms)]
+
+
 # merge_tests(idx = 0)
 # stopifnot(patient_labels[is.na(arm), .N <= 3])
 
@@ -131,6 +146,33 @@ if (T) {
   merge_tests(idx = 2)
 }
 
+if (T) {
+  ## 2018-08-27
+  ## Amendments due to sample swaps before the sending out for sequencing.
+  ## Placed before other merging steps in order to maximize data coverage (i.e.
+  ## filling up NA fields)
+  cf_numbers_cor <-
+    ## Day - Month - Year
+    read_excel(file.path(data_dir, 'TONIC_pat_labels_changes_230818.xlsx'),
+               na = c('', 'NA', '<NA>', '\\<NA\\>')) %>%
+    as.data.table %>%
+    maartenutils::normalize_colnames() %>%
+    mutate(patient = sprintf('pat_%s', patient))
+  patient_labels[cf_number %in% cf_numbers_cor[, cf_number], cf_number := NA]
+  patient_labels[adaptive_sample_name %in% 
+                 cf_numbers_cor[, adaptive_sample_name], 
+                 adaptive_sample_name := NA]
+  patient_labels <- controlled_merge(patient_labels, cf_numbers_cor, 
+                                     by_cols = c('patient', 'timepoint'))
+  if (F) {
+    setkey(patient_labels, patient, timepoint)
+    patient_labels[cf_numbers_cor[, .(patient, timepoint)],
+                   .(patient, timepoint, adaptive_sample_name, cf_number)]
+  }
+  merge_tests(idx = 2.1)
+  rm(cf_numbers_cor)
+}
+
 if (F) {
   ## More recent overview of clinical response data, merge into existing overview
   response_data <- read.csv(file.path(p_root, 'data-raw/response_data.csv'),
@@ -152,7 +194,7 @@ if (F) {
 # stopifnot(patient_labels[is.na(arm), .N <= 3])
 
 if (T) {
-	## Merge Adaptive TCR abundance measures
+	## Merge Adaptive TCRSeq summary stats 
 	## First clean up data...
 	adaptive_sample_annotation <-
 		read_excel(file.path(data_dir, 'SampleManifest_adaptive.xlsx'),
@@ -203,10 +245,12 @@ if (T) {
   # tumor_adaptive[patient == 'pat_66']
   # patient_labels[patient == 'pat_66']
   ## TODO pat_33 is not merged properly
-  tumor_adaptive[patient == 'pat_33']
-  patient_labels[patient == 'pat_33']
+  # tumor_adaptive[patient == 'pat_33']
+  # patient_labels[patient == 'pat_33']
 	patient_labels <- controlled_merge(patient_labels, tumor_adaptive,
                                      by_cols = c('patient', 'timepoint'),
+                                     ## Some patients not in NanoString but in
+                                     ## Adaptive data, all should be T
                                      dup_priority = 'f', all = T,
                                      clean_up_f = tonic_cleanup)
   merge_tests(idx = 4)
@@ -356,6 +400,7 @@ if (T) {
                  sprintf('%s-%s', timepoint, clinical_response)]
   levs <- patient_labels[, expand.grid('timepoint' = levels(timepoint),
                                        'clinical_response' = levels(clinical_response))]
+  patient_labels[, timepoint := factor(timepoint, timepoints)]
   levs$timepoint <- factor(levs$timepoint, levels = timepoints)
   levs$comb <- apply(levs, 1, paste, collapse = '-')
   levs$cf <- (1.3^(as.integer(levs$timepoint) - 2))
@@ -367,6 +412,7 @@ if (T) {
   sr(comb_time_resp_palette)
   # plot_palette(comb_time_resp_palette)
   patient_labels[, comb_time_resp := factor(comb_time_resp, levels = levs$comb)]
+  patient_labels[, levels(comb_time_resp)]
   cond_rm(levs)
 }
 
@@ -382,6 +428,7 @@ if (F) {
   patient_labels[patient == 'pat_36']
   patient_labels[patient == 'pat_41']
   patient_labels[patient == 'pat_42']
+  patient_labels[patient == 'pat_65' & timepoint == 'Post-induction']
   patient_labels[patient == 'pat_48']
   patient_labels[patient == 'pat_61']
   patient_labels[patient == 'pat_71']
@@ -408,6 +455,22 @@ if (T) {
     controlled_merge(patient_labels, hla_types[, .(patient, hla_haplotype_rna)])
   patient_labels[, c('A1', 'A2', 'B1', 'B2', 'C1', 'C2') :=
                  tstrsplit(hla_haplotype_rna, ', ')]
+
+  ## Roel got exactly the same results on normal DNA
+  # hla_types <- fread(file.path(data_dir, 'optitype_results.tsv')) %>%
+  #   setnames('Sample-id', 'normal_cf') %>%
+  #   controlled_merge(wes_table[, .(normal_cf, tumor_cf)]) %>%
+  #   .[!is.na(tumor_cf)] %>%
+  #   controlled_merge(patient_labels[, .(patient, 'tumor_cf' = cf_number)]) 
+  # patient_labels %<>% 
+  #   controlled_merge(hla_types[, .(patient, A1, A2, B1, B2, C1, C2)])
+  # patient_labels[A1 != a1]
+  # patient_labels[B1 != b1]
+  # patient_labels[C1 != c1]
+  # patient_labels[A2 != a2]
+  # patient_labels[B2 != b2]
+  # patient_labels[C2 != c2]
+
   unique_hlas <- patient_labels[, {
     vec <- strsplit(.SD[, hla_haplotype_rna[1]], ', ')[[1]]
     .('unique_HLAs' = ifelse(is.na(vec), as.integer(NA), uniqueN(vec)))
@@ -521,32 +584,16 @@ if (T) {
 }
 
 if (T) {
-  patient_labels_cor <-
-    ## Day - Month - Year
-    read_excel(file.path(data_dir, 'TONIC_pat_labels_changes_230818.xlsx'),
-               na = c('', 'NA', '<NA>', '\\<NA\\>')) %>%
-    as.data.table %>%
-    maartenutils::normalize_colnames() %>%
-    mutate(patient = sprintf('pat_%s', patient))
-  patient_labels <- controlled_merge(patient_labels, patient_labels_cor, 
-                                     by_cols = c('patient', 'timepoint'))
-  if (F) {
-    setkey(patient_labels, patient, timepoint)
-    patient_labels[patient_labels_cor[, .(patient, timepoint)],
-                   .(adaptive_sample_name, cf_number)]
-  }
-}
-
-if (T) {
+  patient_labels <- tonic_cleanup(patient_labels)
   clear_object(blood_adaptive, sr)
   sr(blood_adaptive)
   clear_object(patient_labels, sr)
   sr(patient_labels)
 }
 
-if (F) {
+if (T) {
   readr::write_tsv(x = patient_labels,
-                   path = '~/Downloads/TONIC_pat_labels.tsv')
+                   path = file.path(p_root, 'ext', 'TONIC_pat_labels.tsv'))
   readr::write_tsv(x = blood_adaptive,
-                   path = '~/Downloads/TONIC_blood_pat_labels.tsv')
+                   path = file.path(p_root, 'ext', 'TONIC_blood_pat_labels.tsv'))
 }

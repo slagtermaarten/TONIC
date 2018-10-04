@@ -1,12 +1,3 @@
-mut_load_var_types <- 
- c('Missense Variant', 'Frameshift Variant', 'Stop Gained', 
-   'Conservative Inframe Insertion', 'Conservative Inframe Deletion', 
-   'Disruptive Inframe Insertion', 'Disruptive Inframe Deletion',
-   'Structural Interaction Variant', 
-   'TF Binding Site Variant', 'Stop Lost', 'Start Lost', 
-   'Protein Protein Contact', 'Stop Retained Variant') %>% sort
-# tolower(paste(mut_load_var_types, collapse = ', '))
-
 read_CONTRA <- function(patient = 'pat_1') {
   l_patient <- patient
   rel_subs <-
@@ -14,7 +5,7 @@ read_CONTRA <- function(patient = 'pat_1') {
                    !is.na(cf_number)]
   if (nrow(rel_subs) == 0) return(NULL)
   cf_number <- rel_subs[, cf_number]
-  full_fn <- wes_table[tumor_cf == cf_number,
+  full_fn <- wes_table[tolower(tumor_cf) == tolower(cf_number),
                        file.path(forge_mirror, 'contra', 'CNATable',
                                  contra_fn)]
   if (length(full_fn) == 0) {
@@ -26,8 +17,10 @@ read_CONTRA <- function(patient = 'pat_1') {
 }
 
 
+#' Find DNA CF by patient and timepoint
+#'
+#'
 lookup_DNA_cf <- function(patient = 'pat_69', timepoint = 'Baseline') {
-  ## Find DNA CF
   l_patient = patient
   l_patient <- patient
   l_timepoint <- timepoint
@@ -49,11 +42,10 @@ lookup_WES_fn <- function(patient = 'pat_65', timepoint = 'Baseline') {
   ## Pat 65 inadvertently got a technical replication which should be slightly
   ## better than the original. Both files are included in this overview. 
   ## Hence the last() function call.
-  full_fn <-
-    wes_table[tumor_cf == cf_number, file.path(forge_mirror, 'calls', 
-                                               last(vcf_fn))]
-  full_fn <- unique(full_fn)
-  return(full_fn)
+  fn <- wes_table[tolower(tumor_cf) == tolower(cf_number), unique(vcf_fn)]
+  if (is.null(fn) || length(fn) == 0 || is.na(fn)) 
+    return(NULL)
+  return(file.path(forge_mirror, 'calls', last(fn)))
 }
 
 
@@ -67,12 +59,15 @@ filter_VCF <- function(patient = 'pat_1', timepoint = 'Baseline',
     ## Look up tumor CF first
     l_tumor_cf <- lookup_DNA_cf(patient = patient, timepoint = timepoint)
     if (is.null(l_tumor_cf)) return(NULL)
-    l_normal_cf <- wes_table[tumor_cf == l_tumor_cf, normal_cf]
+    l_normal_cf <- wes_table[tolower(tumor_cf) == tolower(l_tumor_cf), normal_cf]
     full_fn <- file.path(forge_mirror, 'haplotypecaller-q100', 
-                         wes_table[tumor_cf == l_tumor_cf, last(germline_vcf)])
+                         wes_table[tolower(tumor_cf) == tolower(l_tumor_cf), 
+                                   last(germline_vcf)])
   }
 
-  if (length(full_fn) == 0) { return(NULL) }
+  if (is.null(full_fn) || length(full_fn) == 0) { 
+    return(NULL) 
+  }
 
   if (read_annotated) {
     full_fn <- gsub('\\.vcf$', '.annotated.vcf', full_fn)
@@ -84,7 +79,7 @@ filter_VCF <- function(patient = 'pat_1', timepoint = 'Baseline',
   }
   com <- sprintf("grep -v '##' %s ", full_fn)
   vcf <- suppressWarnings(
-           tryCatch(fread(com, fill = T, sep = '\t'),
+           tryCatch(fread(cmd = com, fill = T, sep = '\t'),
            error = function(e) { print(e); return(NULL) }))
   if (null_dat(vcf)) return(NULL)
 
@@ -146,7 +141,8 @@ filter_germline_gene_symbol <- function(patient = 'pat_1',
 read_sequenza <- function(patient = 'pat_69', timepoint = 'Baseline') {
   l_cf_number <- lookup_DNA_cf(patient = patient, timepoint = timepoint)
   if (is.null(l_cf_number)) return(NULL)
-  full_fn <- tryCatch(wes_table[tumor_cf == l_cf_number, unique(sequenza_fn)], 
+  full_fn <- tryCatch(wes_table[tolower(tumor_cf) == tolower(l_cf_number), 
+                      unique(sequenza_fn)], 
                       error = function(e) { print(e); browser() }) 
   if (is.null(full_fn) || length(full_fn) == 0) 
     return(NULL)
@@ -176,7 +172,7 @@ view_sequenza <- function(patient = 'pat_69', timepoint = 'Baseline',
                           ft_rep = 'genome_view.pdf',
                           open_directly = T) {
   l_cf_number <- lookup_DNA_cf(patient = patient, timepoint = timepoint)
-  full_fn <- wes_table[tumor_cf == l_cf_number, sequenza_fn]
+  full_fn <- wes_table[tolower(tumor_cf) == tolower(l_cf_number), sequenza_fn]
   if (is.null(full_fn) || is.na(full_fn) || length(full_fn) == 0) return(NULL)
   new_fn <- gsub('segments.txt$', ft_rep, full_fn)
   if (open_directly) sys_file_open(new_fn)
@@ -224,7 +220,7 @@ intersect_sequenza <- function(patient = 'pat_69',
 #' @param fh, object of class \code{data.table} returned by filter_VCF
 annotate_effects <- function(fh) {
   if (null_dat(fh)) return(NULL)
-  ##INFO=<ID=ANN,Number=.,Type=String,Description="Functional
+  ## INFO=<ID=ANN,Number=.,Type=String,Description="Functional
   ## annotations: 'Allele | Annotation | Annotation_Impact | Gene_Name |
   ## Gene_ID | Feature_Type | Feature_ID | Transcript_BioType | Rank |
   ## HGVS.c | HGVS.p | cDNA.pos / cDNA.length | CDS.pos / CDS.length |
@@ -275,11 +271,8 @@ filter_var_list <- function(l_patient,
                             gs_search = paste(positions[, unique(gene_id)], 
                                               collapse = '|')) {
   messagef('Filtering VCF for %s', l_patient)
-  fh <- filter_VCF(patient = l_patient, read_annotated = T)
+  fh <- filter_VCF(patient = l_patient, read_annotated = T, tumor = T)
   if (is.null(fh)) { return(NULL) }
-  ## Pre filter variants using regex
-  # fh[, INFO]
-  # fh <- fh[grepl('TKTL1', INFO)]
   fh <- fh[grepl(gs_search, INFO)]
   if (null_dat(fh)) { return(NULL) }
   fh <- annotate_effects(fh)
@@ -309,9 +302,8 @@ combine_all_aberrations <- function(gene_symbols = 'B2M') {
 
   message('Filtering CNAs...')
   str_pres <- rbindlist(lapply(patient_labels[, unique(patient)], 
-                                function(l_patient) {
-      intersect_sequenza(patient = l_patient, 
-                         coordinates = positions)
+                               function(l_patient) {
+      intersect_sequenza(patient = l_patient, coordinates = positions)
     }), fill = T) %>%
     controlled_merge(patient_labels[, .(patient, clinical_response, arm)]) %>%
     { .[naturalorder(patient), ] }
@@ -368,28 +360,59 @@ compute_dnaseq_stats <- function(patient = 'pat_33') {
                            ft_rep = 'alternative_solutions.txt',
                            open_directly = F) %>% unique
   if (!is.null(sols_fn) && !is.na(sols_fn) && length(sols_fn) > 0) {
-   ploidy_est <- fread(sols_fn[1])[1, ploidy]
-   if (is.null(ploidy_est) || length(ploidy_est) == 0) return(NULL) # 
-   browser(expr = !eps(ploidy_est, fh[, weighted.mean(CNt, seg_length)], 
-                       epsilon = .25 * ploidy_est))
+    ploidy_est <- fread(sols_fn[1])[1, .('purity' = cellularity, ploidy)]
+    if (is.null(ploidy_est) || length(ploidy_est) == 0) return(NULL) # 
+    # browser(expr = !eps(ploidy_est, fh[, weighted.mean(CNt, seg_length)], 
+    #                     epsilon = .25 * ploidy_est))
+  } else {
+    ploidy_est <- list('purity' = NA, 'ploidy' = NA)
   }
 
   fh[, 'CN_score_segment' := pmin(abs(CNt - 2), 2)]
   fh[, 'CN_score_segment_unbounded' := abs(CNt - 2)]
 
-  vcf_fh <- filter_VCF(patient = patient) 
+  ## Identify chroms with only one whole chromosome event
+  blacklist_chroms <- fh[, .N, by = chromosome][N == 1, sort(chromosome)]
+  if (length(blacklist_chroms) > 0) {
+    messagef('%s; following chroms have only one segment: %s', patient, 
+             paste(blacklist_chroms, collapse = ', '))
+  }
+
+  ## Try to compute LST, difficult since we only have exonic coverage
+  ## TODO account for centromeres and chromosome length
+  # fh[, 'padding_5' := 
+  #    # c(.SD[, start_pos][1:(.N-1)], max(end_pos)) - c(0, .SD[, end_pos][2:.N]), 
+  #    .SD[, start_pos] - c(0, .SD[, end_pos][1:(.N-1)]), 
+  #    by = chromosome]
+  # fh[, 'padding_3' := c(.SD[, padding_5][2:.N], 0), by = chromosome]
+  # fh[, 'A_not_equal_previous_A' := .SD[, A] != c(0, .SD[, A][1:(.N-1)]), 
+  #    by = chromosome]
+  # fh[, 'B_not_equal_previous_B' := .SD[, B] != c(0, .SD[, B][1:(.N-1)]), 
+  #    by = chromosome]
+  # fh[chromosome == '20']
+  # fh[chromosome == '20' & padding_5 <= 3e6]
+  # fh[chromosome == '1']
+
+  vcf_fh <- filter_VCF(patient = patient)
   if (null_dat(vcf_fh)) return(NULL)
   vcf_fh %<>% annotate_effects
   
-  list('patient' = patient, 
-       'mut_load' = vcf_fh[variant_classification %in% mut_load_var_types, .N],
-       'rs_frac' = vcf_fh[, length(grep('rs', ID))] / nrow(vcf_fh),
-       'gen_SCNA_score' = fh[, sum(CN_score_segment)],
-       'gen_SCNA_score_unbounded' = fh[, sum(CN_score_segment_unbounded)],
-       'weighted_gen_SCNA_score' = fh[, sum(CN_score_segment * seg_length /
-                                            max(seg_length))],
-       'perc_LOH' = fh[, mean(as.integer(LOH))],
-       'weighted_perc_LOH' = fh[, weighted.mean(as.integer(LOH), seg_length)])
+  return(c(list('patient' = patient, 
+         'mut_load' = vcf_fh[variant_classification %in% mut_load_var_types, .N],
+         'rs_frac' = vcf_fh[, length(grep('rs', ID))] / nrow(vcf_fh),
+         'gen_SCNA_score' = fh[, sum(CN_score_segment)],
+          ## Abkevich et al., (2012) doi:10.1038/bjc.2012.451
+         'HRD_LOH' = fh[chromosome %nin% blacklist_chroms & 
+                        seg_length >= 15000000 & LOH == T, .N],
+          ## Popova et al., (2012) doi:10.1158/0008-5472.CAN-12-1470
+         'ntAI' = fh[, .SD[c(1, .N)], by = chromosome] %>%
+            { .[CNt_n > 0 & A != B][, .N] },
+         'gen_SCNA_score_unbounded' = fh[, sum(CN_score_segment_unbounded)],
+         'weighted_gen_SCNA_score' = fh[, sum(CN_score_segment * seg_length /
+                                              max(seg_length))],
+         'perc_LOH' = fh[, mean(as.integer(LOH))],
+         'weighted_perc_LOH' = fh[, weighted.mean(as.integer(LOH), seg_length)]),
+    ploidy_est))
 }
 
 

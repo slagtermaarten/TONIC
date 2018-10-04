@@ -24,6 +24,7 @@ Which induction arms most strongly upregulate gene signatures associated with
 response?
 
 ```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
 source('R/plotting_adaptive.R')
 source('R/plotting_nanostring.R')
 source('R/test_associations.R')
@@ -78,19 +79,20 @@ sys_file_open(filename)
 source('R/plotting_nanostring.R')
 
 gen_parallel_coord_plots <-
-  function(facet_var = 'arm', colour_var = 'response') {
+  function(facet_var = 'arm', colour_var = 'clinical_response') {
   plots <- lapply(danaher_scores.m[, auto_name(levels(variable))],
                   function(gene_set) {
-                    browser()
     sum_dat <- prep_geneset_parallel_coords(gene_set = gene_set,
-                                            colour_var = facet_var,
+                                            colour_var = colour_var,
                                             facet_var = facet_var)
-    p_dat <- danaher_scores.m[variable == gene_set]
+    p_dat <- danaher_scores.m[variable == gene_set & !is.na(value)]
     p <- plot_parallel_coords(p_dat = p_dat, sum_dat = sum_dat,
-                              palette_name = 'FantasticFox',
+                              # palette_name = 'FantasticFox',
                               facet_var = facet_var,
                               point_alpha = .6,
-                              colour_var = colour_var, title = gene_set) +
+                              sum_colors = T,
+                              colour_var = colour_var, 
+                              title = gene_set) +
       theme(legend.position = 'none')
     return(p)
   })
@@ -103,20 +105,20 @@ gen_parallel_coord_plots <-
                                        labels = NULL,
                                        w = 22, h = 25)
 
-  filename <- file.path(img_dir, sprintf('parallel_%s_highlighted.pdf',
-                                         ifelse(is.null(colour_var), 'ungrouped',
-                                                colour_var)))
-  p <- maartenutils::plot_panel_layout(
-    list(plots[['tis']], plots[['glycolytic.activity']]),
-    ncol = 1, nrow = 2,
-    filename = filename,
-    labels = NULL,
-    w = 22, h = 25 / 2)
+  # filename <- file.path(img_dir, sprintf('parallel_%s_highlighted.pdf',
+  #                                        ifelse(is.null(colour_var), 'ungrouped',
+  #                                               colour_var)))
+  # p <- maartenutils::plot_panel_layout(
+  #   list(plots[['tis']], plots[['glycolytic.activity']]),
+  #   ncol = 1, nrow = 2,
+  #   filename = filename,
+  #   labels = NULL,
+  #   w = 22, h = 25 / 2)
   return(plots)
 }
 
 # plots <- gen_parallel_coord_plots(facet_var = 'arm', colour_var = 'patient')
-plots <- gen_parallel_coord_plots(facet_var = 'arm', colour_var = 'response')
+plots <- gen_parallel_coord_plots(facet_var = 'arm', colour_var = 'clinical_response')
 ```
 
 ```{r, eval = F, warning=FALSE, echo=FALSE}
@@ -139,54 +141,90 @@ plot_panel_layout(lapply(sig_gene_sets, function(gs) {
 ```
 
 # Heatmap of all values for response associated sigs
+ 
+Heatmap of single timepoint expression values
 
 ```{r, warning=FALSE, echo=FALSE}
 source('R/plotting_adaptive.R')
 source('R/plotting_nanostring.R')
 source('R/test_associations.R')
+timepoint <- 'On nivo'
 t_dat <- test_gene_set_association(
-  gene_set = danaher_scores.m[, levels(variable)], timepoint = 'On nivo')
+  gene_set = danaher_scores.m[, levels(variable)], timepoint = timepoint)
 # t_dat <- t_dat[log2FC > 0 & p_val <= 0.05]
 # t_dat <- t_dat[p_val <= 0.05]
-sig_gene_sets <- setdiff(t_dat[p_val <= 0.05, as.character(variable)], 
-                         'mmr.loss')
+sig_gene_sets <- setdiff(t_dat[p_val <= 0.05, as.character(variable)], '')
 setkey(t_dat, variable)
-t_dat[gsub('_on.nivo', '', var_names)]
+# t_dat[gsub('_on.nivo', '', var_names)]
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
-var_names <- sprintf('%s_on.nivo', danaher_scores.m[, levels(variable)])
-var_names <- sprintf('%s_on.nivo', sig_gene_sets)
-p_dat <- danaher_scores[, c(var_names, 'patient'), with = F]
-p_dat <- p_dat[complete.cases(p_dat)]
-p_dat[, patient := sprintf('pat_%s', patient)]
-p_dat <-
-  controlled_merge(p_dat, patient_labels[, .(patient, arm, clinical_response)])
+source('R/GSEA_plotting.R') #renew tonic_cap()
 
-```
+gen_all_patient_nanostring_heatmap <- function(timepoint) {
+  bfn <- file.path(plot_dir, sprintf('nanostring_heatmap_%s.pdf', 
+                                     paste(timepoint, collapse = '-')))
+  timelabel_danaher <- c('Baseline' = 'baseline', 
+                         'On nivo' = 'on.nivo', 
+                         'Post-induction' = 'post.induction')[timepoint]
+  gene_sets <- sig_gene_sets
+  gene_sets <- danaher_scores.m[, levels(variable)]
 
-```{r, warning=FALSE, echo=FALSE, fig.width = 8, fig.height = 5}
-graphics.off()
-NMF::aheatmap(t(p_dat[, var_names, with = F]),
-              scale = 'row',
-              border_color = 'grey80',
-              labRow = tonic_cap(gsub('\\.', ' ',
-                                       gsub('_on.nivo', '',
-                                            gsub('pdl1', 'PD-L1', var_names)))),
-              labCol = p_dat[, patient],
-              # annRow = list('log2FC' = t_dat[gsub('_on.nivo', '', var_names),
-              #               log2FC]),
-              annCol = list('Clinical response' = t(p_dat[,
-                                                    clinical_response])),
-                            # 'Induction arm' = t(p_dat[, arm])),
-              annColors = list('Clinical response' =
-                               tonic_color_palettes[['clinical_response']],
-                               'Induction arm' =
-                               tonic_color_palettes[['arm']]),
-              width = 20/2.54, height = 10/2.54, 
-              # filename = file.path(plot_dir, 'heatmap_on_nivo.pdf'))
-              filename = file.path(plot_dir, 'heatmap_on_nivo.png'))
-              # filename = NA)
+  var_names <- sapply(timelabel_danaher, function(tp) 
+                      sprintf('%s_%s', gene_sets, tp))
+
+  p_dat <- danaher_scores[, c(var_names, 'patient'), with = F] %>%
+    { .[complete.cases(.)] } %>%
+    mutate(patient = sprintf('pat_%s', patient)) %>%
+    controlled_merge(patient_labels[, .(patient, arm, 
+                                        clinical_response, pfs_binned)])
+
+  if (length(timelabel_danaher) == 2) {
+    for (i in 1:nrow(var_names)) {
+      p_dat[, (gsub('_.*$', '', var_names[i, 2])) :=
+            get(var_names[i, 2]) - get(var_names[i, 1])]
+      p_dat[, (var_names[i, 1]) := NULL]
+      p_dat[, (var_names[i, 2]) := NULL]
+    }
+    var_names %<>% { gsub('_.*$', '', .) } %>% as.vector %>% unique
+  }
+
+  NMF::aheatmap(t(p_dat[, var_names, with = F]),
+                scale = 'row',
+                border_color = 'grey80',
+                labRow = var_names %>% 
+                  as.vector %>%
+                  { gsub('\\.', ' ', .) } %>%
+                  { gsub('_on.nivo', '', .) } %>%
+                  { gsub('_post.induction', '', .) } %>%
+                  { gsub('_baseline', '', .) } %>%
+                  { tonic_cap(., cap_first_word_only = F) },
+                labCol = p_dat[, patient],
+                # treeheight = 30,
+                # cellheight = 50,
+                # cellwidth = 50,
+                annCol = list('Clinical response' = t(p_dat[,
+                                                      clinical_response]),
+                              'PFS' = t(p_dat[, pfs_binned]),
+                              'Induction arm' = t(p_dat[, arm])),
+                annColors = list('Clinical response' =
+                                 tonic_color_palettes[['clinical_response']],
+                                 'Induction arm' =
+                                 tonic_color_palettes[['arm']],
+                                 'PFS' = tonic_color_palettes[['pfs_binned']]),
+                width = 20/2.54, height = 10/2.54, 
+                # filename = file.path(plot_dir, 'heatmap_on_nivo.pdf'))
+                filename = bfn)
+                # filename = NA)
+  invisible()
+}
+
+gen_all_patient_nanostring_heatmap(timepoint = 'On nivo')
+gen_all_patient_nanostring_heatmap(timepoint = 'Post-induction')
+gen_all_patient_nanostring_heatmap(timepoint = 'Baseline')
+gen_all_patient_nanostring_heatmap(timepoint = c('Baseline', 'On nivo'))
+gen_all_patient_nanostring_heatmap(timepoint = c('Post-induction', 'On nivo'))
+gen_all_patient_nanostring_heatmap(timepoint = c('Baseline', 'Post-induction'))
 ```
 
 # Heatmaps of median FCs with and without p-values
@@ -195,6 +233,7 @@ NMF::aheatmap(t(p_dat[, var_names, with = F]),
 source('R/plotting_adaptive.R')
 source('R/plotting_nanostring.R')
 source('R/test_associations.R')
+sig_gene_sets <- setdiff(t_dat[p_val <= 0.05, as.character(variable)], '')
 m <- rbindlist(lapply(auto_name(sig_gene_sets), function(gs) {
   test_gene_set_difference(gene_set = gs,
                            tp1 = 'Baseline',
@@ -205,7 +244,7 @@ invisible(m[p_val > .05, p_val := NA])
 p <- plot_p_values_induction(m)
 print(p)
 ggsave(plot = p, filename = file.path(plot_dir,
-                           'induction_fc_p_values_baseline_post_induction.png'),
+                           'induction_fc_p_values_baseline_post_induction.pdf'),
        width = 10, height = 13, units = 'cm')
 ```
 
@@ -230,7 +269,7 @@ invisible(m[p_val > .05, p_val := NA])
 p <- plot_p_values_induction(m)
 print(p)
 ggsave(plot = p, filename = file.path(plot_dir,
-                            'induction_fc_p_values_baseline_on_nivo.png'),
+                            'induction_fc_p_values_baseline_on_nivo.pdf'),
        width = 10, height = 13, units = 'cm')
 ```
 
@@ -245,4 +284,183 @@ ggsave(plot = pa, filename = file.path(plot_dir,
 #                             'induction_fc_p_values_baseline_on_nivo.png'),
 #        width = 10, height = 13, units = 'cm')
 ```
+
+# NanoString correlations with clinical response
+
+```{r, warning=FALSE, echo=FALSE}
+timepoint = 'Baseline'
+source('R/test_associations.R')
+# lapply(danaher_signature_genes[, auto_name(unique(signature_name))],
+#        function(sig) {
+#          test_gene_set_association(gene_set = sig, timepoint = timepoint)
+#        })
+p_dat <- test_gene_set_association(
+  gene_set = danaher_scores.m[, unique(variable)], timepoint = timepoint)
+p_dat <- test_gene_set_association(
+  gene_set = danaher_scores.m[, unique(variable)], timepoint = 'Post-induction')
+p_dat <- test_gene_set_association(
+  gene_set = danaher_scores.m[, unique(variable)], timepoint = 'On nivo')
+# p_dat[p_val <= .05]
+```
+
+```{r, warning=FALSE, echo=FALSE}
+plot_volcano <- function(gene_sets = danaher_scores.m[, unique(variable)],
+                         timepoint = 'Baseline') {
+  p_dat <- test_gene_set_association(gene_set = gene_sets,
+                                     timepoint = timepoint)
+p_dat[, variable]
+  ggplot(p_dat, aes(x = log2FC, y = -log10(p_val), 
+                    label = tonic_cap(variable))) +
+    geom_point() +
+    ggrepel::geom_label_repel(data = p_dat[p_val <= .05 | 
+                             variable %in% c('tis', 'ifn.gamma', 'pd1')]) +
+    geom_hline(yintercept = -log10(.05),
+               color = 'darkred', linetype = 'dashed') +
+    geom_vline(xintercept = 0, color = 'grey70', linetype = 'dashed') +
+    scale_y_continuous(name = 'Unadjusted p-value', trans = 'identity',
+                       breaks = c(seq(0, 10, by = .5), -log10(0.05)),
+                       limits = c(0, 3.5),
+                       # labels = function(x) {
+                       #   sapply(x, function(xi) {
+                       #     if (xi == 0) {
+                       #       return('0')
+                       #     } else if (xi == -log10(0.05)) {
+                       #       return('0.05')
+                       #     } else {
+                       #       return(parse(text = sprintf('10^{-%.2f}', xi)))
+                       #     }
+                       #   })}) +
+                       labels = function(x) {
+                             return(parse(text = sprintf('10^{-%.2f}', x)))
+                         }) +
+    ggtitle(timepoint) +
+    scale_x_continuous(name = sprintf('Fold difference\nresponders and non-responders (%s)',
+                                      timepoint),
+                       limits = c(-2.7, 2.7))
+}
+
+plots <- list(
+  plot_volcano(timepoint = 'Baseline'),
+  plot_volcano(timepoint = 'Post-induction'),
+  plot_volcano(timepoint = 'On nivo'))
+cowplot::plot_grid(plots[[1]], plots[[2]], plots[[3]], ncol = 3)
+ggsave(filename = file.path(img_dir,
+                            'gene_sigs_response_volcanoes_all_timepoints.pdf'),
+       width = 29, height = 11, units = 'cm')
+cowplot::plot_grid(plots[[1]], plots[[3]], ncol = 2)
+ggsave(filename = file.path(img_dir, 'gene_sigs_response_volcanoes.pdf'),
+       width = 24, height = 11, units = 'cm')
+```
+
+
+# Correlations between RNA and NanoString
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+plots <- lapply(danaher_signature_genes[, unique(signature_name)],
+                function(sig) {
+  compare_nano_rna_sigs(sig = sig)
+}) %>% { .[!sapply(., is.null)] }
+
+maartenutils::plot_panel_layout(plots, ncol = 3, nrow = 4,
+  labels = NULL,
+  plot_direct = F,
+  ref_panel_idx = 3 * 3,
+  clear_redundant_labels = T,
+  filename = file.path(plot_dir, sprintf('rna_nano_cors_%s.pdf', colour_var)),
+  w = 17.4, h = 25, label_size = 8)
+```
+
+
+## The same but for individual genes
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+
+rna_nano_cors <- rbindlist(lapply(auto_name(unique(test_genes)), function(gs) {
+  t_dat <- correlate_nano_rna(genes = gs)
+  if (null_dat(t_dat)) return(NULL)
+  cors <- t_dat[, .('pearson' = cor(rna_value, nano_value,
+                                    method = 'pearson'),
+                    'spearman' = cor(rna_value, nano_value,
+                                     method = 'spearman'),
+                    rna_q50, nano_q50),
+                by = c('gene_symbol', 'timepoint')]
+  return(cors)
+}), fill = T)
+
+rna_nano_cors_sigs <- rbindlist(lapply(auto_name(danaher_scores.m[, levels(variable)]),
+                                  function(sig) {
+  t_dat <- correlate_nano_rna(sig = sig, genes = NULL)
+  if (null_dat(t_dat)) return(NULL)
+  cors <- t_dat[, .('pearson' = cor(rna_value, nano_value,
+                                    method = 'pearson', use = 'complete'),
+                    'spearman' = cor(rna_value, nano_value,
+                                     method = 'spearman', use = 'complete'),
+                    rna_q50, nano_q50, 'gene_symbol' = sig),
+                by = c('timepoint')]
+  return(cors)
+}), fill = T)
+
+comb_dat <- rbind(mutate(rna_nano_cors, 'type' = 'Single gene'),
+                  mutate(rna_nano_cors_sigs, 'type' = 'Gene signature'))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+plot_dist <- function(dtf = comb_dat[timepoint == 'Baseline'],
+                      cor_measure = 'spearman') {
+  mycols <- c(maartenutils::darken('lightblue', factor = 1),
+              maartenutils::darken('lightblue', factor = 2.5)) %>%
+   setNames(dtf[, unique(type)])
+
+  p1 <- ggplot(dtf,
+               aes_string(x = cor_measure, y = '(..count..)/sum(..count..)',
+                          fill = 'type')) +
+    geom_histogram(binwidth = .01, color = 'black', position = 'stack') +
+    scale_fill_manual(name = '', values = mycols) +
+    xlab(sprintf('%s correlation coefficient', tonic_cap(cor_measure))) +
+    ylab('Relative frequency') +
+    theme(legend.position = 'top')
+
+  p2 <- ggplot(dtf, aes_string(x = '1', y = cor_measure, fill = 'type')) +
+    geom_boxplot(color = 'black') +
+    scale_fill_manual(name = '', values = mycols) +
+    coord_flip() +
+    xlab(' ') +
+    ylab(' ') +
+    theme(axis.text = element_blank(), axis.ticks = element_blank(),
+          axis.line = element_blank(), legend.position = 'none')
+
+  cowplot::plot_grid(p1, p2, align = 'v', rel_heights = c(7, 1), ncol = 1)
+}
+
+plot_dist(cor_measure = 'spearman')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+plot_dist(cor_measure = 'spearman')
+ggsave(filename = file.path(plot_dir, 'spearman_nano_vs_rna_single_genes.pdf'))
+plot_dist(cor_measure = 'pearson')
+ggsave(filename = file.path(plot_dir, 'pearson_nano_vs_rna_single_genes.pdf'))
+```
+
+Plot relationship between correlation and average expression. Are lowly expressed
+genes enriched amongst the genes with low concordance between the two
+methodologies?
+
+
+```{r, warning=FALSE, echo=FALSE}
+ggplot(unique(comb_dat, by = c('gene_symbol')), 
+       aes(x = nano_q50, y = spearman)) + geom_point()
+```
+
+```{r, warning=FALSE, echo=FALSE}
+library(kableExtra)
+
+unique(comb_dat, by = c('gene_symbol'))[abs(spearman) <= .1] %>%
+  .[order(spearman)] %>%
+  knitr::kable(format = 'html') %>%
+  kableExtra::kable_styling()
+```
+
 

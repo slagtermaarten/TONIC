@@ -12,6 +12,8 @@ HALLMARK_pathways <- c(filter_gmt('h.all', 'HALLMARK'),
 # TARGET_pathways <- c('PAM50', grep('HALLMARK', names(gmt), value = T)) %>%
 #   { grep('WNT|P53|PAM', ., value = T) }
 
+HALLMARK_pathways <- filter_gmt('h.all', 'HALLMARK')
+
 plot_bool <- interactive()
 
 #' FC based ranking function
@@ -50,15 +52,19 @@ my_paired_WC_test <- function(x, y, abs = F) {
                                          y$timepoint == 'Post-induction'),
                      integer(1))
   ret_val <- apply(x, 2, function(r) {
-    w_test <- tryCatch(wilcox.test(x = r[pre_idx], y = r[post_idx], paired = T),
-                       error = function(e) { print(e); browser() })
-    t_val <- sign(median(r[post_idx]) - median(r[pre_idx])) *
-      (1 - w_test$p.value)
+    w_test <- suppressWarnings(
+              tryCatch(wilcox.test(x = r[pre_idx], y = r[post_idx],
+                                   paired = T),
+                       error = function(e) { print(e); browser() }))
+    t_val <- (1 - w_test$p.value) *
+      (log2(median(r[post_idx]) + 1) - log2(median(r[pre_idx]) + 1))
     return(t_val)
   })
+  ret_val[is.na(ret_val)] <- 0
+  # rownames(rna_read_counts_salmon_tmm_M)
+  # ret_val[which(is.nan(ret_val))[1]]
   ret_val <- as.matrix(ret_val)
   colnames(ret_val) <- 't_val'
-
   if (abs) {
     ret_val <- abs(ret_val)
   }
@@ -74,12 +80,41 @@ my_unpaired_WC_test <- function(x, y, abs = F) {
   NR_idx <- y[, which(clinical_response == 'NR')]
 
   ret_val <- apply(x, 2, function(r) {
-    w_test <- tryCatch(wilcox.test(x = r[R_idx], y = r[NR_idx], paired = F),
+    w_test <- tryCatch(wilcox.test(x = r[R_idx], y = r[NR_idx], paired = F, 
+                                   exact = F),
                        error = function(e) { print(e); browser() })
     t_val <- sign(median(r[R_idx], na.rm = T) - median(r[NR_idx], na.rm = T)) *
               (1 - w_test$p.value)
     return(t_val)
   })
+  # options(digits = 10)
+  ret_val[is.na(ret_val)] <- 0
+  ret_val <- as.matrix(ret_val)
+  colnames(ret_val) <- 't_val'
+
+  if (abs) {
+    ret_val <- abs(ret_val)
+  }
+  return(ret_val)
+}
+
+
+#' WC test ranking function
+#'
+#'
+my_unpaired_WC_test_ca15_3 <- function(x, y, abs = F) {
+  HI_idx <- y[, which(baseline_ca15_3_bin == T)]
+  LO_idx <- y[, which(baseline_ca15_3_bin == F)]
+
+  ret_val <- apply(x, 2, function(r) {
+    w_test <- tryCatch(wilcox.test(x = r[HI_idx], y = r[LO_idx], paired = F, 
+                                   exact = F),
+                       error = function(e) { print(e); browser() })
+    t_val <- sign(median(r[HI_idx], na.rm = T) - median(r[LO_idx], na.rm = T)) *
+              (1 - w_test$p.value)
+    return(t_val)
+  })
+  ret_val[is.na(ret_val)] <- 0
   ret_val <- as.matrix(ret_val)
   colnames(ret_val) <- 't_val'
 
@@ -98,6 +133,7 @@ gsea_wrapper <- function(gene_sets = HALLMARK_pathways,
                                                           unique(patient)],
                          gene_score_fn = my_paired_WC_test,
                          paired_test = T,
+                         preprocessing = 'none',
                          resp_exp = NULL,
                          exp_mat = rna_read_counts_salmon,
                          allowed_timepoints = NULL,
@@ -105,11 +141,18 @@ gsea_wrapper <- function(gene_sets = HALLMARK_pathways,
                          abs = F,
                          fn_extra = '') {
   starttime <- Sys.time()
+  if (!exists('rna_sample_annotation')) source('R/load_rna_dat.R')
 
   ## Prepare X and Y matrices
   Y_mat <- rna_sample_annotation[patient %in% patients,
                                  .(patient, cf_number,
-                                   timepoint, clinical_response)]
+                                   timepoint, clinical_response)] %>%
+    controlled_merge(patient_labels[timepoint == 'Baseline', 
+                                    .(patient, 'baseline_ca15_3' = ca15_3)]) %>%
+    mutate(baseline_ca15_3_bin = baseline_ca15_3 <= 
+           patient_labels[!is.na(ca15_3) & clinical_response == 'R', 
+                          max(ca15_3)])
+
   ## Subselect patients for which response var is not NA
   if (!is.null(resp_exp)) {
     Y_mat <- Y_mat[!is.na(get(resp_exp))]
@@ -118,13 +161,9 @@ gsea_wrapper <- function(gene_sets = HALLMARK_pathways,
     }
   }
 
-  if (is.null(allowed_timepoints)) {
-    allowed_timepoints <- timepoints
-  }
+  allowed_timepoints <- allowed_timepoints %||% timepoints
   Y_mat <- Y_mat[timepoint %in% allowed_timepoints]
-  if (null_dat(Y_mat)) {
-    return(NULL)
-  }
+  if (null_dat(Y_mat)) return(NULL)
 
   if (paired_test && !null_dat(Y_mat)) {
     allowed_pats <- Y_mat[, .N, by = patient][N == 2, patient]
@@ -133,19 +172,21 @@ gsea_wrapper <- function(gene_sets = HALLMARK_pathways,
     }
     Y_mat <- Y_mat[patient %in% allowed_pats]
   }
-  
+
   if (null_dat(Y_mat) || Y_mat[, any(table(get(resp_exp)) == 0)] ||
       nrow(Y_mat) < 6) {
     return(NULL)
   }
 
-  ## As we're not using the variance stab, this is redundant and the formula
-  ## does not need to be consistent with the actual experiment
-  design_mat <- stats::model.matrix(as.formula(sprintf('~ 0 + timepoint')),
-                                    as.data.frame(Y_mat))
   idx <- match(Y_mat[, cf_number], colnames(exp_mat))
-  RCs <- exp_mat[, idx, with = F]
-  rownames(RCs) <- rownames(exp_mat)
+  if ('data.table' %in% class(exp_mat)) {
+    RCs <- exp_mat[, idx, with = F]
+    rownames(RCs) <- rownames(exp_mat)
+  } else if ('matrix' %in% class(exp_mat)) {
+    RCs <- exp_mat[, idx]
+  } else {
+    stop('Not implemented')
+  }
   if (grepl('ENSG', rownames(exp_mat)[1])) {
     RCs$ensembl_gene_id <- rownames(exp_mat)
     RCs$gene_symbol <-
@@ -158,19 +199,28 @@ gsea_wrapper <- function(gene_sets = HALLMARK_pathways,
 
   ## Ensure we found data for all selected samples
   stopifnot(ncol(RCs) == nrow(Y_mat))
-  cpms <- limma::voom(RCs, design_mat, plot = plot_bool, span = .1)
-  cpms <- t(cpms$E)
-  dimnames(cpms)
-  colnames(cpms) <- rownames(exp_mat)
-
-  res <- ggsea(x = cpms,
+  if (preprocessing == 'cpm') {
+    ## As we're not using the variance stab, this is redundant and the formula
+    ## does not need to be consistent with the actual experiment
+    design_mat <- stats::model.matrix(as.formula(sprintf('~ 0 + timepoint')),
+                                      as.data.frame(Y_mat))
+    RCs <- limma::voom(RCs, design_mat, plot = plot_bool, span = .1)
+    RCs <- t(RCs$E)
+    dimnames(RCs)
+    colnames(RCs) <- rownames(exp_mat)
+  } else if (preprocessing == 'none') {
+    RCs <- t(DGEList(RCs)$counts)
+    colnames(RCs) <- rownames(exp_mat)
+  }
+  browser()
+  res <- ggsea(x = RCs,
                y = Y_mat,
                gene.sets = gene_sets,
                gene.score.fn = gene_score_fn,
                es.fn = ggsea_weighted_ks,
                sig.fun = ggsea_calc_sig,
                nperm = nperm,
-               gs.size.min = 3,
+               gs.size.min = 2,
                gs.size.max = 1e4,
                verbose = TRUE,
                block.size = BLOCK_SIZE,
@@ -184,7 +234,7 @@ gsea_wrapper <- function(gene_sets = HALLMARK_pathways,
   if (!is.null(res$leading_edge[[1]])) {
     dtf$leading_edge_genes <- sapply(res$leading_edge[[1]],
                                      function(x)
-                                     paste(colnames(cpms)[x], collapse = ';'))
+                                     paste(colnames(RCs)[x], collapse = ';'))
   }
   endtime <- Sys.time(); d <- endtime - starttime
   messagef(paste0('Finished. #samples: %d, response var: %s, ',
@@ -210,6 +260,7 @@ gsea_all_arms <- function(gene_sets = HALLMARK_pathways,
                           nperm = 1000,
                           abs = F,
                           fn_extra = '') {
+  if (!exists('rna_sample_annotation')) source('R/load_rna_dat.R')
   arm_specific_gsea <-
     rbindlist(lapply(c(rna_sample_annotation[, levels(arm)], 'All arms'),
                      function(l_arm) {

@@ -2,15 +2,16 @@
 devtools::load_all('~/libs/maartenutils')
 # pacman::p_load('extrafont')
 options(error = traceback)
-options(warn=1)
+options(warn = 1)
 force_installation <- F
-if (!local_run) {
+if (F && !local_run) {
   source(file.path('~/antigenic_space', 'bin', 'install_packages.R'))
   ## No idea why this is necessary
   # devtools::install('~/libs/maartenutils')
-  devtools::install('~/libs/GSEAgenesets')
+  # devtools::install('~/libs/GSEAgenesets')
 }
-pacman::p_load(data.table)
+suppressMessages(pacman::p_load(data.table))
+library(magrittr)
 pacman::p_load(dtplyr)
 pacman::p_load(dplyr)
 pacman::p_load(tidyverse)
@@ -33,22 +34,25 @@ if (local_run) {
 }
 setwd(p_root)
 sr <- serializer::gen_serializer(file.path(p_root, 'rds'))
-img_dir <- file.path(p_root, 'plots')
 rds_dir <- file.path(p_root, 'rds')
-dir.create('rds2', showWarnings = F)
-plot_dir <- file.path(p_root, 'plots')
+dir.create(rds_dir, showWarnings = F)
+plot_dir <- file.path(p_root, 'plots2')
+img_dir <- plot_dir
 data_dir <- file.path(p_root, 'data-raw')
 forge_mirror <- file.path(data_dir, 'forge', 'userdata', 
                           'sLpLDXtXQNrqruxTWwnV2GSuNVSSGAdgP60YoQzR', 
                           'TONIC_stage1_WES')
 # source('R/read_xlsx.R')
-source('R/constants.R')
+cond_rm('blood_adaptive')
 sr(blood_adaptive)
 sr(patient_labels)
+source('R/constants.R')
+
 source('R/misc.R')
 source('R/load_data.R')
 source('R/load_cache.R')
 source('R/read_DNASeq.R')
+source('R/load_adaptive.R')
 source('R/seq_stat_overview.R')
 
 source('R/plotting_nanostring.R')
@@ -61,12 +65,19 @@ source('R/test_associations.R')
 source('R/ton_percentile_comp.R')
 source('R/rna.R')
 source('R/ML_RNASeq.R')
+source('R/plot_DNASeq.R')
 
 source('R/GSEA_plotting.R')
 source('R/GSEA_funcs_paired.R')
 # library('extrafont')
 # font_import(pattern="[A/a]rial", prompt=FALSE)
 library(cowplot)
+library(naturalsort)
 # ggplot2::theme_set(theme_ms(base_size = 8,
 #                             text=element_text(size=8, family='Arial')))
-ggplot2::theme_set(theme_ms(base_size = 10))
+ggplot2::theme_set(theme_ms(base_size = 10, 
+  panel.border = ggplot2::element_rect(colour = 'grey20', fill = NA, size = 1,
+                                       linetype = 'solid')))
+
+patient_labels %<>% 
+  controlled_merge(wes_table[, .('cf_number' = tumor_cf, brca1_like)])

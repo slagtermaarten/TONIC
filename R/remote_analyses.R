@@ -9,6 +9,10 @@ if (!local_run) {
 }
 setwd(root_dir)
 source(file.path(root_dir, 'R', 'init.R'))
+NPERM <- 1000
+if (maartenutils::local_run) {
+  NPERM <- 3
+}
 
 if (T && !maartenutils::local_run) {
   pacman::p_load('doParallel')
@@ -92,33 +96,51 @@ if (F) {
 }
 
 
-if (T) {
+if (F) {
+  # rownames(tpms_salmon)
+  # rownames(rna_read_counts_salmon)
+  # rownames(rna_read_counts_salmon_tmm)
+  # colnames(tpms_salmon)
+  # colnames(rna_read_counts_salmon_tmm)
+  # class(rna_read_counts_salmon_tmm)
+  # class(tpms_salmon)
+  # dim(rna_read_counts_salmon_tmm)
+  # dim(tpms_salmon)
   ## GSEA analyses
-  source('R/load_rna_dat.R')
+  if (!maartenutils::local_run) {
+    source('R/load_rna_dat.R')
+  }
+  # debugonce(my_paired_WC_test)
+  # which(is.na(colnames(rna_read_counts_salmon_tmm)))
   res <- gsea_all_arms(gene_sets = HALLMARK_pathways,
                        patients = rna_sample_annotation[, unique(patient)],
                        allowed_timepoints = c('Baseline', 'Post-induction'),
                        gene_score_fn = my_paired_WC_test,
-                       exp_mat = rna_read_counts_salmon_tmm,
+                       exp_mat = rna_read_counts_salmon_tmm_M,
+                       # exp_mat = tpms_salmon,
                        resp_exp = 'timepoint',
                        paired_test = T, 
-                       nperm = 1e3,
+                       nperm = NPERM,
                        abs = F,
                        fn_extra = '')
-  saveRDS(res, file = 'rds2/GSEA_paired_TMM.rds')
+  if (!local_run) {
+    saveRDS(res, file = 'rds2/GSEA_paired_TMM.rds')
+  }
 
   res <- gsea_all_arms(gene_sets = HALLMARK_pathways,
                        patients = rna_sample_annotation[!is.na(clinical_response), 
                                                         unique(patient)],
                        allowed_timepoints = 'Baseline',
-                       exp_mat = rna_read_counts_salmon_tmm,
+                       exp_mat = rna_read_counts_salmon_tmm_M,
                        gene_score_fn = my_unpaired_WC_test,
                        resp_exp = 'clinical_response',
                        paired_test = F, 
-                       nperm = 1e3,
+                       nperm = NPERM,
                        abs = F,
                        fn_extra = '')
-  saveRDS(res, file = 'rds2/GSEA_unpaired_baseline_TMM.rds')
+  if (!local_run) {
+    saveRDS(res, file = 'rds2/GSEA_unpaired_baseline_TMM.rds')
+  }
 
   res <- gsea_all_arms(gene_sets = HALLMARK_pathways,
                        patients = rna_sample_annotation[!is.na(clinical_response), 
@@ -126,10 +148,96 @@ if (T) {
                        allowed_timepoints = 'Post-induction',
                        gene_score_fn = my_unpaired_WC_test,
                        resp_exp = 'clinical_response',
-                       exp_mat = rna_read_counts_salmon_tmm,
+                       exp_mat = rna_read_counts_salmon_tmm_M,
                        paired_test = F, 
-                       nperm = 1e3,
+                       nperm = NPERM,
                        abs = F,
                        fn_extra = '')
-  saveRDS(res, file = 'rds2/GSEA_unpaired_postinduction_TMM.rds')
+  if (!local_run) {
+    saveRDS(res, file = 'rds2/GSEA_unpaired_postinduction_TMM.rds')
+  }
+}
+
+if (T) {
+  ## CA15.3 investigations
+  res <- gsea_all_arms(gene_sets = HALLMARK_pathways,
+                       patients = patient_labels[!is.na(ca15_3) & 
+                                                 timepoint == 'Baseline',
+                                                 patient],
+                       allowed_timepoints = 'Baseline',
+                       exp_mat = rna_read_counts_salmon_tmm_M,
+                       gene_score_fn = my_unpaired_WC_test_ca15_3,
+                       resp_exp = 'baseline_ca15_3_bin',
+                       paired_test = F, 
+                       nperm = NPERM,
+                       abs = F,
+                       fn_extra = '')
+  if (!local_run) {
+    saveRDS(res, file = 'rds2/GSEA_ca15_3_baseline_TMM.rds')
+  }
+
+  res <- gsea_all_arms(gene_sets = HALLMARK_pathways,
+                       patients = patient_labels[!is.na(ca15_3) & 
+                                                 timepoint == 'Post-induction',
+                                                 patient],
+                       allowed_timepoints = 'Post-induction',
+                       gene_score_fn = my_unpaired_WC_test_ca15_3,
+                       resp_exp = 'baseline_ca15_3_bin',
+                       exp_mat = rna_read_counts_salmon_tmm_M,
+                       paired_test = F, 
+                       nperm = NPERM,
+                       abs = F,
+                       fn_extra = '')
+  if (!local_run) {
+    saveRDS(res, file = 'rds2/GSEA_ca15_3_postinduction_TMM.rds')
+  }
+}
+
+if (F) {
+  SENESCENCE_pathways <- filter_gmt('custom.senescence', '*')
+  res <- gsea_all_arms(gene_sets = SENESCENCE_pathways,
+                       patients = rna_sample_annotation[, unique(patient)],
+                       allowed_timepoints = c('Baseline', 'Post-induction'),
+                       gene_score_fn = my_paired_WC_test,
+                       exp_mat = rna_read_counts_salmon_tmm_M,
+                       # exp_mat = tpms_salmon,
+                       resp_exp = 'timepoint',
+                       paired_test = T, 
+                       nperm = NPERM,
+                       abs = F,
+                       fn_extra = '')
+  if (!local_run) {
+    saveRDS(res, file = 'rds2/GSEA_paired_TMM_senescence.rds')
+  }
+
+  source('R/GSEA_funcs_paired.R')
+  res <- gsea_all_arms(gene_sets = SENESCENCE_pathways,
+                       patients = rna_sample_annotation[!is.na(clinical_response), 
+                                                        unique(patient)],
+                       allowed_timepoints = 'Baseline',
+                       exp_mat = rna_read_counts_salmon_tmm_M,
+                       gene_score_fn = my_unpaired_WC_test,
+                       resp_exp = 'clinical_response',
+                       paired_test = F, 
+                       nperm = NPERM,
+                       abs = F,
+                       fn_extra = '')
+  if (!local_run) {
+    saveRDS(res, file = 'rds2/GSEA_unpaired_baseline_TMM_senescence.rds')
+  }
+
+  res <- gsea_all_arms(gene_sets = SENESCENCE_pathways,
+                       patients = rna_sample_annotation[!is.na(clinical_response), 
+                                                        unique(patient)],
+                       allowed_timepoints = 'Post-induction',
+                       gene_score_fn = my_unpaired_WC_test,
+                       resp_exp = 'clinical_response',
+                       exp_mat = rna_read_counts_salmon_tmm_M,
+                       paired_test = F, 
+                       nperm = NPERM,
+                       abs = F,
+                       fn_extra = '')
+  if (!local_run) {
+    saveRDS(res, file = 'rds2/GSEA_unpaired_postinduction_TMM_senescence.rds')
+  }
 }
