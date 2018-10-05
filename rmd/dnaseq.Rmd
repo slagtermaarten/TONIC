@@ -4,9 +4,47 @@ source('R/load_rna_dat.R')
 # install.packages(c('gdata', 'gridExtra'))
 # install.packages(c('NMF'))
 devtools::load_all('~/libs/GSEAgenesets')
+
+source('R/load_rna_dat.R')
+rna_sample_annotation %<>%
+  controlled_merge(patient_labels[, .(patient, clinical_response, response)],
+                   by_cols = c('patient'), dup_priority = 'a')
+rna_patient_ordering <- rna_sample_annotation[order(response), unique(patient)]
 ```
 
 # QC
+
+## Average sample coverage
+
+```{r, warning=FALSE, echo=FALSE}
+file_overview <-
+  list.files(file.path(data_dir, 'targets')) %>%
+  { setNames(file.path(data_dir, 'targets', .),
+             tolower(gsub('\\d{4}_\\d{1,2}_(C*F*\\d+)_.*', '\\1', .))) } %>%
+  named_vec_to_dt('cf_number', 'fn')
+
+setkey(file_overview, cf_number)
+
+dtf <- rbindlist(lapply(patient_labels[, naturalsort(unique(patient))],
+       function(l_patient) {
+  message(l_patient)
+  fns <- patient_labels[patient == l_patient & timepoint == 'Baseline',
+                 tolower(cf_number)] %>%
+      { wes_table[tolower(tumor_cf) == ., .(tumor_cf, normal_cf)] } %>%
+      { file_overview[tolower(.), setNames(fn, c('tumor', 'normal'))] }
+  if (length(fns) != 2 || sum(is.na(fns)) != 0) 
+    return(NULL)
+  map(fns, ~fread(., col.names = c('chr', 'start', 'end', 'length', 'average',
+                                   'median', 'stdev', 'variance', "mincov",
+                                   'nr_reads', 'length',
+                                   'fraction_bases_covered'))) %>%
+  map(~ .[, weighted.mean(median, length)]) %>%
+  c(list('patient' = l_patient))
+}))
+
+dtf[, quantile(tumor, c(0, .5, 1))]
+dtf[, quantile(normal, c(0, .5, 1))]
+```
 
 ## FastQC analyses
 
@@ -410,15 +448,24 @@ patient_ordering <- levels(oncop_dat$patient)
 
 clean_columns('', col_names = c('clinical_response', 'response'),
               fh = rna_sample_annotation)
+```
 
-clear_object('mutation_specific_mut_loads')
-sr(mutation_specific_mut_loads <- 
-  purrr::map_dfr(oncop_dat[, patient], function(pat) {
-  vcf_fh <- filter_VCF(patient = pat)
-  if (null_dat(vcf_fh)) return(NULL)
-  vcf_fh %<>% annotate_effects
-  cbind(vcf_fh[, .N, by = variant_classification], 'patient' = pat)
-}))
+```{r, warning=FALSE, echo=FALSE}
+# clear_object('mutation_specific_mut_loads', sr)
+if (F) {
+  mutation_specific_mut_loads <- 
+      purrr::map_dfr(oncop_dat$patient, function(pat) {
+      vcf_fh <- filter_VCF(patient = pat)
+      if (null_dat(vcf_fh)) return(NULL)
+      vcf_fh %<>% annotate_effects
+      cbind(vcf_fh[, .N, by = variant_classification], 'patient' = pat)
+    })
+  saveRDS(mutation_specific_mut_loads, 
+    file.path(rds_dir, 'mutation_specific_mut_loads.rds'))
+} else {
+  mutation_specific_mut_loads <- 
+    readRDS(file.path(rds_dir, 'mutation_specific_mut_loads.rds'))
+}
 ```
 
 ```{r, eval = F, warning=FALSE, echo=FALSE}
@@ -524,6 +571,7 @@ gen_cr_track <- function(patient_ordering = levels(oncop_dat$patient)) {
                       values = tonic_color_palettes[['recist']])
 }
 cr_track <- gen_cr_track(patient_ordering)
+rna_cr_track <- gen_cr_track(rna_patient_ordering)
 
 arm_track <- oncop_dat %>%
   copy %>%
@@ -704,24 +752,18 @@ oncop_dat[!is.na(clinical_response_b),
           wilcox.test(gen_SCNA_score ~ clinical_response_b)]
 oncop_dat[!is.na(clinical_response_b),
           wilcox.test(gen_SCNA_score ~ clinical_response_b)]
-oncop_dat
-plot(oncop_dat[, .(gen_SCNA_score, clinical_response_b)])
+# plot(oncop_dat[, .(gen_SCNA_score, clinical_response_b)])
 oncop_dat[, 'cr_b' := as.factor(clinical_response %in% c('R', 'CR', 'PR', 'SD'))]
 oncop_dat[, table(cr_b)]
 # oncop_dat[, wilcox.test(cr_b ~ gen_SCNA_score)]
 # print(B2M_track)
+
+setdiff(patient_labels[clinical_response == 'R', unique(patient)],
+oncop_dat[clinical_response_b == T, patient])
+oncop_dat[patient == 'pat_64']
+patient_labels[patient == 'pat_64']
 source('R/pam50_plots.R')
 ```
-
-```{r, warning=FALSE, echo=FALSE}
-source('R/load_rna_dat.R')
-rna_sample_annotation %<>%
-  controlled_merge(patient_labels[, .(patient, clinical_response, response)],
-                   by_cols = c('patient'), dup_priority = 'a')
-rna_patient_ordering <- rna_sample_annotation[order(response), unique(patient)]
-rna_cr_track <- gen_cr_track(rna_patient_ordering)
-```
-
 
 ```{r, warning=FALSE, echo=FALSE}
 # MMR_dat[order(-effect)]
@@ -962,3 +1004,9 @@ dev.off()
 #            'predicted' = predict(cv.glmnet, newx = X_mat, s = 'lambda.min')[, 1]) %>%
 #   ggplot(aes(x = actual, y = predicted)) + geom_boxplot()
 # cv.glmnet
+```
+
+```{r, warning=FALSE, echo=FALSE}
+
+```
+
