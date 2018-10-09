@@ -160,6 +160,9 @@ read_sequenza <- function(patient = 'pat_69', timepoint = 'Baseline') {
   fh %<>% cbind(fread(sol_fn)[1])
   # fh[, c('CNt_n', 'A_n', 'B_n') := list(CNt / ploidy, A / ploidy, B / ploidy)]
   fh[, 'CNt_n' := CNt / ploidy]
+
+  ## Merge in arm and band information
+  fh <- merge_karyotyping(fh)
   return(fh)
 }
 
@@ -285,6 +288,46 @@ filter_var_list <- function(l_patient,
 }
 
 
+merge_karyotyping <- function(fh) {
+  library(GenomicRanges)
+  library(IRanges)
+  chrom_dat <- 
+    fread(file.path(data_dir, 'ideogram_9606_GCF_000001305.14_850_V1')) %>%
+    setnames('#chromosome', 'chromosome')
+  # print(chrom_dat[, .(min(bp_start), max(bp_stop)), by = chromosome])
+  
+  fh_ranges <- 
+    GRanges(seqnames = Rle(fh[, chromosome]),
+            ranges = fh[, IRanges(start = start_pos, end = end_pos)])
+  cr_ranges <- 
+    GRanges(seqnames = Rle(chrom_dat[, chromosome]),
+            ranges = chrom_dat[, IRanges(start = bp_start, end = bp_stop)],
+            stain = chrom_dat[, stain],
+            band = chrom_dat[, band],
+            arm = Rle(chrom_dat[, arm]))
+
+  IRanges::findOverlaps(fh_ranges, cr_ranges, type = 'within', select = 'all')
+  i_m <- IRanges::mergeByOverlaps(fh_ranges, cr_ranges, 
+                                  type = 'any', select = 'all') %>%
+    as.data.table(i_m) %>% 
+    setnames(c('fh_ranges.seqnames', 'fh_ranges.start', 'fh_ranges.end'),
+             c('chromosome', 'start_pos', 'end_pos')) %>%
+    .[, setdiff(colnames(.), 
+                c('cr_ranges.strand', 'fh_ranges.strand', 'cr_ranges.start', 
+                  'cr_ranges.seqnames', 'cr_ranges.width',
+                  'cr_ranges.end', 'cr_ranges.width')), 
+      with = F]
+
+  ## Identify segments overlapping a centromere; don't merge these in
+  bl_segs <- i_m[, .('u_arms' = uniqueN(cr_ranges.arm)), 
+      by = .(chromosome, start_pos, end_pos)] %>%
+        .[u_arms > 1, .(chromosome, start_pos, end_pos)]
+  setkey(i_m, chromosome, start_pos, end_pos)
+  fh %<>% controlled_merge(i_m[!bl_segs], all.x = T, all.y = F)
+  return(fh)
+}
+
+
 #' Combine all aberrations for all patients in a user specified set of genes
 #'
 #'
@@ -361,12 +404,35 @@ compute_dnaseq_stats <- function(patient = 'pat_33') {
                            open_directly = F) %>% unique
   if (!is.null(sols_fn) && !is.na(sols_fn) && length(sols_fn) > 0) {
     ploidy_est <- fread(sols_fn[1])[1, .('purity' = cellularity, ploidy)]
-    if (is.null(ploidy_est) || length(ploidy_est) == 0) return(NULL) # 
+    if (is.null(ploidy_est) || length(ploidy_est) == 0) return(NULL)
     # browser(expr = !eps(ploidy_est, fh[, weighted.mean(CNt, seg_length)], 
     #                     epsilon = .25 * ploidy_est))
   } else {
     ploidy_est <- list('purity' = NA, 'ploidy' = NA)
   }
+
+  chrom_scores <- 
+    fh[, .('chrom_gain' = pmin(quantile(CNt, .1) - 2), 
+           'chrom_loss' = 2 - pmax(quantile(CNt, .9))), 
+       by = chromosome] %>%
+    .[, 'chrom_gain_b' := chrom_gain > 0] %>%
+    .[, 'chrom_loss_b' := chrom_loss > 0]
+
+  chrom_score <-
+    chrom_scores[, .('gained_alleles' = .SD[chrom_gain > 0, sum(chrom_gain)],
+                     'lost_alleles' = .SD[chrom_loss > 0, sum(chrom_loss)])] %>%
+      unlist %>% sum
+
+  arm_scores <- 
+    fh[, .('arm_gain' = pmin(quantile(CNt, .1) - 2), 
+           'arm_loss' = 2 - pmax(quantile(CNt, .9))), 
+       by = .(chromosome, arm)] %>%
+    .[, 'arm_gain_b' := arm_gain > 0] %>%
+    .[, 'arm_loss_b' := arm_loss > 0]
+  arm_score <-
+    arm_scores[, .('gained_alleles' = .SD[arm_gain > 0, sum(arm_gain)],
+                   'lost_alleles' = .SD[arm_loss > 0, sum(arm_loss)])] %>%
+      unlist %>% sum
 
   fh[, 'CN_score_segment' := pmin(abs(CNt - 2), 2)]
   fh[, 'CN_score_segment_unbounded' := abs(CNt - 2)]
@@ -396,11 +462,13 @@ compute_dnaseq_stats <- function(patient = 'pat_33') {
   vcf_fh <- filter_VCF(patient = patient)
   if (null_dat(vcf_fh)) return(NULL)
   vcf_fh %<>% annotate_effects
-  
+
   return(c(list('patient' = patient, 
          'mut_load' = vcf_fh[variant_classification %in% mut_load_var_types, .N],
          'rs_frac' = vcf_fh[, length(grep('rs', ID))] / nrow(vcf_fh),
          'gen_SCNA_score' = fh[, sum(CN_score_segment)],
+         'chrom_SCNA_score' = chrom_score,
+         'arm_SCNA_score' = arm_score,
           ## Abkevich et al., (2012) doi:10.1038/bjc.2012.451
          'HRD_LOH' = fh[chromosome %nin% blacklist_chroms & 
                         seg_length >= 15000000 & LOH == T, .N],
