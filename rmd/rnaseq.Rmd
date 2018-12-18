@@ -1,5 +1,6 @@
 ```{r, warning=FALSE, echo=FALSE}
 # source('~/antigenic_space/bin/install_packages.R')
+setwd('~/TONIC')
 devtools::load_all('~/libs/GSEAgenesets')
 source('R/init.R')
 source('R/load_rna_dat.R')
@@ -1110,6 +1111,24 @@ rna_sample_annotation %<>%
                    by_cols = 'cf_number')
 ```
 
+Liu scores distribution, most genes are inferred to be uninformative
+
+```{r, warning=FALSE, echo=FALSE}
+# plot(ecdf(liu_scores[, 'mdsc']))
+# lines(ecdf(liu_scores[, 'caf']))
+## Not run yet, stalls
+ecdf_plot <- melt(liu_scores) %>% 
+  ggplot(aes(x = Var1, colour = Var2)) + 
+  stat_ecdf(geom = "step", pad = FALSE) +
+  scale_x_discrete(name = 'Correlation coefficient') +
+  scale_y_continuous(name = 'Rank percentile')
+
+ggsave(ecdf_plot, filename = file.path(img_dir, 'liu_scores_ecdf.pdf'),
+       width = 8, height = 8, units = 'cm')
+```
+
+All covoriates against each other
+
 ```{r, warning=FALSE, echo=FALSE}
 pacman::p_load('GGally')
 pan_bl <- rna_sample_annotation[timepoint == 'Baseline', 
@@ -1126,6 +1145,8 @@ pan_pi <- rna_sample_annotation[timepoint == 'Post-induction',
 ggsave(pan_pi, filename = file.path(img_dir, 'pairwise_plots_jiang_corrs_pi.pdf'),
        width = 31, height = 26, units = 'cm')
 ```
+
+Spider plots
 
 ```{r, warning=FALSE, echo=FALSE}
 source('R/plotting_adaptive.R')
@@ -1154,6 +1175,82 @@ dplyr::mutate(rna_sample_annotation, value = t_exhaust) %>%
                        facet_var = 'arm') + 
   ggtitle('T exhaust')
 dev.off()
+```
+
+Univariate correlations with clinical response
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/GSEA_plotting.R')
+
+length(plots)
+plots <- lapply(c('Baseline', 'Post-induction'), function(tp) {
+  lapply(colnames(liu_scores), function(y_var) {
+    p_dat <- rna_sample_annotation[timepoint == tp, 
+       c('clinical_response', y_var), with = F] %>%
+       .[is.na(clinical_response), clinical_response := 'NA']
+
+    ggplot(p_dat, aes_string(x = 'clinical_response', 
+                             y = y_var, fill = 'clinical_response')) +
+      geom_boxplot() +
+      ggbeeswarm::geom_quasirandom() +
+      ggpubr::stat_compare_means(label = 'p.signif', method = 'wilcox') +
+      scale_fill_manual(name = '', values = resp_colors, guide = F) +
+      # scale_colour_manual(name = '', values = resp_colors, guide = F) +
+      scale_y_continuous(name = tonic_cap(y_var)) +
+      scale_x_discrete(name = 'Clinical response') +
+      ggtitle(tp)
+  })
+}) %>% unlist(recursive = F)
+
+plot_panel_layout(plots = plots,
+                  filename = file.path(img_dir, 'liu_cr_associations.pdf'),
+                  ncol = 3, nrow = 3, labels = NULL, w = 17.4, h = 25)
+```
+
+# HORMAD1 expression
+
+2018-12-18 09:12
+
+```{r, warning=FALSE, echo=FALSE}
+ggplot2::theme_set(theme_ms(base_size = 8, 
+  panel.border = ggplot2::element_rect(colour = 'grey20', fill = NA, size = 1,
+                                       linetype = 'solid')))
+
+M <- as.matrix(rna_read_counts_salmon_tmm_M)
+goi <- 'HORMAD1'
+rownames(M) <- rownames(rna_read_counts_salmon_tmm_M)
+single_gene_exp <- M[which(rownames(M) == goi), ] %>%
+  named_vec_to_dt('cf_number', 'exp') %>%
+  controlled_merge(rna_sample_annotation, by_cols = 'cf_number') %>%
+  .[is.na(clinical_response), 'clinical_response' := 'NA']
+
+p1 <- ggplot(single_gene_exp, aes(x = exp, fill = clinical_response)) + 
+  geom_histogram(bins = 50) + 
+  facet_wrap(~ timepoint, scale = 'free_x') +
+  scale_fill_manual(name = 'Clinical response',
+                    values = tonic_color_palettes[['clinical_response']]) +
+  ylab('Patient count') + 
+  xlab(sprintf('%s expression (TMM-normalized read counts)', goi))
+
+p2 <- ggplot(single_gene_exp,
+            aes(y = exp, x = clinical_response, fill = clinical_response)) +
+  geom_boxplot(bins = 50) +
+  facet_wrap(~ timepoint) +
+  ggpubr::stat_compare_means(label = 'p.signif', method = 'wilcox') +
+  scale_fill_manual(name = 'Clinical response',
+                    values = tonic_color_palettes[['clinical_response']]) +
+  xlab('') +
+  ylab(sprintf('%s expression (TMM-normalized read counts)', goi))
+
+hormad_plots <- list(p1, p2)
+
+plot_panel_layout(plots = hormad_plots, 
+  nrow = 2,
+  ncol = 1,
+  # fig_padding = NULL,
+  # plot_direct = T,
+  filename =  file.path(img_dir, sprintf('single_gene_%s.pdf', goi)),
+  w = 8.7, h = 15)
 ```
 
 ## Junk
