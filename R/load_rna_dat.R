@@ -304,8 +304,6 @@ if (T) {
                                        by = .(patient, timepoint)])
 }
 
-
-
 if (T && local_run) {
   fastqc_vars <-  c('adapter_content', 'basic_statistics',
                     'overrepresented_sequences', 'per_base_n_content',

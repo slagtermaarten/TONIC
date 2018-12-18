@@ -1,0 +1,75 @@
+```{r, warning=FALSE, echo=FALSE}
+# source('~/antigenic_space/bin/install_packages.R')
+devtools::load_all('~/libs/GSEAgenesets')
+setwd('~/Projects/TONIC')
+source('R/init.R')
+source('R/load_rna_dat.R')
+source('R/rna.R')
+
+hkg <- fread(file.path(data_dir, 'HK_genes.txt'), skip = 1, header = F)
+setnames(hkg, c('hgnc_symbol', 'refseq'))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+p_dat <- rbind(data.table(compute_hkg_quantiles(tpms_salmon), 
+                          'method' = 'TPM Salmon'),
+               data.table(compute_hkg_quantiles(tpms_salmon_rn),
+                          'method' = 'TPM Salmon filtered and renormalized'),
+               data.table(compute_hkg_quantiles(rna_read_counts_salmon),
+                          'method' = 'Read counts Salmon'),
+               data.table(compute_hkg_quantiles(rna_read_counts_salmon_tmm),
+                          'method' = 'Read counts Salmon TMM'))
+p_dat[, method := factor(method, levels = unique(method))]
+ggplot(p_dat, aes(x = method, y = V1)) + geom_boxplot() +
+  scale_y_continuous(trans = 'log10', 
+    name = 'Var / mean across all samples for housekeeping genes') +
+  rotate_x_labels(45)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+rna_read_counts_salmon_tmm[rownames(dtf) %in% hkg[, hgnc_symbol]]
+x <- colSums(rna_read_counts_salmon_tmm)
+y <- setNames(rna_sample_annotation$bioanalyzer_nM,
+              rna_sample_annotation$cf_number)
+y <- setNames(rna_sample_annotation$prot_cod,
+              rna_sample_annotation$cf_number)
+plot(x, y)
+stopifnot(all(names(y) == names(x)))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+compute_transcriptome_evenness <- function(dtf = tpms_salmon) {
+  apply(dtf[, lapply(.SD, compute_evenness)], 1, function(x) var(x) / mean(x))
+}
+
+compute_transcriptome_evenness(tpms_salmon)
+compute_transcriptome_evenness(tpms_salmon_rn)
+compute_transcriptome_evenness(rna_read_counts_salmon)
+compute_transcriptome_evenness(rna_read_counts_salmon_tmm)
+```
+
+We'd expect all housekeeping genes to be expressed to similar degrees in library
+and gene size normalized expression data. This is only the case in the TMM
+normalized data. 
+
+```{r, warning=FALSE, echo=FALSE}
+var_ordering <- order(apply(dtf, 1, var))
+row_names <- rownames(dtf)[var_ordering]
+dtf_var_ordered <- dtf[var_ordering]
+rownames(dtf_var_ordered) <- row_names
+```
+
+```{r, warning=FALSE, echo=FALSE}
+# source('R/load_rna_dat.R')
+devtools::load_all('~/libs/GSEAgenesets')
+source('R/rna.R')
+
+sr(geneset_scores_tmm <- gen_gene_set_score_matrix(sum_func = median,
+                           exp_mat = rna_read_counts_salmon_tmm,
+                           sets = filter_gmt('h.all', 'HALLMARK'),
+                           log_transform = 'log2'))
+geneset_scores_tmm[, quantile(value, probs = .5), 
+                   by = .(patient, timepoint)] %>%
+  { unlist(.[, 3, with = F]) } %>%
+  { var(.) / mean(.) }
+```

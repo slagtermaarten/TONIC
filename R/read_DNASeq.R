@@ -21,7 +21,6 @@ read_CONTRA <- function(patient = 'pat_1') {
 #'
 #'
 lookup_DNA_cf <- function(patient = 'pat_69', timepoint = 'Baseline') {
-  l_patient = patient
   l_patient <- patient
   l_timepoint <- timepoint
   rel_subs <-
@@ -140,7 +139,12 @@ filter_germline_gene_symbol <- function(patient = 'pat_1',
 
 read_sequenza <- function(patient = 'pat_69', timepoint = 'Baseline') {
   l_cf_number <- lookup_DNA_cf(patient = patient, timepoint = timepoint)
+  wes_table[, tumor_cf == l_cf_number]
+  # l_cf_number <- lookup_DNA_cf(patient = patient, timepoint = 'Baseline')
+  # l_cf_number <- lookup_DNA_cf(patient = patient, timepoint = 'Post-induction')
+  # l_cf_number <- lookup_DNA_cf(patient = patient, timepoint = 'On nivo')
   if (is.null(l_cf_number)) return(NULL)
+  # wes_table[, tolower(normal_cf) == tolower(l_cf_number)]
   full_fn <- tryCatch(wes_table[tolower(tumor_cf) == tolower(l_cf_number), 
                       unique(sequenza_fn)], 
                       error = function(e) { print(e); browser() }) 

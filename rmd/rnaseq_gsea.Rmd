@@ -218,23 +218,14 @@ plot_leading_edge_gene_scores(dtf, allow_nonsensical = T,
 # CA15.3 transcriptomic associations
 
 ```{r, warning=FALSE, echo=FALSE}
-source('R/init.R')
+source('~/TONIC/R/init.R')
 source('R/load_rna_dat.R')
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
 readRDS(file = 'rds2/GSEA_ca15_3_baseline_TMM.rds') %>%
-  plot_es(legend.position = 'right', ptitle = 'paired_senescence',
-          # filename = sprintf('plots2/%s/GSEA_%s.pdf',
-          #                    format(Sys.time(), "%Y_%b_%d"), 'paired'),
-          subset_var = NULL, x_var = 'arm')
-```
-
-```{r, warning=FALSE, echo=FALSE}
-readRDS(file = 'rds2/GSEA_ca15_3_postinduction_TMM.rds') %>%
-  plot_es(legend.position = 'right', ptitle = 'paired_senescence',
-          # filename = sprintf('plots2/%s/GSEA_%s.pdf',
-          #                    format(Sys.time(), "%Y_%b_%d"), 'paired'),
+  dplyr::mutate(GeneSet = gsub('^HALLMARK_', '', GeneSet)) %>%
+  plot_es(legend.position = 'right', ptitle = 'ca15_3',
           subset_var = NULL, x_var = 'arm')
 ```
 
@@ -295,6 +286,49 @@ my_tt(bl_efit, coef = 2, sort.by = 'p', number = 100)$gene_symbol %>% writeLines
 prep_gsea(patients = patient_labels[!is.na(ca15_3) & 
                                     timepoint == 'Baseline',
                                     patient],
-          resp_exp = 'baseline_ca15_3_bin')
+          resp_exp = 'baseline_ca15_3_bin') 
 ```
 
+# STING pathway activation
+
+```{r, warning=FALSE, echo=FALSE}
+source('~/TONIC/R/init.R')
+source('R/load_rna_dat.R')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/GSEA_plotting.R')
+rbind(
+  cbind(readRDS(file = 'rds2/GSEA_unpaired_baseline_STING.rds')[[1]],
+        timepoint = 'Baseline'),
+  cbind(readRDS(file = 'rds2/GSEA_unpaired_postinduction_STING.rds')[[1]],
+        timepoint = 'Post-induction')) %>%
+  dplyr::mutate(GeneSet = gsub('^HALLMARK_', '', GeneSet)) %>%
+  plot_es(x_var = 'timepoint', ptitle = 'STING')
+plot_cr_gsea_res(ptitle = 'STING', 
+                 bl_fn = 'rds2/GSEA_unpaired_baseline_STING.rds'
+                 pi_fn = 'rds2/GSEA_unpaired_postinduction_STING.rds'
+```
+
+```{r, warning=FALSE, echo=FALSE}
+hist(readRDS(file = 'rds2/GSEA_unpaired_baseline_STING.rds')[[2]])
+hist(readRDS(file = 'rds2/GSEA_unpaired_postinduction_STING.rds')[[2]])
+readRDS(file = 'rds2/GSEA_unpaired_postinduction_STING.rds')[[2]] %>%
+  { .[abs(.) >= .999] } %>%
+  { .[order(abs(.))] } 
+
+# plot_es(p_dat, legend.position = 'right', ptitle = 'paired_senescence',
+#         subset_var = NULL)
+
+p <- readRDS(file = 'rds2/GSEA_unpaired_postinduction_STING.rds')[[1]] %>%
+  plot_es(legend.position = 'right', ptitle = 'paired_senescence',
+          subset_var = NULL)
+```
+
+
+```{r, warning=FALSE, echo=FALSE}
+devtools::load_all('~/libs/GSEAgenesets')
+
+plot_GSEA_scores(fn = 'rds2/GSEA_unpaired_postinduction_STING.rds')
+plot_GSEA_scores(fn = 'rds2/GSEA_unpaired_baseline_STING.rds')
+```

@@ -26,6 +26,10 @@ blood_timepoints_subs <- setNames(blood_timepoints,
                                   c(timepoints, 'On nivo 2', 'On nivo 3'))
 blood_timepoints_subs_inv <- setNames(c(timepoints, 'On nivo 2', 'On nivo 3'),
                                       blood_timepoints)
+blood_timepoint_names <-
+  setNames(paste0('PBL ', c('Baseline', 'Post-induction', 'On nivo', 
+                  'On nivo + 4', 'On nivo + 6')), blood_timepoints)
+
 
 ## Marleen's ingrained way of ordering the projects
 treatment_arms <- c('Radiotherapy', 'Doxorubicin', 'Cyclophosphamide',

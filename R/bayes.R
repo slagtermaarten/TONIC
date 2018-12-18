@@ -328,6 +328,52 @@ plot_extra_params <- function(p_dat = hlm_pi, params) {
                             limits = params,
                             labels = c('bc[1]' = 'Baseline contribution', 
                                        'rc[1]' = 'Clinical response contribution') %>%
-                                       { .[params] } %>% rev)
+                                       { .[params] } %>% rev %>% setNames(NULL))
   return(p)
 }
+
+
+#' R wrapper around the Stan model defined in 'rmd/stan_model_cutting_edge.stan'
+#'
+#'
+run_sim <- function(data, 
+                    df_sigma_FC = 3, 
+                    df_sigma_arm = 3, 
+                    df_b = 3,
+                    df_response_contrib = 3,
+                    df_FC_mu = 3,
+                    use_prior_only = F,
+                    use_clinical_response = F,
+                    use_baseline = F,
+                    adapt_delta = .9) {
+  stan_dat <- list(prior_only = as.integer(use_prior_only),
+                   use_baseline = as.integer(use_baseline),
+                   use_clinical_response = as.integer(use_clinical_response),
+                   N_arms = data[, uniqueN(arm)],
+                   N_obs = nrow(data),
+                   arm = as.integer(data[, arm]),
+                   clinical_response = as.integer(data$clinical_response == 'R'),
+                   'df_FC_mu' = df_FC_mu,
+                   'df_sigma_arm' = df_sigma_arm,
+                   'df_sigma_FC' = df_sigma_FC,
+                   'df_b' = df_b,
+                   'df_response_contrib' = df_response_contrib,
+                   baseline = data[, Baseline],
+                   FC = data[, FC])
+
+  if (!use_baseline) {
+    stan_dat$baseline = rep(0, nrow(data))
+  }
+
+  if (!use_clinical_response) {
+    stan_dat$clinical_response = rep(0, nrow(data))
+  }
+
+  hlm <- stan(model_name = 'Hierarchical Model',
+              file = 'rmd/stan_model_cutting_edge.stan',
+              data = stan_dat, iter = 5e4, warmup = 2.5e4, 
+              control = list(adapt_delta = adapt_delta),
+              chains = 2, verbose = FALSE)
+  return(hlm)
+}
+

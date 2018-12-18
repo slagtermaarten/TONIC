@@ -1,0 +1,109 @@
+---
+title: "Blood TCR repertoires ALICE"
+author: "Maarten Slagter"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+    theme: united
+---
+
+
+```{r, warning=FALSE, echo=FALSE, cache = F}
+knitr::opts_chunk$set(message = FALSE, cache = T, cache.lazy = F,
+                      cache.comments = F, autodep = T, warning = FALSE,
+                      results = 'hide', fig.keep = 'high',
+                      echo = TRUE, error = FALSE)
+knitr::opts_knit$set(progress = TRUE, verbose = TRUE)
+p_root <- '~/TONIC'
+output_dir <- file.path(p_root, 'ALICE')
+input_dir <- file.path(p_root, 'ALICE', 'ALICE_input')
+# list.files(input_dir)
+# list.files(output_dir)
+source(file.path(p_root, 'R', 'init.R'))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+vdjdb <- fread(file.path(data_dir, 
+               'VDJDB_SearchTable-2018-10-12_09_41_34.974.tsv')) %>% 
+  normalize_colnames
+setnames(vdjdb, 'cdr3', 'CDR3.amino.acid.sequence') 
+vdjdb[, cdr3fix := NULL]
+vdjdb[, meta := NULL]
+vdjdb[, method := NULL]
+vdjdb[, complex_id := NULL]
+vdjdb[, gene := NULL]
+vdjdb[, bestVGene := gsub('\\*.*$', '', v)]
+vdjdb[, bestJGene := gsub('\\*.*$', '', j)]
+vdjdb[, v := NULL]
+vdjdb[, j := NULL]
+## All TCRs have an associated epitope
+# vdjdb[, mean(is.na(epitope))]
+```
+
+Compare:
+* The amount of clusters formed over all timepoints and on nivo (TIL and PBL)
+* The sum of normalized frequencies over these clones
+* The FC over time of clusters
+
+```{r, warning=FALSE, echo=FALSE}
+analysis_name = 'TIL'
+analysis_name = ''
+
+parse_ALICE <- function(patient = 'pat_4', analysis_name = '_all_timepoints',
+                        idx = 1) {
+  print(unique(patient_labels[patient, .(patient, arm, clinical_response)]))
+
+  input_file <- 
+    list.files(input_dir, recursive = T, 
+               pattern = sprintf('i_list%s.rds', analysis_name), 
+               full.names = T) %>%
+    { setNames(., gsub('(pat_\\d{1,2})_.*$', '\\1', basename(.))) } %>%
+    { .[patient] }
+
+
+  output_file <- 
+    list.files(output_dir, recursive = T, 
+               pattern = sprintf('output%s.rds', analysis_name), 
+               full.names = T) %>%
+    { setNames(., gsub('(pat_\\d{1,2})_.*$', '\\1', basename(.))) } %>%
+    { .[patient] }
+
+  if (is.na(input_file) || is.na(output_file)) return(NULL)
+  input <- readRDS(input_file)
+  output <- readRDS(output_file)
+  if (null_dat(input[[idx]]) || null_dat(output[[idx]])) 
+    return(NULL)
+
+  tps_cn <- c(blood_timepoints, it_timepoints)
+  tps_cn[names(tps_cn) %in% blood_timepoints] <- 
+       blood_timepoint_names[as.character(names(tps_cn))];
+  tps_cn <- variabilize_character(tps_cn)
+  av_tps_cn <- intersect(colnames(output[[1]]), tps_cn)
+
+  output[[idx]][, uniqueN(cl)]
+  output[[idx]][, table(cl)]
+
+  merged <- lapply(seq_along(input), function(i) {
+    m <- controlled_merge(input[[i]], output[[i]]) %>%
+      controlled_merge(vdjdb)
+    for (tp in av_tps_cn) {
+      m[, (tp) := get(tp) / sum(get(tp))]
+    }
+    m
+  })
+
+  print(merged[[idx]][!is.na(epitope), table(epitope_species)])
+  print(merged[[idx]][!is.na(cl) & !is.na(epitope), table(epitope_species)])
+
+  return(list('patient' = patient, 'clusterN' = nrow(output[[idx]])))
+}
+
+res <- map_dfr(patient_labels[, naturalsort(unique(patient))], 
+       function(patient) 
+         parse_ALICE(patient = patient, analysis_name = '_all_timepoints'))
+
+controlled_merge(res, patient_labels[, .(patient, clinical_response, arm)]) %>%
+  ggplot(aes(x = clinical_response, y = clusterN)) + geom_boxplot()
+# dtf <- parse_ALICE(patient = 'pat_4', analysis_name = '_all_timepoints')
+```

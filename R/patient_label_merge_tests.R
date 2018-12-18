@@ -149,6 +149,14 @@ merge_tests <- function(idx = 1) {
       browser()
     }
   }
+
+  if (idx > 1 && 'cf_number' %in% colnames(patient_labels)) {
+    sc <- patient_labels[patient == 'pat_16' & cf_number == 'CF10424', .N]
+    if (sc > 0) {
+      print('prob 14: incorrect sample annotation')
+      browser()
+    }
+  }
 }
 
 

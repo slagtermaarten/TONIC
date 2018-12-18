@@ -4,6 +4,7 @@ caplist_tonic <- c(caplist_def, 'Gu-Trantien', 'IFNy', 'IFNg', 'TNBC', 'TIL',
                    'mm2', 'Ichao1', 'cells', 'cell', 'TIS', 'score', 's', 'ng',
                    'LDH', 'IFN', 'Th1', 'CRP', 'TIL', 'CIBERSORT', 'GC',
                    'gamma', 'LumA', 'LumB', 'APM', 'FastQ',
+                   'ICB', 'CAF', 'TAM', 'MDSC',
                    'PD-L1', 'MMR', 'loss', 'SASP', 'RNA')
 if (exists('rna_read_counts_salmon')) {
   caplist_tonic %<>% { c(., rownames(rna_read_counts_salmon)) }
@@ -60,9 +61,16 @@ prep_es <- function(gsea_res,
     gs_ordering <- unique(p_dat$GeneSet)
   } else {
     if (all(c('timepoint', 'arm') %in% colnames(p_dat) == c(T, T))) {
-      wide_dat <- dcast(p_dat, GeneSet ~ timepoint, value.var = 'nes')
+      wide_dat <- dcast(p_dat, GeneSet ~ timepoint, value.var = 'nes') %>%
+        as.data.table
     } else if (all(c('timepoint', 'arm') %in% colnames(p_dat) == c(F, T))) {
-      wide_dat <- dcast(p_dat, GeneSet ~ arm, value.var = 'nes')
+      wide_dat <- dcast(p_dat, GeneSet ~ arm, value.var = 'nes') %>%
+        as.data.table
+    } else if (all(c('timepoint', 'arm') %in% colnames(p_dat) == c(T, F))) {
+      wide_dat <- dcast(p_dat, GeneSet ~ timepoint, value.var = 'nes') %>%
+        as.data.table
+    } else {
+      wide_dat <- as.data.table(p_dat[, c('GeneSet', 'nes')])
     }
     d_obj <- dist(wide_dat[, c(2:ncol(wide_dat)), with = F], method = 'euclidean')
     clust <- hclust(d_obj, method = 'ward.D2')
@@ -159,40 +167,33 @@ plot_es <- function(p_dat,
     date_dir <- file.path(img_dir, datef)
     dir.create(date_dir, showWarnings = F)
 
-    fn <- sprintf('%s/GSEA_%s.pdf', date_dir, ptitle)
-    mult <- ifelse(!is.null(subset_var) && 
-                   subset_var %in% colnames(p_dat), 5, 1)
-    pwidth <- uniqueN(p_dat$resp_exp)/NR
-    pheight <- uniqueN(p_dat$GeneSet)/NR
-    fw <- mult * pwidth + 10
-    fh <- max(8, pheight + 4)
+    fn <- sprintf('%s/GSEA_%s.pdf', date_dir, ptitle) 
+    mult <- ifelse(!is.null(subset_var) && subset_var %in% colnames(p_dat), 5, 1)
+    pwidth <- uniqueN(p_dat$resp_exp) / NR 
+    pheight <- uniqueN(p_dat$GeneSet) / NR 
+    fw <- mult * pwidth + 10 
+    fh <- max(8, pheight + 4) 
     if (F) {
       ## Correct width for amount of panels
-      mult <- unit(mult, 'cm')
-      pwidth <- unit(pwidth, 'cm')
-      pheight <- unit(height, 'cm')
-      p_grid <- set_panel_size(p, width = pwidth, height = pheight)
-      fw <- unit(fw, 'cm')
-      fh <- unit(fh, 'cm')
-      pdf(file = fn, 
-          width = convertUnit(fw, 'in'), 
+      mult <- unit(mult, 'cm') 
+      pwidth <- unit(pwidth, 'cm') 
+      pheight <- unit(height, 'cm') 
+      p_grid <- set_panel_size(p, width = pwidth, height = pheight) 
+      fw <- unit(fw, 'cm') 
+      fh <- unit(fh, 'cm') 
+      pdf(file = fn, width = convertUnit(fw, 'in'), 
           height = convertUnit(fh, 'in'))
-      grid.draw(p_grid)
-      dev.off()
-    } else {
-      if (!dir.exists(dirname(fn))) dir.create(dirname(filename),
-                                                     recursive = T)
-      ggsave(plot = p, 
-             filename = fn, width = fw, height = fh, units = 'cm',
-             fillOddEven = T,
-             compress = F,
-             useKerning = F, useDingbats = F)
-      # ggsave(plot = p, 
-      #        filename = sprintf('%s/GSEA_%s.eps', date_dir, ptitle), 
-      #        width = fw, height = fh, units = 'cm')
+      grid.draw(p_grid) 
+      dev.off() 
+    } else { 
+      if (!dir.exists(dirname(fn)))
+        dir.create(dirname(filename), recursive = T) 
+      ggsave(plot = p, filename = fn, width = fw, 
+             height = fh, units = 'cm', fillOddEven = T, 
+             compress = F, useKerning = F, useDingbats = F)
     }
   }
-  return(p)
+  return(p) 
 }
 
 
@@ -232,8 +233,26 @@ plot_cr_gsea_res <- function(ptitle = 'unpaired',
   p_dat <- rbind(cbind(res_1[arm == 'All arms', coln, with = F], 
                        'timepoint' = 'Baseline'), 
                  cbind(res_2[arm == 'All arms', coln, with = F], 
-                       'timepoint' = 'Post-induction'))
+                       'timepoint' = 'Post-induction')) %>%
+    dplyr::mutate(GeneSet = gsub('^HALLMARK_', '', GeneSet))
+
   plot_es(p_dat, legend.position = 'right', ptitle = ptitle,
           subset_var = NULL, x_var = 'timepoint')
   invisible()
 }
+
+
+plot_GSEA_scores <- function(fn = 'rds2/GSEA_unpaired_postinduction_STING.rds') {
+  plot_name <- gsub('\\.rds', '_scores.pdf', basename(fn))
+  tested_genesets <- readRDS(file = fn)[[1]]$GeneSet
+  scores <- readRDS(file = fn)[[2]]
+  gs <- filter_gmt('.', gene_set_names = tested_genesets)
+
+  lapply(gs, function(g) { res <- scores[g]; res[!is.na(res)] }) %>%
+    imap(~ qplot(.x, main = .y, xlab = 'rank score')) %>%
+    plot_panel_layout(ncol = 3, nrow = 3,
+                      labels = c(tolower(LETTERS), paste0(tolower(LETTERS), "'")),
+                      filename = file.path(img_dir, plot_name))
+  invisible()
+}
+

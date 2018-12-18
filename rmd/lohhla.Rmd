@@ -1,0 +1,51 @@
+# LOHHLA
+
+Run Optitype on DNA
+
+Prepare LOHHLA
+
+```{r, warning=FALSE, echo=FALSE}
+dir.create(file.path('~/TONIC', 'LOHHLA_analyses', 'hlas'), showWarnings = F)
+
+patient_labels[timepoint == 'Baseline' & !is.na(a1),
+               naturalsort(unique(patient))] %>%
+  plyr::l_ply(function(patient_id) {
+    patient_labels[timepoint == 'Baseline' & patient == patient_id,
+                   .(a1, a2, b1, b2, c1, c2)] %>%
+    unlist %>% setNames(NULL) %>%
+    { gsub('\\*|:', '_', .) } %>%
+    tolower %>%
+    paste0('_01_01') %>%
+    writeLines(con = file.path('~/TONIC', 'LOHHLA_analyses', 'hlas',
+                               sprintf('%s_hlas',
+                                       gsub('pat_', '', patient_id))))
+  })
+list.files(file.path('~/TONIC', 'LOHHLA_analyses', 'hlas'))
+# less(file.path('~/TONIC', 'LOHHLA_analyses', 'hlas', '1_hlas'))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+patient_labels[timepoint == 'Baseline' & !is.na(a1),
+               naturalsort(unique(patient))] %>%
+  plyr::llply(function(p) view_sequenza(patient = p,
+                                  ft_rep = 'alternative_solutions.txt',
+                                  open_directly = F))
+```
+
+
+
+```{r, warning=FALSE, echo=FALSE}
+## Prepare samples.tsv for LOHHLA analyses in snakemake
+patient_table <- patient_labels[timepoint == 'Baseline'] %>%
+  { .[, .(patient, 'tumor_cf' = as.character(cf_number),
+   'ref_genome' =
+    '/DATA/resources/refgenomes/Homo_sapiens.GRCh38.dna.primary_assembly.fasta',
+   'chrom_prefix' = 'NA',
+   'gender' = 'female')] } %>%
+  { .[!is.na(tumor_cf)] } %>%
+  .[naturalorder(patient)] %>%
+  controlled_merge(wes_table[, .(
+    'tumor_cf' = as.character(tumor_cf),
+    'normal_cf' = as.character(normal_cf))])
+```
+

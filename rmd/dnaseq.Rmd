@@ -35,7 +35,7 @@ dtf <- rbindlist(lapply(patient_labels[, naturalsort(unique(patient))],
   if (length(fns) != 2 || sum(is.na(fns)) != 0) 
     return(NULL)
   map(fns, ~fread(., col.names = c('chr', 'start', 'end', 'length', 'average',
-                                   'median', 'stdev', 'variance', "mincov",
+                                   'median', 'stdev', 'variance', 'mincov',
                                    'nr_reads', 'length',
                                    'fraction_bases_covered'))) %>%
   map(~ .[, weighted.mean(median, length)]) %>%
@@ -102,50 +102,17 @@ seq_stat_overview[mut_load > 1000]
 
 ## Older stuff
 
-```{r, warning=FALSE, echo=FALSE}
-source('R/read_DNASeq.R')
-
-compute_mut_load <- function(patient = 'pat_1') {
-  vcf <- filter_VCF(patient = patient)
-  return(vcf[, .N])
-}
-
-patient_labels[, 'mut_load' :=
-               compute_mut_load(.SD[timepoint == 'Baseline', patient[1]]),
-               by = patient]
-
-stopifnot(
-  patient_labels[!is.na(cf_number) & timepoint == 'Baseline', uniqueN(patient)] ==
-  patient_labels[!is.na(mut_load), uniqueN(patient)])
-
-unique(patient_labels[, .(patient, mut_load)], by = 'patient')
-```
-
 Investigate some exceptionally highly mutated tumors (are these artefacts?)
 
 ```{r, warning=FALSE, echo=FALSE}
-source('R/read_DNASeq.R')
-
-compute_rs_frac <- function(patient = 'pat_69') {
-  vcf <- filter_VCF(patient)
-  if (is.null(vcf)) return(NULL)
-  rs_frac <- vcf[, length(grep('rs', ID))] / nrow(vcf)
-  if (rs_frac > .8)
-  return(rs_frac)
-}
-
-patient_labels[, 'rs_frac' :=
-               compute_rs_frac(.SD[timepoint == 'Baseline', patient[1]]),
-               by = patient]
-
-ggplot(patient_labels[timepoint == 'Baseline'],
+ggplot(oncop_dat[timepoint == 'Baseline'],
        aes(x = mut_load, y = rs_frac)) + geom_point()
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
 source('R/read_DNASeq.R')
 # sapply(patient_labels[rs_frac > .8 & mut_load > 100, patient], filter_VCF)
-patient_labels[timepoint == 'Baseline' & rs_frac > .8 & mut_load > 10,
+oncop_dat[timepoint == 'Baseline' & rs_frac > .8 & mut_load > 10,
                .(patient, cf_number, mut_load, rs_frac)] %>% unique
 ```
 
@@ -194,7 +161,7 @@ saveRDS(all_gene_dat, 'rds/all_gene_dat.rds')
 ```{r, warning=FALSE, echo=FALSE}
 source('R/read_DNASeq.R')
 cond_rm('mutation_overview')
-clear_object('mutation_overview', sr)
+# clear_object('mutation_overview', sr)
 sr(mutation_overview <- map_dfr(unique(patient_labels$patient),
                                 function(patient) {
   message(patient)
@@ -417,16 +384,22 @@ source('R/read_DNASeq.R')
 sr(BRCA_gene_dat <-
    combine_all_aberrations(gene_symbols = c('B2M', 'BRCA1', 'BRCA2', 'POLE')))
 
+# clear_object('oncop_dat', sr)
+cond_rm('oncop_dat')
 # debugonce(compute_dnaseq_stats)
 # compute_dnaseq_stats('pat_65')
-clear_object('oncop_dat', sr)
 # debugonce(compute_dnaseq_stats)
-cond_rm('oncop_dat')
+
 sr(oncop_dat <- map_dfr(unique(patient_labels$patient), function(patient) {
   message(patient)
   fh <- compute_dnaseq_stats(patient)
+  if (is.null(fh)) message('problem')
   return(as.data.table(fh))
 }))
+
+# compute_dnaseq_stats('pat_16')
+# setdiff(patient_labels[!is.na(cf_number), unique(patient)], 
+#         oncop_dat[, as.character(patient)])
 
 oncop_dat %<>%
   controlled_merge(patient_labels[timepoint == 'Baseline',
@@ -469,10 +442,17 @@ if (F) {
 ```
 
 ```{r, eval = F, warning=FALSE, echo=FALSE}
-## Investigate correlations between oncoplot variables directly
+## Investigate all correlations between oncoplot variables directly
 pacman::p_load('GGally')
-onco_corrs <- oncop_dat %>% dplyr::select(-patient) %>%
-  { GGally::ggpairs(data = ., upper = list(continuous = wrap('cor', size = 10)), 
+# patient_labels[!is.na(brca1_like), .(patient, brca1_like)]
+onco_corrs <- oncop_dat %>% 
+  controlled_merge(patient_labels[!is.na(cf_number) & timepoint == 'Baseline', 
+                                  .(patient, clinical_response, brca1_like,
+                                    adaptive_t_cells)],
+                   by_cols = 'patient') %>%
+  dplyr::select(-patient) %>%
+  { GGally::ggpairs(data = ., 
+                    upper = list(continuous = wrap('cor', size = 10)), 
                     lower = list(continuous = 'smooth')) }
 fn <- file.path(img_dir, 'pairwise_oncoplot_vars.pdf')
 ggsave(onco_corrs, filename = fn, width = 50, height = 50, units = 'cm')
@@ -1006,7 +986,137 @@ dev.off()
 # cv.glmnet
 ```
 
-```{r, warning=FALSE, echo=FALSE}
+# LOHHLA output analysis
 
+```{r, warning=FALSE, echo=FALSE}
+project_dir <- file.path(forge_mirror, 'lohhla', 'HLAlossPrediction_CI')
+
+lohhla_output_fns <-
+  list.files(path = project_dir, full.names = T, recursive = F) %>% 
+  naturalsort %>%
+  { setNames(., gsub('\\d{4}_\\d{1,2}_([A-Z]*\\d+)_.*', '\\1', basename(.))) } %>%
+  # { setNames(., gsub('([A-Z]*\\d+)_.*', '\\1', basename(.))) } %>%
+  named_vec_to_dt(name = 'cf_number', value = 'fn') %>%
+  controlled_merge(patient_labels[, .(patient, cf_number)]) 
+
+read_lohhla_output <- function(patient, fn) {
+  if (is.null(patient) || is.na(patient) ||
+      is.null(fn) || is.na(fn)) return(NULL)
+  CC <- setNames(
+   c("character", "character", "character", "numeric",  "numeric",   "numeric",
+     "numeric",   "numeric",   "numeric",   "numeric",   "numeric",   "numeric",
+     "numeric",   "numeric",   "numeric",   "numeric",   "numeric",   "numeric",
+     "numeric",   "numeric",   "numeric",   "numeric",   "numeric",   "numeric",
+     "numeric",   "numeric",   "numeric",   "numeric",   "numeric",   "numeric",
+     "numeric",   "numeric",   "numeric",   "numeric",   "numeric",
+     "character", "character", "integer",   "numeric"),
+   c('region', 'HLA_A_type1', 'HLA_A_type2', 'HLAtype1Log2MedianCoverage',
+     'HLAtype2Log2MedianCoverage', 'HLAtype1Log2MedianCoverageAtSites',
+     'HLAtype2Log2MedianCoverageAtSites', 'HLA_type1copyNum_withoutBAF',
+     'HLA_type1copyNum_withoutBAF_lower', 'HLA_type1copyNum_withoutBAF_upper',
+     'HLA_type1copyNum_withBAF', 'HLA_type1copyNum_withBAF_lower',
+     'HLA_type1copyNum_withBAF_upper', 'HLA_type2copyNum_withoutBAF',
+     'HLA_type2copyNum_withoutBAF_lower', 'HLA_type2copyNum_withoutBAF_upper',
+     'HLA_type2copyNum_withBAF', 'HLA_type2copyNum_withBAF_lower',
+     'HLA_type2copyNum_withBAF_upper', 'HLA_type1copyNum_withoutBAFBin',
+     'HLA_type1copyNum_withoutBAFBin_lower',
+     'HLA_type1copyNum_withoutBAFBin_upper', 'HLA_type1copyNum_withBAFBin',
+     'HLA_type1copyNum_withBAFBin_lower', 'HLA_type1copyNum_withBAFBin_upper',
+     'HLA_type2copyNum_withoutBAFBin', 'HLA_type2copyNum_withoutBAFBin_lower',
+     'HLA_type2copyNum_withoutBAFBin_upper', 'HLA_type2copyNum_withBAFBin',
+     'HLA_type2copyNum_withBAFBin_lower', 'HLA_type2copyNum_withBAFBin_upper',
+     'PVal', 'UnPairedPval', 'PVal_unique', 'UnPairedPval_unique', 'LossAllele',
+     'KeptAllele', 'numMisMatchSitesCov', 'propSupportiveSites'))
+  fh <- tryCatch(data.table::fread(fn, colClasses = CC), 
+                 error = function(e) return(NULL))
+  if (is.null(fh)) return(NULL)
+  fh[, 'patient' := patient]
+  cond_setnames(fh,
+           old_n = c('region', 'HLA_A_type1', 'HLA_A_type2',
+                   'HLA_type1copyNum_withBAFBin', 
+                   'HLA_type2copyNum_withBAFBin',
+                   'HLA_type1copyNum_withBAFBin_lower', 
+                   'HLA_type1copyNum_withBAFBin_upper',
+                   'HLA_type2copyNum_withBAFBin_lower', 
+                   'HLA_type2copyNum_withBAFBin_upper',
+                   'PVal_unique',
+                   'UnPairedPval_unique'),
+           new_n = c('dna_sample_id', 'hla_allele_1', 'hla_allele_2',
+                     'hla_allele_1_CN', 'hla_allele_2_CN',
+                     'hla_allele_1_CN_CI_lower', 'hla_allele_1_CN_CI_upper',
+                     'hla_allele_2_CN_CI_lower', 'hla_allele_2_CN_CI_upper',
+                     'pval_unique', 'unpaired_p_val_unique'))
+  fh[, hla_allele_1 := str_extract(string = hla_allele_1,
+                                   pattern = 'hla_[abc]_[0-9]{2}_[0-9]{2}')]
+  fh[, hla_allele_2 := str_extract(string = hla_allele_2,
+                                   pattern = 'hla_[abc]_[0-9]{2}_[0-9]{2}')]
+  fh[, loss_allele := str_extract(string = LossAllele,
+                                  pattern = 'hla_[abc]_[0-9]{2}_[0-9]{2}')]
+  fh[, kept_allele := str_extract(string = KeptAllele,
+                                 pattern = 'hla_[abc]_[0-9]{2}_[0-9]{2}')]
+  print(fh[, hla_allele_1])
+  print(fh[, hla_allele_2])
+  # print(fh[, loss_allele])
+  # fh[, hla_allele_1_CN := round(hla_allele_1_CN, 2)]
+  # fh[, hla_allele_1_CN_CI_lower := round(hla_allele_1_CN_CI_lower, 2)]
+  # fh[, hla_allele_1_CN_CI_upper := round(hla_allele_1_CN_CI_upper, 2)]
+  # fh[, hla_allele_2_CN := round(hla_allele_2_CN, 2)]
+  # fh[, hla_allele_2_CN_CI_lower := round(hla_allele_2_CN_CI_lower, 2)]
+  # fh[, hla_allele_2_CN_CI_upper := round(hla_allele_2_CN_CI_upper, 2)]
+  fh[, significant := pval_unique < 0.05]
+  # fh[, PVal_unique := ifelse(PVal_unique <= e-3,
+  #                            formatC(PVal_unique, format = "e", digits = 3),
+  #                            round(PVal_unique, 3))]
+  # fh[, UnPairedPval_unique := ifelse(UnPairedPval_unique < 10^-4,
+  #                                    formatC(UnPairedPval_unique, 
+  #                                     format = "e", digits = 3),
+  #                                    round(UnPairedPval_unique, 3))]
+  
+  fh[, c('patient', 'dna_sample_id', 'hla_allele_1', 'hla_allele_2',
+         'hla_allele_1_CN', 'hla_allele_1_CN_CI_lower', 
+         'hla_allele_1_CN_CI_upper',
+         'hla_allele_2_CN', 'hla_allele_2_CN_CI_lower', 
+         'hla_allele_2_CN_CI_upper',
+         'loss_allele', 'kept_allele',
+         'unpaired_p_val_unique', 'pval_unique', 
+         'significant'), with = F]
+  return(fh)
+}
+
+# lohhla_output_fns[, read_lohhla_output(.SD[, patient[1]], .SD[, fn[1]]), by =
+#   1:nrow(lohhla_output_fns)]
+TONIC_LOHHLA <- 
+  lohhla_output_fns[, read_lohhla_output(patient, fn), 
+                    by = 1:nrow(lohhla_output_fns)] %>%
+  controlled_merge(patient_labels[, .(patient, arm, clinical_response)])
+TONIC_LOHHLA[, nrow := NULL]
+TONIC_LOHHLA[, 'hla_gene' := gsub('hla_([a-c])_.*', '\\1', loss_allele)]
 ```
 
+```{r, warning=FALSE, echo=FALSE}
+TONIC_LOHHLA[, fisher.test(clinical_response, significant)]
+TONIC_LOHHLA[hla_gene == 'a', fisher.test(clinical_response, significant)]
+TONIC_LOHHLA[hla_gene == 'b', fisher.test(clinical_response, significant)]
+TONIC_LOHHLA[hla_gene == 'c', fisher.test(clinical_response, significant)]
+TONIC_LOHHLA[, .(clinical_response, 'HLA_LOH' = any(significant)), by = patient] %>%
+  { .[, fisher.test(clinical_response, HLA_LOH)] }
+TONIC_LOHHLA[hla_gene == 'a', .(clinical_response, 'HLA_LOH' = any(significant)), by = patient] %>%
+  { .[, fisher.test(clinical_response, HLA_LOH)] }
+TONIC_LOHHLA[hla_gene == 'b', .(clinical_response, 'HLA_LOH' = any(significant)), by = patient] %>%
+  { .[, fisher.test(clinical_response, HLA_LOH)] }
+TONIC_LOHHLA[hla_gene == 'c', .(clinical_response, 'HLA_LOH' = any(significant)), by = patient] %>%
+  { .[, fisher.test(clinical_response, HLA_LOH)] }
+TONIC_LOHHLA[, .(clinical_response, 'HLA_LOH' = sum(significant)), by = patient] %>%
+  # unique(by = 'patient') %>%
+  # { .[, wilcox.test(clinical_response ~ HLA_LOH)] }
+  { .[, wilcox.test(HLA_LOH ~ clinical_response)] }
+```
+
+```{r, warning=FALSE, echo=FALSE}
+TONIC_LOHHLA[patient == 'pat_1']
+TONIC_LOHHLA[significant == T][1]
+missing_alleles <-
+  TONIC_LOHHLA[patient == 'pat_1', setdiff(c('a', 'b', 'c'), hla_gene)]
+
+list.files(project_dir)
+```

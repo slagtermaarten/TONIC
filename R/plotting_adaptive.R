@@ -715,7 +715,9 @@ plot_tp_comp_FCs <- function(tp1 = 'Baseline', tp2 = 'Post-induction',
                              tp3 = '-2', tp4 = '0',
                              y_var = 'normalized_frequency',
                              tcr_subset = NULL) {
-  plyr::llply(arr[, naturalsort::naturalsort(auto_name(unique(patient)))],
+  
+  plyr::llply(patient_labels[!is.na(adaptive_sample_name),
+                             naturalsort(unique(patient))],
               function(l_patient) {
     fn <- get_FC_fn(l_patient, tp1, tp2, tp3, tp4, y_var)
     if (file.exists(fn)) {

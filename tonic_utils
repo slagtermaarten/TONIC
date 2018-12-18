@@ -46,7 +46,7 @@ case "$1" in
         fi
         echo "running ctags on R files under project root: ${temproot}"
         eval cd ${temproot}
-        ctags **/*.R ~/libs/**/*.R
+        ctags ~/libs/**/*.R **/*.R 
         eval cd $curdir
         ;;
     checkload|cl)

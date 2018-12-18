@@ -13,6 +13,7 @@ HALLMARK_pathways <- c(filter_gmt('h.all', 'HALLMARK'),
 #   { grep('WNT|P53|PAM', ., value = T) }
 
 HALLMARK_pathways <- filter_gmt('h.all', 'HALLMARK')
+STING_pathways <- c(HALLMARK_pathways, filter_gmt('c2', 'GRANDVAUX'))
 
 plot_bool <- interactive()
 
@@ -135,7 +136,7 @@ gsea_wrapper <- function(gene_sets = HALLMARK_pathways,
                          paired_test = T,
                          preprocessing = 'none',
                          resp_exp = NULL,
-                         exp_mat = rna_read_counts_salmon,
+                         exp_mat = rna_read_counts_salmon_tmm_M,
                          allowed_timepoints = NULL,
                          nperm = 25,
                          abs = F,
@@ -150,7 +151,8 @@ gsea_wrapper <- function(gene_sets = HALLMARK_pathways,
     controlled_merge(patient_labels[timepoint == 'Baseline', 
                                     .(patient, 'baseline_ca15_3' = ca15_3)]) %>%
     mutate(baseline_ca15_3_bin = baseline_ca15_3 <= 
-           patient_labels[!is.na(ca15_3) & clinical_response == 'R', 
+           patient_labels[timepoint == 'Baseline' & 
+                          !is.na(ca15_3) & clinical_response == 'R', 
                           max(ca15_3)])
 
   ## Subselect patients for which response var is not NA
@@ -212,7 +214,13 @@ gsea_wrapper <- function(gene_sets = HALLMARK_pathways,
     RCs <- t(DGEList(RCs)$counts)
     colnames(RCs) <- rownames(exp_mat)
   }
-  browser()
+
+  ## Ranking in observed data
+  observed_ranks <- gene_score_fn(RCs, Y_mat) %>%
+    unlist %>% 
+    { setNames(.[, 1], rownames(.)) } %>% 
+    { .[order(.)] }
+
   res <- ggsea(x = RCs,
                y = Y_mat,
                gene.sets = gene_sets,
@@ -245,7 +253,8 @@ gsea_wrapper <- function(gene_sets = HALLMARK_pathways,
            ifelse(abs, 'absolute', 'relative'),
            as.list(d)[[1]],
            attr(d, 'units'))
-  return(dtf)
+
+  return(list('gsea' = dtf, 'ranks' = observed_ranks))
 }
 
 
@@ -254,7 +263,7 @@ gsea_all_arms <- function(gene_sets = HALLMARK_pathways,
                                                            unique(patient)],
                           allowed_timepoints = c('Baseline', 'Post-induction'),
                           gene_score_fn = my_unpaired_WC_test,
-                          exp_mat = rna_read_counts_salmon_tmm,
+                          exp_mat = rna_read_counts_salmon_tmm_M,
                           resp_exp = 'timepoint',
                           paired_test = F,
                           nperm = 1000,

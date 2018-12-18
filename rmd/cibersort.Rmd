@@ -51,12 +51,15 @@ write_tsv(tpms, output_file = 'rds/cibersort_input.tsv')
 # Plot results
 
 ```{r, warning=FALSE, echo=FALSE}
+source('R/load_rna_dat.R')
 cibersort <- read_cibersort()
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
+pdf(file.path(img_dir, 'cibersort_p_values.pdf'))
 hist(cibersort[, p_value], xlab = 'P-value (lower is better)',
      main = 'CIBERSORT p-values')
+dev.off()
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
@@ -79,7 +82,7 @@ library(ggrepel)
 source('R/plotting_nanostring.R')
 devtools::load_all(file.path('~/libs', 'maartenutils'))
 
-lapply(cibersort_m[, as.character(unique(celltype))], function(ct) {
+plots <- lapply(cibersort_m[, as.character(unique(celltype))], function(ct) {
   p <- plot_parallel_coords(cibersort_m[celltype == ct],
                             facet_var = 'arm',
                             swarm_width = .2,
@@ -89,21 +92,33 @@ lapply(cibersort_m[, as.character(unique(celltype))], function(ct) {
     ylab('Celltype fraction of total') +
     ggplot2::theme(axis.ticks.x = element_blank()) +
     ggtitle(tonic_cap(ct))
-  fn <- file.path('plots2', sprintf('cibersort_%s.pdf', ct))
-  ggsave(p, filename = fn, width = 17.4, height = 12, units = 'cm')
 
-  p <- plot_parallel_coords(cibersort_m[celltype == ct],
-                            facet_var = NULL,
-                            swarm_width = .2,
-                            overlay_boxplot = T,
-                            filter_vals = F,
-                            colour_var = 'clinical_response') +
-    ylab('Celltype fraction of total') +
-    ggplot2::theme(axis.ticks.x = element_blank()) +
-    ggtitle(tonic_cap(ct))
-  fn <- file.path('plots2', sprintf('cibersort_%s_allarms.pdf', ct))
-  ggsave(p, filename = fn, width = 8, height = 12, units = 'cm')
+  p
+  # fn <- file.path('plots2', sprintf('cibersort_%s.pdf', ct))
+  # ggsave(p, filename = fn, width = 17.4, height = 12, units = 'cm')
+  #
+  # p <- plot_parallel_coords(cibersort_m[celltype == ct],
+  #                           facet_var = NULL,
+  #                           swarm_width = .2,
+  #                           overlay_boxplot = T,
+  #                           filter_vals = F,
+  #                           colour_var = 'clinical_response') +
+  #   ylab('Celltype fraction of total') +
+  #   ggplot2::theme(axis.ticks.x = element_blank()) +
+  #   ggtitle(tonic_cap(ct))
+  # fn <- file.path('plots2', sprintf('cibersort_%s_allarms.pdf', ct))
+  # ggsave(p, filename = fn, width = 8, height = 12, units = 'cm')
 })
+
+filename <- file.path(img_dir, sprintf('cibersort_parallel_%s.pdf',
+                                       ifelse(is.null(colour_var), 'ungrouped',
+                                              colour_var)))
+
+p <- maartenutils::plot_panel_layout(plots, ncol = 1, nrow = 3,
+                                     filename = filename,
+                                     labels = NULL,
+                                     w = 22, h = 25,
+                                     label_size = 8)
 ```
 
 ```{r, eval = F, warning=FALSE, echo=FALSE}

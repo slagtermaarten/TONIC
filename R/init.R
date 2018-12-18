@@ -22,7 +22,7 @@ if (!require(ggsea)) {
 }
 library(limma)
 library(edgeR)
-# devtools::load_all('~/libs/GSEAgenesets')
+devtools::load_all('~/libs/GSEAgenesets')
 # devtools::load_all('~/libs/serializer')
 library(maartenutils)
 library(GSEAgenesets)
@@ -78,6 +78,3 @@ library(naturalsort)
 ggplot2::theme_set(theme_ms(base_size = 10, 
   panel.border = ggplot2::element_rect(colour = 'grey20', fill = NA, size = 1,
                                        linetype = 'solid')))
-
-patient_labels %<>% 
-  controlled_merge(wes_table[, .('cf_number' = tumor_cf, brca1_like)])

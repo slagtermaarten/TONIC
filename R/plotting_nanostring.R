@@ -281,6 +281,10 @@ plot_parallel_coords <- function(p_dat,
     fl <- 1
   }
 
+  if ('clinical_response' %in% colnames(p_dat)) {
+    p_dat[is.na(clinical_response), clinical_response := 'NA']
+  }
+
   p <- ggplot(p_dat, aes_string(x = 'x_coord', y = 'value',
                                 labels = NULL, group = group_var,
                                 size = size_var)) +
@@ -305,8 +309,8 @@ plot_parallel_coords <- function(p_dat,
   }
 
   p <- p + scale_x_continuous(name = '', minor_breaks = c(),
-                              breaks = p_dat[, seq_along(levels(get(timepoint_v)))],
-                              labels = p_dat[, levels(get(timepoint_v))])
+             breaks = p_dat[, seq_along(levels(get(timepoint_v)))],
+             labels = p_dat[, levels(get(timepoint_v))])
   if (timepoint_v == 'timepoint') {
     p <- p + rotate_x_labels(45)
   } else if (timepoint_v == 'blood_timepoint') {
@@ -334,14 +338,24 @@ plot_parallel_coords <- function(p_dat,
       if (colour_var %nin% colnames(sum_dat)) {
         sum_dat[, (colour_var) := NA]
       }
+      
+      if (all(c(facet_var, colour_var) %in% colnames(p_dat))) {
+        sum_dat[, 'group_var' := interaction(get(facet_var), get(colour_var))]
+      } else {
+        sum_dat[, 'group_var' := 'patient']
+      }
 
-      p <- p + geom_point(aes_string(group = facet_var), shape = 21,
+      p <- p + geom_point(aes_string(group = 'group_var', colour = colour_var), 
+                          shape = 21,
                           size = 3, alpha = median_line_alpha, 
-                          data = sum_dat, size = 2)
-      p <- p + geom_line(aes_string(group = facet_var), shape = 21,
-                          size = 2, alpha = median_line_alpha,
-                          lineend = 'round',
-                          data = sum_dat, size = 2)
+                          data = sum_dat, 
+                          size = 2)
+      p <- p + geom_line(aes_string(group = 'group_var', colour = colour_var), 
+                         shape = 21,
+                         size = 2, alpha = median_line_alpha,
+                         lineend = 'round',
+                         data = sum_dat, 
+                         size = 2)
     }
   }
 

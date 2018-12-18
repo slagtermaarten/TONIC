@@ -9,6 +9,7 @@ output:
 ---
 
 ```{r, cache = F, warning=FALSE, echo=FALSE}
+setwd('~/TONIC')
 knitr::opts_chunk$set(message = FALSE, cache = F, cache.lazy = F,
                       cache.comments = F, autodep = T, warning = FALSE,
                       echo = TRUE, error = FALSE)
@@ -37,14 +38,37 @@ colour_var = 'clinical_response'
 # debugonce(plot_parallel_coords_geneset)
 # debugonce(prep_geneset_parallel_coords)
 # debugonce(plot_parallel_coords)
+
+
 plots <- lapply(danaher_scores.m[, auto_name(unique(variable))], function(x) {
   p <- plot_parallel_coords_geneset(x,
                                     colour_var = colour_var,
                                     facet_var = 'arm')
   return(p)
 })
-print(plots)
+# print(plots)
 ```
+
+```{r, warning=FALSE, echo=FALSE}
+filename <- file.path(img_dir, sprintf('parallel_%s.pdf',
+                                       ifelse(is.null(colour_var), 'ungrouped',
+                                              colour_var)))
+
+p <- maartenutils::plot_panel_layout(plots, ncol = 1, nrow = 3,
+                                     filename = filename,
+                                     labels = NULL,
+                                     w = 22, h = 25,
+                                     label_size = 8)
+# sys_file_open(filename)
+```
+
+```{r, eval=F, warning=FALSE, echo=FALSE}
+source('R/plotting_nanostring.R')
+colour_var = 'clinical_response'
+x <- danaher_scores.m[, auto_name(unique(variable))][1]
+plot_parallel_coords_geneset(x, colour_var = colour_var, facet_var = 'arm')
+```
+
 
 ```{r, warning=FALSE, echo=FALSE}
 source('R/plotting_adaptive.R')
@@ -62,18 +86,6 @@ for (sig in c('tis', 'ifn.gamma', 'cytotoxicity')) {
 }
 ```
 
-```{r, warning=FALSE, echo=FALSE}
-filename <- file.path(img_dir, sprintf('parallel_%s.pdf',
-                                       ifelse(is.null(colour_var), 'ungrouped',
-                                              colour_var)))
-
-p <- maartenutils::plot_panel_layout(plots, ncol = 1, nrow = 3,
-                                     filename = filename,
-                                     labels = NULL,
-                                     w = 22, h = 25,
-                                     label_size = 8)
-sys_file_open(filename)
-```
 
 ```{r, eval = F, warning=FALSE, echo=FALSE}
 source('R/plotting_nanostring.R')
@@ -308,14 +320,16 @@ plot_volcano <- function(gene_sets = danaher_scores.m[, unique(variable)],
                          timepoint = 'Baseline') {
   p_dat <- test_gene_set_association(gene_set = gene_sets,
                                      timepoint = timepoint)
-p_dat[, variable]
   ggplot(p_dat, aes(x = log2FC, y = -log10(p_val), 
                     label = tonic_cap(variable))) +
-    geom_point() +
-    ggrepel::geom_label_repel(data = p_dat[p_val <= .05 | 
-                             variable %in% c('tis', 'ifn.gamma', 'pd1')]) +
     geom_hline(yintercept = -log10(.05),
                color = 'darkred', linetype = 'dashed') +
+    geom_point() +
+    ggrepel::geom_label_repel(data = p_dat[p_val <= .05 | 
+                              variable %in% c('tis', 'ifn.gamma', 'pd1')],
+                              min.segment.length = 0,
+                              max.iter = 1e5,
+                              force = 20) +
     geom_vline(xintercept = 0, color = 'grey70', linetype = 'dashed') +
     scale_y_continuous(name = 'Unadjusted p-value', trans = 'identity',
                        breaks = c(seq(0, 10, by = .5), -log10(0.05)),
@@ -333,9 +347,9 @@ p_dat[, variable]
                        labels = function(x) {
                              return(parse(text = sprintf('10^{-%.2f}', x)))
                          }) +
-    ggtitle(timepoint) +
+    # ggtitle(timepoint) +
     scale_x_continuous(name = sprintf('Fold difference\nresponders and non-responders (%s)',
-                                      timepoint),
+                                      tolower(timepoint)),
                        limits = c(-2.7, 2.7))
 }
 

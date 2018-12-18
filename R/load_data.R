@@ -89,7 +89,7 @@ vcf_table <- data.table(vcf_fn = vcfs)
 vcf_table[, 'tumor_cf' := gsub('.{2}_.{4}_.{1,2}_(CF\\d{5})_.*', 
                                '\\1', vcf_fn)]
 vcf_table[, 'normal_cf' :=
-          gsub('.{2}_.{4}_.{1,2}_CF\\d{5}_.{8}_vs_.{4}_.{1,2}_(CF\\d{5}).*', 
+          gsub('.{2}_.{4}_.{1,2}_CF\\d{5}_.{8}_vs_.{4}_.{1,2}_(CF\\d{5}|\\d{2}).*', 
                                '\\1', vcf_fn)]
 vcf_table[grepl('.vcf', normal_cf), 
           'normal_cf' :=
@@ -98,12 +98,11 @@ vcf_table[grepl('.vcf', normal_cf),
 wes_table <- vcf_table
 wes_table[, 'base_fn' := gsub('^m2_|-combined.vcf$', '', vcf_fn)]
 brca_labels <- fread(file.path(data_dir, 'BRCA1.like.txt')) %>%
-                   set_colnames(c('base_fn', 'brca1_like'))
+  set_colnames(c('base_fn', 'brca1_like'))
 brca_labels[, base_fn := gsub('^X', '', base_fn)]
 # head(wes_table)
 # head(brca_labels)
-wes_table <- controlled_merge(wes_table, brca_labels)
-rm(brca_labels)
+wes_table %<>% controlled_merge(brca_labels)
 
 # vcf_table[, 'cf' := gsub('.{2}_.{4}_.{1,2}_(CF\\d{5})_.*(CF\\d{5}).*', 
 #                          '\\1-\\2', fn)]
@@ -126,14 +125,18 @@ sequenza_fns <- list.files(file.path(forge_mirror, 'sequenza_plots', 'seqres'),
                            pattern = 'segments.txt$') 
 sequenza_fns <- data.table(sequenza_fn = sequenza_fns)
 sequenza_fns[, 'tumor_cf' := gsub('.{1,2}_(CF\\d{5})_.*', '\\1', sequenza_fn)]
-sequenza_fns[, sequenza_fn := file.path(forge_mirror, 'sequenza_plots', 'seqres', sequenza_fn)]
+sequenza_fns <- sequenza_fns[!grepl('3_45.*CF16678', sequenza_fn)]
+sequenza_fns <- sequenza_fns[!grepl('(1|2)_(41|44).*CF16646', sequenza_fn)]
+sequenza_fns[, sequenza_fn := 
+             file.path(forge_mirror, 'sequenza_plots', 'seqres', sequenza_fn)]
+# wes_table[grepl('vs', tumor_cf)]
 wes_table %<>% controlled_merge(sequenza_fns, dup_priority = 'a')
 rm(sequenza_fns)
 
 vcfs <- list.files(file.path(forge_mirror, 'haplotypecaller-q100'), 
                    pattern = 'q100.vcf$') 
 vcf_table <- data.table(germline_vcf = vcfs)
-vcf_table[, 'normal_cf' := gsub('.{2}_.{4}_.{1,2}_(CF\\d{5})_.*', 
+vcf_table[, 'normal_cf' := gsub('.{2}_.{4}_.{1,2}_(CF\\d{5}|\\d{2})_.*', 
                                '\\1', germline_vcf)]
 vcf_table[grepl('\\.vcf$', normal_cf), 
           normal_cf := gsub('.{2}_.{4}_.{1,2}_(\\d{2})_.*', '\\1', 
@@ -142,8 +145,10 @@ wes_table %<>% controlled_merge(vcf_table, by_cols = 'normal_cf',
                                 dup_priority = 'a')
 rm(vcfs)
 rm(vcf_table)
-maartenutils::write_tsv(wes_table, 
-                        file.path(p_root, 'ext', 'dnaseq_cf_numbers.tsv'))
+if (F) {
+  maartenutils::write_tsv(wes_table, 
+                          file.path(p_root, 'ext', 'dnaseq_cf_numbers.tsv'))
+}
 
 # vcf_table[!grepl('.vcf', normal_cf)]
 
@@ -167,3 +172,5 @@ read_cibersort <- function(fn = file.path('data-raw', 'CIBERSORT.Output_Job2.csv
   return(cibersort)
 }
 
+wes_table[grepl('vs', tumor_cf)]
+wes_table[, .N, by = brca1_like]

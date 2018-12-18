@@ -1,13 +1,14 @@
 #' Filter out patients that have dubious annotation
 #'
 #'
-filter_patients <- name <- function(p_dat, ...) {
+filter_patients <- name <- function(p_dat, 
+                                    exclude_pats = c(), ...) {
   comb_vars <- as.character(...)
   clinical_params <- c('response', 'clinical_response', 'comb_time_resp')
   if (is.null(comb_vars)) return(p_dat)
+  p_dat <- p_dat[patient %nin% exclude_pats]
   if (any(comb_vars %in% clinical_params)) {
     # resp_var <- comb_vars[which(comb_vars %in% clinical_params)]
-    p_dat <- p_dat[patient %nin% c('pat_63', 'pat_64')]
     for (varn in clinical_params) {
       if (varn %in% colnames(p_dat)) {
         N <- p_dat[is.na(get(varn)), .N]

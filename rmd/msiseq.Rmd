@@ -1,0 +1,75 @@
+```{r}
+setwd('~/TONIC')
+source('R/init.R')
+pacman::p_load('MSIseq')
+pacman::p_load('data.table')
+pacman::p_load('dplyr')
+
+mut_load_var_types <-
+ c('Missense Variant', 'Frameshift Variant', 'Stop Gained',
+   'Conservative Inframe Insertion', 'Conservative Inframe Deletion',
+   'Disruptive Inframe Insertion', 'Disruptive Inframe Deletion',
+   'Structural Interaction Variant',
+   'TF Binding Site Variant', 'Stop Lost', 'Start Lost',
+   'Protein Protein Contact', 'Stop Retained Variant') %>% sort
+
+mutation_overview <- readRDS('rds/mutation_overview.rds')
+setnames(mutation_overview, 'CHROM', 'Chrom')
+setnames(mutation_overview, 'POS', 'Start_Position')
+setnames(mutation_overview, 'patient', 'Tumor_Sample_Barcode')
+setnames(mutation_overview, 'variant_classification', 'Variant_Type')
+mutation_overview[, 'Start_Position' := as.integer(Start_Position)]
+mutation_overview[, 'End_Position' := Start_Position +
+                  stringr::str_length(ALT) - 1]
+mutation_overview <- maartenutils::clean_columns('', mutation_overview,
+  c('ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO','FORMAT',
+    'NORMAL','TUMOR','tlod', 'nlod', 'ANN','effect', 'hugo_symbol'))
+mutation_overview[, table(Variant_Type)]
+mutation_overview <- mutation_overview[Variant_Type %in% mut_load_var_types]
+mutation_overview[grepl('Insertion', Variant_Type), Variant_Type := 'INS']
+mutation_overview[grepl('Deletion', Variant_Type), Variant_Type := 'DEL']
+mutation_overview[!grepl('DEL|INS', Variant_Type), Variant_Type := 'SNP']
+## Obtained from https://github.com/HipSTR-Tool/HipSTR-references/raw/master/human/GRCh38.hipstr_reference.bed.gz
+repeats <- data.table::fread('data-raw/GRCh38.hipstr_reference.bed')
+setnames(repeats, colnames(repeats)[1:3],
+         c('Chrom', 'Start_Position', 'End_Position'))
+repeats[, 'Chrom' := sprintf('chr%s', Chrom)]
+classifications <- MSIseq::Compute.input.variables(data = mutation_overview,
+                                                   repeats = repeats[V4 <= 10],
+                                                   uniform.seq.len = 10) %>%
+  MSIseq.classify()
+table(classifications$MSI_status)
+table(classifications$Likely_POLE_deficiency)
+patient_labels[patient == 'pat_69']
+# Compute.input.variables
+```
+
+```{r}
+file_overview <-
+  list.files(file.path(data_dir, 'targets')) %>%
+  { setNames(file.path(data_dir, 'targets', .),
+             tolower(gsub('\\d{4}_\\d{1,2}_(C*F*\\d+)_.*', '\\1', .))) } %>%
+  named_vec_to_dt('cf_number', 'fn')
+
+setkey(file_overview, cf_number)
+
+dtf <- rbindlist(lapply(patient_labels[, naturalsort(unique(patient))],
+       function(l_patient) {
+  fns <- patient_labels[patient == l_patient & timepoint == 'Baseline',
+                 tolower(cf_number)] %>%
+      { wes_table[tolower(tumor_cf) == ., .(tumor_cf, normal_cf)] } %>%
+      { file_overview[tolower(.), setNames(fn, c('tumor', 'normal'))] }
+  if (length(fns) != 2 || sum(is.na(fns)) != 0) return(NULL)
+  map(fns, ~fread(., col.names = c('chr', 'start', 'end', 'length', 'average',
+                                   'median', 'stdev', 'variance', "mincov",
+                                   'nr_reads', 'length',
+                                   'fraction_bases_covered'))) %>%
+    map(~ .[, round(sum(length * fraction_bases_covered))]) %>%
+    c(list('patient' = l_patient))
+}))
+```
+
+```{r}
+MSIseq:::.intersects(mutation_overview, repeats)
+MSIseq:::.intersects
+```
