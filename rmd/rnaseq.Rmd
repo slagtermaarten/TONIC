@@ -12,7 +12,7 @@ source('R/rna.R')
 ## PAM50 subtype vs. CF number
 
 ```{r, warning=FALSE, echo=FALSE}
-subtype_predictions <- 
+subtype_predictions <-
   readRDS('rds/subtype_predictions.rds') %>%
   { .$subtype.proba } %>%
   as.data.frame %>%
@@ -25,7 +25,7 @@ subtype_predictions <-
                                    naturalsort(unique(cf_number)))) %>%
   arrange(cf_number)
 
-ggplot(subtype_predictions, aes(x = cf_number, value)) + geom_point() + 
+ggplot(subtype_predictions, aes(x = cf_number, value)) + geom_point() +
   facet_wrap(~variable) +
   rotate_x_labels(90)
 ```
@@ -783,7 +783,7 @@ source('R/rna.R')
 
 rna_read_counts_salmon <-
   file.path(p_root, 'salmon_rna', 'salmon_count_mat.tsv') %>%
-  fread %>% 
+  fread %>%
   normalize_colnames %>%
   as.data.frame %>%
   column_to_rownames('hugo_symbol') %>%
@@ -1069,17 +1069,19 @@ R session info during the production of above object
 	[118] reshape2_1.4.3         gtable_0.2.0
 
 # Correlation with dysfunction and exclusion signatures
- 
+
 Signatures defined in Jiang et al., (2018)
 
 ```{r, warning=FALSE, echo=FALSE}
+setwd('~/TONIC')
+devtools::load_all('~/libs/GSEAgenesets')
 source('R/init.R')
 source('R/load_rna_dat.R')
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
 fn <- file.path(data_dir, 'Liu_signatures.xlsx')
-liu_scores <- Reduce(function(x, y) { merge(x, y, all = T) }, 
+liu_scores <- Reduce(function(x, y) { merge(x, y, all = T) },
   lapply(1:8, function(idx) {
     fh <- read_excel(fn, sheet = idx, na = c("", "NA"))
     setnames(fh, 'Symbol', 'hugo_symbol')
@@ -1092,7 +1094,7 @@ liu_scores <- Reduce(function(x, y) { merge(x, y, all = T) },
   { .[, hit := NULL] } %>%
   { .[, x__1 := NULL] }
 
-liu_scores <- as.matrix(liu_scores[, 2:ncol(liu_scores)]) %>% 
+liu_scores <- as.matrix(liu_scores[, 2:ncol(liu_scores)]) %>%
   set_rownames(liu_scores[, hugo_symbol])
 
 ## Reorder expression matrix to be consistent with liu_scores first
@@ -1117,8 +1119,8 @@ Liu scores distribution, most genes are inferred to be uninformative
 # plot(ecdf(liu_scores[, 'mdsc']))
 # lines(ecdf(liu_scores[, 'caf']))
 ## Not run yet, stalls
-ecdf_plot <- melt(liu_scores) %>% 
-  ggplot(aes(x = Var1, colour = Var2)) + 
+ecdf_plot <- melt(liu_scores) %>%
+  ggplot(aes(x = Var1, colour = Var2)) +
   stat_ecdf(geom = "step", pad = FALSE) +
   scale_x_discrete(name = 'Correlation coefficient') +
   scale_y_continuous(name = 'Rank percentile')
@@ -1131,16 +1133,16 @@ All covoriates against each other
 
 ```{r, warning=FALSE, echo=FALSE}
 pacman::p_load('GGally')
-pan_bl <- rna_sample_annotation[timepoint == 'Baseline', 
+pan_bl <- rna_sample_annotation[timepoint == 'Baseline',
    c('clinical_response', colnames(liu_scores)), with = F] %>%
-  { GGally::ggpairs(data = ., upper = list(continuous = wrap('cor', size = 10)), 
+  { GGally::ggpairs(data = ., upper = list(continuous = wrap('cor', size = 10)),
                     lower = list(continuous = 'smooth')) }
 ggsave(pan_bl, filename = file.path(img_dir, 'pairwise_plots_jiang_corrs_bl.pdf'),
        width = 31, height = 26, units = 'cm')
 
-pan_pi <- rna_sample_annotation[timepoint == 'Post-induction', 
+pan_pi <- rna_sample_annotation[timepoint == 'Post-induction',
    c('clinical_response', colnames(liu_scores)), with = F] %>%
-  { GGally::ggpairs(data = ., upper = list(continuous = wrap('cor', size = 10)), 
+  { GGally::ggpairs(data = ., upper = list(continuous = wrap('cor', size = 10)),
                     lower = list(continuous = 'smooth')) }
 ggsave(pan_pi, filename = file.path(img_dir, 'pairwise_plots_jiang_corrs_pi.pdf'),
        width = 31, height = 26, units = 'cm')
@@ -1153,14 +1155,14 @@ source('R/plotting_adaptive.R')
 
 pdf(file.path(img_dir, 'liu_signature_dynamics.pdf'),
     width = 17.4 / 2.54, height = 17 / 2.54)
-prepare_adaptive_FC(rna_sample_annotation, facet_var = 'arm', 
+prepare_adaptive_FC(rna_sample_annotation, facet_var = 'arm',
                     var1 = 'mdsc', var2 = 't_exhaust') %>%
-  plot_FC(facet_var = 'arm', 
+  plot_FC(facet_var = 'arm',
           colour_var = 'clinical_response', var1 = 'mdsc', var2 = 't_exhaust')
 
-prepare_adaptive_FC(rna_sample_annotation, facet_var = 'clinical_response', 
+prepare_adaptive_FC(rna_sample_annotation, facet_var = 'clinical_response',
                     var1 = 'mdsc', var2 = 't_exhaust') %>%
-  plot_FC(facet_var = NULL, 
+  plot_FC(facet_var = NULL,
           colour_var = 'clinical_response', var1 = 'mdsc', var2 = 't_exhaust')
 
 dplyr::mutate(rna_sample_annotation, value = mdsc) %>%
@@ -1172,7 +1174,7 @@ dplyr::mutate(rna_sample_annotation, value = mdsc) %>%
 dplyr::mutate(rna_sample_annotation, value = t_exhaust) %>%
   dplyr::mutate(timepoint, timepoint = factor(timepoint, levels = it_timepoints)) %>%
   plot_parallel_coords(colour_var = 'clinical_response',
-                       facet_var = 'arm') + 
+                       facet_var = 'arm') +
   ggtitle('T exhaust')
 dev.off()
 ```
@@ -1185,11 +1187,11 @@ source('R/GSEA_plotting.R')
 length(plots)
 plots <- lapply(c('Baseline', 'Post-induction'), function(tp) {
   lapply(colnames(liu_scores), function(y_var) {
-    p_dat <- rna_sample_annotation[timepoint == tp, 
+    p_dat <- rna_sample_annotation[timepoint == tp,
        c('clinical_response', y_var), with = F] %>%
        .[is.na(clinical_response), clinical_response := 'NA']
 
-    ggplot(p_dat, aes_string(x = 'clinical_response', 
+    ggplot(p_dat, aes_string(x = 'clinical_response',
                              y = y_var, fill = 'clinical_response')) +
       geom_boxplot() +
       ggbeeswarm::geom_quasirandom() +
@@ -1203,8 +1205,65 @@ plots <- lapply(c('Baseline', 'Post-induction'), function(tp) {
 }) %>% unlist(recursive = F)
 
 plot_panel_layout(plots = plots,
-                  filename = file.path(img_dir, 'liu_cr_associations.pdf'),
-                  ncol = 3, nrow = 3, labels = NULL, w = 17.4, h = 25)
+  filename = file.path(img_dir, 'liu_cr_associations.pdf'),
+  ncol = 3, nrow = 3, labels = NULL, w = 17.4, h = 25)
+```
+
+Parallel coordinates plots
+
+```{r, warning=FALSE, echo=FALSE}
+plots <- lapply(colnames(liu_scores), function(y_var) {
+  p_dat <- rna_sample_annotation %>%
+    dplyr::mutate(value = get(y_var)) %>%
+    dplyr::mutate(timepoint,
+      timepoint = factor(timepoint, levels = it_timepoints))
+
+  allowed_pats <- p_dat[, .N, by = .(patient)][N == 2, patient]
+  t_dat <- p_dat[patient %in% allowed_pats]
+
+  p_vals <- rbindlist(lapply(p_dat[, unique(arm)], function(l_arm) {
+    list('arm' = l_arm,
+         'p_val' = wilcox.test(value ~ timepoint, paired = T, 
+           data = t_dat[arm == l_arm])$p.val)
+  }))
+
+  sum_dat <- t_dat[, 
+    .('value' = median(value, na.rm = T), 'patient' = 'median'),
+    by = .(timepoint, clinical_response, arm)]
+
+  p <- plot_parallel_coords(p_dat = p_dat, 
+    colour_var = 'clinical_response',
+    sum_dat = sum_dat, facet_var = 'arm') +
+    ggtitle(tonic_cap(var_to_label(y_var)))
+
+  # p <- p + ggpubr::stat_compare_means(
+  #   aes(x = timepoint, y = value, label = paste0("p = ", ..p.format..)),
+  #   paired = T, method = 'wilcox.test', label.x.npc = 'center')
+
+  p + geom_text(data = p_vals,
+    aes(label = sprintf('italic(p)==%.3f', p_val),
+      x = 1.5, y = interpolate_in_gg_range(p, axis = 'y', degree = .95), 
+      group = NULL), 
+    inherit.aes = F, hjust = .5, parse = T, size = 3)
+})
+
+plot_panel_layout(plots = plots,
+  filename = file.path(img_dir, 'liu_parallel_coords.pdf'),
+  ncol = 1, nrow = 2, labels = NULL, w = 17.4, h = 25)
+```
+
+Environments can be stably modified inside of functions.
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+cont <- new.env(parent = emptyenv())
+search()
+
+fill_cont <- function() {
+  cont$cont_a <- 1
+}
+fill_cont()
+cont$cont_a
+ls()
 ```
 
 # HORMAD1 expression
@@ -1212,7 +1271,7 @@ plot_panel_layout(plots = plots,
 2018-12-18 09:12
 
 ```{r, warning=FALSE, echo=FALSE}
-ggplot2::theme_set(theme_ms(base_size = 8, 
+ggplot2::theme_set(theme_ms(base_size = 8,
   panel.border = ggplot2::element_rect(colour = 'grey20', fill = NA, size = 1,
                                        linetype = 'solid')))
 
@@ -1223,18 +1282,34 @@ single_gene_exp <- M[which(rownames(M) == goi), ] %>%
   named_vec_to_dt('cf_number', 'exp') %>%
   controlled_merge(rna_sample_annotation, by_cols = 'cf_number') %>%
   .[is.na(clinical_response), 'clinical_response' := 'NA']
+```
 
-p1 <- ggplot(single_gene_exp, aes(x = exp, fill = clinical_response)) + 
-  geom_histogram(bins = 50) + 
+```{r, warning=FALSE, echo=FALSE}
+HORMAD1_data <- single_gene_exp %>% dplyr::rename(HORMAD1 = exp)
+HORMAD1_data[, median_gs := NULL]
+HORMAD1_data[, median_gs_tmm := NULL]
+HORMAD1_data[, median_gs_rn := NULL]
+HORMAD1_data[, t_number := NULL]
+HORMAD1_data[, evenness_rn := NULL]
+HORMAD1_data[, evenness_rn_qn := NULL]
+HORMAD1_data[, tissue_biopsy_site := NULL]
+HORMAD1_data[, .N, by = .(patient, baseline_biopsy_site)]
+readr::write_tsv(HORMAD1_data, path = file.path(p_root, 'ext', 'HORMAD1.tsv'))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+single_gene_exp[, uniqueN(patient)]
+p1 <- ggplot(single_gene_exp, aes(x = exp, fill = clinical_response)) +
+  geom_histogram(bins = 50) +
   facet_wrap(~ timepoint, scale = 'free_x') +
   scale_fill_manual(name = 'Clinical response',
                     values = tonic_color_palettes[['clinical_response']]) +
-  ylab('Patient count') + 
+  ylab('Patient count') +
   xlab(sprintf('%s expression (TMM-normalized read counts)', goi))
 
 p2 <- ggplot(single_gene_exp,
             aes(y = exp, x = clinical_response, fill = clinical_response)) +
-  geom_boxplot(bins = 50) +
+  geom_boxplot() +
   facet_wrap(~ timepoint) +
   ggpubr::stat_compare_means(label = 'p.signif', method = 'wilcox') +
   scale_fill_manual(name = 'Clinical response',
@@ -1242,15 +1317,21 @@ p2 <- ggplot(single_gene_exp,
   xlab('') +
   ylab(sprintf('%s expression (TMM-normalized read counts)', goi))
 
-hormad_plots <- list(p1, p2)
+tc <- single_gene_exp %>% rename(value = exp) %>%
+  mutate(timepoint = factor(timepoint, levels = timepoints)) %>%
+  plot_parallel_coords(colour_var = 'clinical_response') +
+  ylab(sprintf('%s expression (TMM-normalized read counts)', goi)) +
+  facet_wrap(~ arm, ncol = 5)
 
-plot_panel_layout(plots = hormad_plots, 
-  nrow = 2,
-  ncol = 1,
+hormad_plots <- list(p1, p2, tc)
+
+plot_panel_layout(plots = hormad_plots,
+  layout = matrix(c(1, 2, 3, 3), byrow = T, nrow = 2),
   # fig_padding = NULL,
   # plot_direct = T,
   filename =  file.path(img_dir, sprintf('single_gene_%s.pdf', goi)),
-  w = 8.7, h = 15)
+  w = 17.4, h = 20)
+
 ```
 
 ## Junk
