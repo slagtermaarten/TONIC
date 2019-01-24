@@ -570,6 +570,18 @@ if (T) {
 }
 
 if (T) {
+  extra_covars <-
+    read_excel(file.path(data_dir, 'TONIC_LNonly_linesofTx_16jan2019.xlsx'),
+               na = c('', 'NA')) %>%
+    as.data.table %>%
+    maartenutils::normalize_colnames()
+  extra_covars <- extra_covars[, -'timepoint', with = F]
+  patient_labels[, lines_of_therapy_for_metastatic_disease := NULL]
+  patient_labels <- controlled_merge(patient_labels, extra_covars)
+  merge_tests(idx = 13)
+}
+
+if (T) {
   readr::write_tsv(x = patient_labels,
                    path = file.path(p_root, 'ext', 'TONIC_pat_labels.tsv'))
   readr::write_tsv(x = blood_adaptive,
