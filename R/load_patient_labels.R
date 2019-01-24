@@ -1,9 +1,9 @@
-pacman::p_load(readxl)
-pacman::p_load(naturalsort)
-# library(maartenutils)
+library(readxl)
+library(naturalsort)
 p_root <- '~/TONIC'
 setwd('~/TONIC')
 source('R/init.R')
+
 cond_rm('blood_adaptive')
 cond_rm('patient_labels')
 source('R/patient_label_merge_tests.R')
@@ -189,7 +189,7 @@ if (T) {
   #'
   #'
   correct_CFs <- function(patient_labels) {
-    if (all(c('cf_number', 'adaptive_sample_name') %in%
+    if (all(c('cf_number', 'adaptive_sample_name') %in% 
         colnames(patient_labels))) {
       patient_labels[cf_number %in% cf_number_corrections$cf_number,
                      c('cf_number', 'adaptive_sample_name') := list(NA, NA)]
@@ -199,7 +199,8 @@ if (T) {
     }
     if ('adaptive_sample_name' %in% colnames(patient_labels)) {
       patient_labels %<>% controlled_merge(
-        cf_number_corrections[, .(patient, adaptive_sample_name, timepoint, cf_number)],
+        cf_number_corrections[, 
+          .(patient, adaptive_sample_name, timepoint, cf_number)],
         by_cols = c('patient', 'timepoint'))
     } else {
       patient_labels %<>% controlled_merge(
@@ -208,7 +209,29 @@ if (T) {
     }
 
     patient_labels[patient == 'pat_16' & timepoint == 'Baseline',
-                   'cf_number' := 'CF10751']
+      'cf_number' := 'CF10751']
+    stopifnot(patient_labels[cf_number == 'CF10751', .N <= 1])
+
+    ## Another additional correction - 2019-01-23 12:15
+    ## Clear all previous records
+    patient_labels[cf_number == 'CF15397', 
+      c('adaptive_sample_name', 'cf_number') := list(NA, NA)]
+    if ('adaptive_sample_name' %in% colnames(patient_labels)) {
+      patient_labels[adaptive_sample_name == '69_T_1', 
+        c('adaptive_sample_name', 'cf_number') := list(NA, NA)]
+    }
+
+    ## Add the correct record
+    patient_labels[patient == 'pat_65' & timepoint == 'Post-induction', 
+      c('adaptive_sample_name', 'cf_number') := list('69_T_1', 'CF15397')]
+
+    # browser(expr=patient_labels[cf_number == 'CF15397', .N > 1])
+    # browser(expr=patient_labels[adaptive_sample_name == '69_T_1', .N > 1])
+    stopifnot(patient_labels[cf_number == 'CF15397', .N <= 1])
+    stopifnot(patient_labels[cf_number == 'CF15397', patient == 'pat_65'])
+    stopifnot(patient_labels[adaptive_sample_name == '69_T_1', .N <= 1])
+    stopifnot(patient_labels[adaptive_sample_name == '69_T_1', patient == 'pat_65'])
+
     return(patient_labels)
   }
 
@@ -258,8 +281,8 @@ if (T) {
                na = c('', 'NA')) %>%
     as.data.table %>%
     maartenutils::normalize_colnames()
-  setnames(adaptive_sample_annotation,
-           gsub('__', '_', colnames(adaptive_sample_annotation)))
+  setnames(adaptive_sample_annotation, 
+    gsub('(.*)__.*', '\\1', colnames(adaptive_sample_annotation)))
 
   homogenize_arms <- function(vec) {
     vec <- tolower(vec)
@@ -359,7 +382,7 @@ if (T) {
     patient_labels[is.na(clinical_response), unique(patient)]
     patient_labels[is.na(arm)]
     patient_labels[patient == 'pat_33']
-    pacman::p_load('zoo')
+    library('zoo')
     # patient_labels[, arm := na.locf(arm), by = patient]
     patient_labels[, clinical_response := zoo::na.locf(clinical_response),
                    by = patient]
@@ -371,8 +394,8 @@ if (T) {
   blood_adaptive <- adaptive_sample_annotation[, 11:16]
   blood_adaptive <- blood_adaptive[!is.na(sample_name),
                  .('adaptive_sample_name' = sample_name,
-                   'arm' = induction_arm_1,
-                   'patient' = paste0('pat_', study_id_1),
+                   'arm' = induction_arm,
+                   'patient' = paste0('pat_', study_id),
                    'blood_timepoint' = tijdspunt_in_weken)]
   blood_adaptive[, arm := factor(homogenize_arms(arm),
                                  levels = treatment_arms)]
