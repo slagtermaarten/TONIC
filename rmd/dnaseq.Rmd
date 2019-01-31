@@ -9,6 +9,8 @@ source('R/load_rna_dat.R')
 rna_sample_annotation %<>%
   controlled_merge(patient_labels[, .(patient, clinical_response, response)],
                    by_cols = c('patient'), dup_priority = 'a')
+# clean_columns('', col_names = c('clinical_response', 'response'),
+#               fh = rna_sample_annotation)
 rna_patient_ordering <- rna_sample_annotation[order(response), unique(patient)]
 ```
 
@@ -161,17 +163,23 @@ saveRDS(all_gene_dat, 'rds/all_gene_dat.rds')
 ```{r, warning=FALSE, echo=FALSE}
 source('R/read_DNASeq.R')
 cond_rm('mutation_overview')
-# clear_object('mutation_overview', sr)
-sr(mutation_overview <- map_dfr(unique(patient_labels$patient),
-                                function(patient) {
-  message(patient)
-  vcf_fh <- filter_VCF(patient = patient) %>% annotate_effects
-  if (null_dat(vcf_fh)) return(NULL)
-  setDT(vcf_fh)
-  vcf_fh$patient = patient
-  vcf_fh$variant_classification <- simple_cap(vcf_fh$variant_classification)
-  return(vcf_fh)
-}))
+
+if (F) {
+  mutation_overview <- map_dfr(unique(patient_labels$patient),
+                                  function(patient) {
+    message(patient)
+    vcf_fh <- filter_VCF(patient = patient) %>% annotate_effects
+    if (null_dat(vcf_fh)) return(NULL)
+    setDT(vcf_fh)
+    vcf_fh$patient = patient
+    vcf_fh$variant_classification <- simple_cap(vcf_fh$variant_classification)
+    return(vcf_fh)
+  })
+  saveRDS(mutation_overview, file.path(rds_dir, 'mutation_overview.rds'))
+} else {
+  mutation_overview <- readRDS(file.path(rds_dir, 'mutation_overview.rds'))
+}
+
 mutation_overview[, .N, variant_classification]
 ```
 
@@ -366,70 +374,77 @@ ggplot(oncop_dat, aes(y = mut_load, x = purity, colour = clinical_response)) +
 setwd('/DATA/users/m.slagter/TONIC')
 source('R/plotting_adaptive.R')
 source('R/read_DNASeq.R')
+
+recompute_all <- F
 # source('R/load)
 # clear_object('MMR_dat', sr)
-# clear_object('B2M_gene_dat', sr)
 # clear_object('BRCA_gene_dat', sr)
 # clear_object('oncop_dat', sr)
 # options(warning = browser)
 # clear_object('MMR_dat', sr)
 # cond_rm('MMR_dat')
-# cond_rm('B2M_gene_dat')
 # cond_rm('BRCA_gene_dat')
 # sr(MMR_dat <- combine_all_aberrations(c('MLH1', 'MLH3', 'MSH2', 'MSH3', 'MSH6',
 #                                         'PMS1', 'PMS2', 'POLE')))
 ## Prepare oncop_dat
-# sr(B2M_gene_dat <-
-#    combine_all_aberrations(gene_symbols = 'B2M'))
-sr(BRCA_gene_dat <-
-   combine_all_aberrations(gene_symbols = c('B2M', 'BRCA1', 'BRCA2', 'POLE')))
+if (F || recompute_all) {
+  BRCA_gene_dat <- combine_all_aberrations(
+    gene_symbols = c('B2M', 'BRCA1', 'BRCA2', 'POLE'))
+  saveRDS(BRCA_gene_dat, file.path(rds_dir, 'BRCA_gene_dat.rds'))
+} else {
+  BRCA_gene_dat <- readRDS(file.path(rds_dir, 'BRCA_gene_dat.rds'))
+}
 
 # clear_object('oncop_dat', sr)
-cond_rm('oncop_dat')
 # debugonce(compute_dnaseq_stats)
 # compute_dnaseq_stats('pat_65')
 # debugonce(compute_dnaseq_stats)
 
-sr(oncop_dat <- map_dfr(unique(patient_labels$patient), function(patient) {
-  message(patient)
-  fh <- compute_dnaseq_stats(patient)
-  if (is.null(fh)) message('problem')
-  return(as.data.table(fh))
-}))
+if (F || recompute_all) {
+  oncop_dat <- map_dfr(unique(patient_labels$patient), function(patient) {
+    message(patient)
+    fh <- compute_dnaseq_stats(patient)
+    if (is.null(fh)) message('problem')
+    return(as.data.table(fh))
+  })
+  oncop_dat %<>%
+    controlled_merge(patient_labels[timepoint == 'Baseline',
+      .(patient, response, brca1_like, ca15_3, s_til, pd_l1_immunoinfiltrate,
+        clinical_response, arm)]) %>%
+    controlled_merge(rna_sample_annotation[timepoint == 'Baseline',
+      .(patient, baseline_biopsy_site)]) %>%
+    dplyr::arrange(dplyr::desc(clinical_response), dplyr::desc(mut_load)) %>%
+    # dplyr::filter(patient %nin% c('pat_33', 'pat_69')) %>%
+    mutate(patient = factor(patient, levels = unique(patient)))
+
+  oncop_dat[is.na(clinical_response), clinical_response := 'NA']
+  oncop_dat[is.na(response), response := 'NA']
+
+  saveRDS(oncop_dat, file.path(rds_dir, 'oncop_dat.rds'))
+  write_tsv(oncop_dat, file.path('~/TONIC/ext', 'oncop_dat.tsv'))
+} else {
+  oncop_dat <- readRDS(file.path(rds_dir, 'oncop_dat.rds'))
+}
 
 # compute_dnaseq_stats('pat_16')
+# oncop_dat[patient == 'pat_16']
 # setdiff(patient_labels[!is.na(cf_number), unique(patient)], 
 #         oncop_dat[, as.character(patient)])
-
-oncop_dat %<>%
-  controlled_merge(patient_labels[timepoint == 'Baseline',
-                                  .(patient, response, brca1_like,
-                                    ca15_3, s_til, pd_l1_immunoinfiltrate,
-                                    clinical_response, arm)]) %>%
-  controlled_merge(rna_sample_annotation[timepoint == 'Baseline',
-                                         .(patient, baseline_biopsy_site)]) %>%
-  dplyr::arrange(dplyr::desc(clinical_response), dplyr::desc(mut_load)) %>%
-  # dplyr::filter(patient %nin% c('pat_33', 'pat_69')) %>%
-  mutate(patient = factor(patient, levels = unique(patient)))
-
 # oncop_dat[patient == 'pat_65']
+# patient_labels[timepoint == 'Baseline', pd_l1_immunoinfiltrate, 
+#   by = clinical_response]
 
-oncop_dat[is.na(clinical_response), clinical_response := 'NA']
-oncop_dat[is.na(response), response := 'NA']
-
-patient_ordering <- levels(oncop_dat$patient)
-
-clean_columns('', col_names = c('clinical_response', 'response'),
-              fh = rna_sample_annotation)
-```
-
-```{r, warning=FALSE, echo=FALSE}
 # clear_object('mutation_specific_mut_loads', sr)
-if (F) {
+if (F || recompute_all) {
   mutation_specific_mut_loads <- 
-      purrr::map_dfr(oncop_dat$patient, function(pat) {
+    purrr::map_dfr(oncop_dat$patient, function(pat) {
       vcf_fh <- filter_VCF(patient = pat)
       if (null_dat(vcf_fh)) return(NULL)
+      if (nrow(vcf_fh) == 0) {
+        ## Ensure last patient is shown over entire width
+        return(data.frame('patient' = pat, 'N' = 1e-10, 
+            variant_classification = 'Frameshift Indel'))
+      }
       vcf_fh %<>% annotate_effects
       cbind(vcf_fh[, .N, by = variant_classification], 'patient' = pat)
     })
@@ -441,26 +456,11 @@ if (F) {
 }
 ```
 
-```{r, eval = F, warning=FALSE, echo=FALSE}
-## Investigate all correlations between oncoplot variables directly
-pacman::p_load('GGally')
-# patient_labels[!is.na(brca1_like), .(patient, brca1_like)]
-onco_corrs <- oncop_dat %>% 
-  controlled_merge(patient_labels[!is.na(cf_number) & timepoint == 'Baseline', 
-                                  .(patient, clinical_response, brca1_like,
-                                    adaptive_t_cells)],
-                   by_cols = 'patient') %>%
-  dplyr::select(-patient) %>%
-  { GGally::ggpairs(data = ., 
-                    upper = list(continuous = wrap('cor', size = 10)), 
-                    lower = list(continuous = 'smooth')) }
-fn <- file.path(img_dir, 'pairwise_oncoplot_vars.pdf')
-ggsave(onco_corrs, filename = fn, width = 50, height = 50, units = 'cm')
-sys_file_open(fn)
-```
-
 ```{r, warning=FALSE, echo=FALSE}
 source('R/constants.R')
+
+patient_ordering <- levels(oncop_dat$patient)
+
 
 track_style <- theme(#legend.position = 'bottom',
                      #legend.direction = 'horizontal',
@@ -494,18 +494,17 @@ mut_load_hist <- oncop_dat %>%
   ggplot(aes(x = patient, y = mut_load / 30 )) +
   geom_col() +
   scale_x_discrete(name = '', expand = c(0, 0)) +
-  scale_y_continuous(name = 'Exonic mutational load (# / Mbs)',
-                     expand = c(0, 0)) +
+  scale_y_continuous(name = 'Exonic mutational load (# / Mbs)', 
+    expand = c(0, 0)) +
   track_style +
   theme(axis.title.y = element_text(size = 10, hjust = .5),
         axis.text.y = element_text(size = 6, vjust = .5, hjust = .5))
 
-mutation_specific_mut_loads[variant_classification == 'Start Lost']
-mutation_specific_mut_loads[, .N, by = .(patient, variant_classification)]
-mutation_specific_mut_loads[variant_classification == 'Frameshift Variant' & 
-                            patient == 'pat_26']
+# mutation_specific_mut_loads[variant_classification == 'Start Lost']
+# mutation_specific_mut_loads[, .N, by = .(patient, variant_classification)]
+# mutation_specific_mut_loads[
+#   variant_classification == 'Frameshift Variant' & patient == 'pat_26']
 
-sr(mutation_specific_mut_loads)
 # oncop_dat[, 'purity_r' := rank_percentile_vec(purity)]
 # oncop_dat[mut_load == 0, patient]
 # res <- filter_VCF('pat_14')
@@ -522,9 +521,7 @@ mut_load_hist <- mutation_specific_mut_loads %>%
   .[, patient := factor(patient, levels = patient_ordering)] %>%
   .[, variant_classification := factor(variant_classification,
     levels = names(tonic_color_palettes[['var_type_colors']]))] %>%
-  ## Ensure last patient is shown over entire width
-  rbind(data.frame('patient' = 'pat_29', 'N' = 1e-10, 
-                   variant_classification = 'Frameshift Indel')) %>%
+
   ggplot(aes(x = patient, y = N / 30, fill = variant_classification)) +
   geom_col(color = 'black', linetype = 1, width = .8, size = .00) +
   scale_fill_manual(name = 'Somatic variant type',
@@ -551,7 +548,8 @@ gen_cr_track <- function(patient_ordering = levels(oncop_dat$patient)) {
                       values = tonic_color_palettes[['recist']])
 }
 cr_track <- gen_cr_track(patient_ordering)
-rna_cr_track <- gen_cr_track(rna_patient_ordering)
+if (exists('rna_patient_ordering'))
+  rna_cr_track <- gen_cr_track(rna_patient_ordering)
 
 arm_track <- oncop_dat %>%
   copy %>%
@@ -672,8 +670,8 @@ pdl1_immuno_track <- oncop_dat %>%
   scale_x_discrete(expand = c(0, 0), drop = F) +
   scale_y_discrete(expand = c(0, 0)) +
   scale_fill_manual(name = 'immune cell PD-L1',
-    values = tonic_color_palettes[['brcaness']] %>%
-      setNames(c('PD-L1 low', 'PD-L1 high', 'NA')))
+    values = setNames(tonic_color_palettes[['brcaness']], 
+      c('PD-L1 low', 'PD-L1 high', 'NA')))
 
 w_SCNA_track <- oncop_dat %>%
   copy %>%
@@ -722,8 +720,7 @@ w_LOH_track <- oncop_dat %>%
 
 source('R/plot_DNASeq.R')
 source('R/constants.R')
-sr(B2M_gene_dat)
-B2M_track <- gen_oncoplot(rbind(B2M_gene_dat, BRCA_gene_dat, fill = T))
+recurrent_mutations_track <- gen_oncoplot(BRCA_gene_dat)
 oncop_dat[, fisher.test(brca1_like, clinical_response == 'R')]
 oncop_dat[, fisher.test(gen_SCNA_score >= median(gen_SCNA_score, na.rm = T),
                         clinical_response == 'R')]
@@ -736,16 +733,14 @@ oncop_dat[!is.na(clinical_response_b),
 oncop_dat[, 'cr_b' := as.factor(clinical_response %in% c('R', 'CR', 'PR', 'SD'))]
 oncop_dat[, table(cr_b)]
 # oncop_dat[, wilcox.test(cr_b ~ gen_SCNA_score)]
-# print(B2M_track)
+# print(recurrent_mutations_track)
 
 setdiff(patient_labels[clinical_response == 'R', unique(patient)],
 oncop_dat[clinical_response_b == T, patient])
 oncop_dat[patient == 'pat_64']
 patient_labels[patient == 'pat_64']
 source('R/pam50_plots.R')
-```
 
-```{r, warning=FALSE, echo=FALSE}
 # MMR_dat[order(-effect)]
 # interesting_combs <-
 #   MMR_dat[, .N, by = .(patient, hugo_symbol)][N > 1][, .(patient, hugo_symbol)]
@@ -796,7 +791,7 @@ plots <- list(mut_load_hist + track_style +
               #  theme(axis.text.y = element_text(size = 6)) +
               #  theme(legend.position = 'none'),
 
-              B2M_track + track_style +
+              recurrent_mutations_track + track_style +
                theme(axis.text.y = element_text(size = 6)) +
                theme(legend.position = 'none'),
               'pam50' = pam50_track_BL + track_style +
@@ -812,7 +807,7 @@ stopifnot(length(heights <- c(8, sth, sth,
                               4 * sth, 3 * sth, 3 * sth)) ==
           length(plots))
 mut_height <- heights[1] / sum(heights)
-grid.draw(get_legend(B2M_track))
+# grid.draw(ggpubr::get_legend(recurrent_mutations_track))
 
 main <- plots %>% 
   { ggpubr::ggarrange(plotlist = .,
@@ -826,7 +821,7 @@ legends <- plots %>%
   { .[2:length(.)] } %>%
   { .[!grepl('nano', names(.))] } %>%
   purrr:::map(function(p) 
-              tryCatch(get_legend(p +theme(legend.position = 'right')),
+              tryCatch(ggpubr::get_legend(p +theme(legend.position = 'right')),
               error = function(e) { return(NULL) }) ) %>%
   { .[!sapply(., is.null)] } %>%
   { ggpubr::ggarrange(plotlist = .,
@@ -868,7 +863,7 @@ plot_scatter_cor(x_var = 'gen_SCNA_score', y_var = 'mut_load', dtf = oncop_dat)
 # Predict clinical response based on combined features
 
 ```{r, warning=FALSE, echo=FALSE}
-pacman::p_load(glmnet)
+library(glmnet)
 
 lbs_fun <- function(fit, ...) {
   L <- length(fit$lambda)
@@ -1119,4 +1114,22 @@ missing_alleles <-
   TONIC_LOHHLA[patient == 'pat_1', setdiff(c('a', 'b', 'c'), hla_gene)]
 
 list.files(project_dir)
+```
+
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
+## Investigate all correlations between oncoplot variables directly
+library('GGally')
+# patient_labels[!is.na(brca1_like), .(patient, brca1_like)]
+onco_corrs <- oncop_dat %>% 
+  controlled_merge(patient_labels[!is.na(cf_number) & timepoint == 'Baseline', 
+    .(patient, clinical_response, brca1_like, adaptive_t_cells)],
+    by_cols = 'patient') %>%
+  dplyr::select(-patient) %>%
+  { GGally::ggpairs(data = ., 
+    upper = list(continuous = wrap('cor', size = 10)), 
+    lower = list(continuous = 'smooth')) }
+fn <- file.path(img_dir, 'pairwise_oncoplot_vars_lenient_filtering.pdf')
+ggsave(onco_corrs, filename = fn, width = 50, height = 50, units = 'cm')
+sys_file_open(fn)
 ```
