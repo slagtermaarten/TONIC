@@ -1,5 +1,5 @@
-pacman::p_load(readxl)
-pacman::p_load(naturalsort)
+library(readxl)
+library(naturalsort)
 cond_rm('blood_adaptive')
 cond_rm('patient_labels')
 source('R/patient_label_merge_tests.R')
@@ -282,7 +282,7 @@ if (T) {
 		patient_labels[is.na(clinical_response), unique(patient)]
 		patient_labels[is.na(arm)]
 		patient_labels[patient == 'pat_33']
-		pacman::p_load('zoo')
+		library('zoo')
 		# patient_labels[, arm := na.locf(arm), by = patient]
 		patient_labels[, clinical_response := zoo::na.locf(clinical_response),
                    by = patient]

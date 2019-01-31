@@ -1,10 +1,11 @@
 BLOCK_SIZE <- 25
 
-HALLMARK_pathways <- c(filter_gmt('h.all', 'HALLMARK'),
- filter_gmt('ifngamma', '*'),
-# extra_pathways <- filter_gmt('custom.cancer.immunity', '*')
- suppressWarnings(filter_gmt('custom.savas', '*')),
- suppressWarnings(filter_gmt('custom.gutrantien', '*')))
+# HALLMARK_pathways <- c(filter_gmt('h.all', 'HALLMARK'),
+#  filter_gmt('ifngamma', '*'),
+# # extra_pathways <- filter_gmt('custom.cancer.immunity', '*')
+#  suppressWarnings(filter_gmt('custom.savas', '*')),
+#  suppressWarnings(filter_gmt('custom.gutrantien', '*')))
+
 # WNT_pathways <- grep('WNT', names(gmt), value = T)
 # BRCA_pathways <- grep('BRCA', names(gmt), value = T)
 # TP53_pathways <- grep('TP53', names(gmt), value = T)
@@ -12,8 +13,10 @@ HALLMARK_pathways <- c(filter_gmt('h.all', 'HALLMARK'),
 # TARGET_pathways <- c('PAM50', grep('HALLMARK', names(gmt), value = T)) %>%
 #   { grep('WNT|P53|PAM', ., value = T) }
 
-HALLMARK_pathways <- filter_gmt('h.all', 'HALLMARK')
-STING_pathways <- c(HALLMARK_pathways, filter_gmt('c2', 'GRANDVAUX'))
+# find_gmt('.*', 'symbols')
+HALLMARK_pathways <- filter_gmt('.*HALLMARK.*', gmt_pattern='*')
+STING_pathways <- c(HALLMARK_pathways, filter_gmt('GRANDVAUX'))
+MDSC_pathways <- c(filter_gmt('PANDOLFI|GU', gmt_pattern='immune'))
 
 plot_bool <- interactive()
 
@@ -81,9 +84,9 @@ my_unpaired_WC_test <- function(x, y, abs = F) {
   NR_idx <- y[, which(clinical_response == 'NR')]
 
   ret_val <- apply(x, 2, function(r) {
-    w_test <- tryCatch(wilcox.test(x = r[R_idx], y = r[NR_idx], paired = F, 
-                                   exact = F),
-                       error = function(e) { print(e); browser() })
+    w_test <- tryCatch(wilcox.test(
+        x = r[R_idx], y = r[NR_idx], paired = F, exact = F),
+      error = function(e) { print(e); browser() })
     t_val <- sign(median(r[R_idx], na.rm = T) - median(r[NR_idx], na.rm = T)) *
               (1 - w_test$p.value)
     return(t_val)
@@ -221,20 +224,13 @@ gsea_wrapper <- function(gene_sets = HALLMARK_pathways,
     { setNames(.[, 1], rownames(.)) } %>% 
     { .[order(.)] }
 
-  res <- ggsea(x = RCs,
-               y = Y_mat,
-               gene.sets = gene_sets,
-               gene.score.fn = gene_score_fn,
-               es.fn = ggsea_weighted_ks,
-               sig.fun = ggsea_calc_sig,
-               nperm = nperm,
-               gs.size.min = 2,
-               gs.size.max = 1e4,
-               verbose = TRUE,
-               block.size = BLOCK_SIZE,
-               parallel = !local_run,
-               return_values = c('leading_edge'),
-               abs = abs)
+  res <- flexgsea(x = RCs,
+    y = Y_mat, gene.sets = gene_sets, gene.score.fn = gene_score_fn,
+    es.fn = flexgsea_weighted_ks, sig.fun = flexgsea_calc_sig,
+    nperm = nperm, gs.size.min = 2, gs.size.max = 1e4,
+    verbose = TRUE, block.size = BLOCK_SIZE, parallel = !local_run,
+    return_values = c('leading_edge'),
+    abs = abs)
   dtf <- as.data.frame(res[[1]])
   colnames(dtf) <- gsub('(.*)\\.', '', colnames(dtf))
   dtf$resp_exp <- resp_exp
@@ -271,7 +267,7 @@ gsea_all_arms <- function(gene_sets = HALLMARK_pathways,
                           fn_extra = '') {
   if (!exists('rna_sample_annotation')) source('R/load_rna_dat.R')
   arm_specific_gsea <-
-    rbindlist(lapply(c(rna_sample_annotation[, levels(arm)], 'All arms'),
+    lapply(c(rna_sample_annotation[, levels(arm)], 'All arms'),
                      function(l_arm) {
       l_patients <- intersect(rna_sample_annotation[, patient], patients)
       if (l_arm != 'All arms') {
@@ -288,13 +284,15 @@ gsea_all_arms <- function(gene_sets = HALLMARK_pathways,
                           nperm = nperm,
                           abs = abs,
                           fn_extra = fn_extra)
-      if (!is.null(res)) res$arm <- l_arm
+      if (!is.null(res)) 
+        res <- cbind(res$gsea, 'arm' = l_arm)
       return(res)
-    }), fill = T)
+    }) %>% rbindlist(fill = T)
 
   if (!null_dat(arm_specific_gsea)) {
     arm_specific_gsea$arm <- factor(arm_specific_gsea$arm,
-                                    levels = c('All arms', treatment_arms))
+      levels = c('All arms', treatment_arms))
   }
+
   return(arm_specific_gsea)
 }

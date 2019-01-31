@@ -1,9 +1,9 @@
 ```{r}
 setwd('~/TONIC')
 source('R/init.R')
-pacman::p_load('MSIseq')
-pacman::p_load('data.table')
-pacman::p_load('dplyr')
+library('MSIseq')
+library('data.table')
+library('dplyr')
 
 mut_load_var_types <-
  c('Missense Variant', 'Frameshift Variant', 'Stop Gained',

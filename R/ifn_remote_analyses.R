@@ -15,7 +15,7 @@ source(file.path(root_dir, 'R', 'init.R'))
 
 
 if (T && !maartenutils::local_run) {
-  pacman::p_load('doParallel')
+  library('doParallel')
   doParallel::registerDoParallel(cores = 8)
 }
 
@@ -27,8 +27,8 @@ if (F) {
 
 
 if (F) {
-  pacman::p_load(shinystan)
-  pacman::p_load("rstan")
+  library(shinystan)
+  library("rstan")
   if (!require(brms)) {
     devtools::install_github('paul-buerkner/brms')
   } 

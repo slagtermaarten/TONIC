@@ -9,8 +9,8 @@ mut_load_var_types <-
    'Protein Protein Contact', 'Stop Retained Variant') %>% sort
 # tolower(paste(mut_load_var_types, collapse = ', '))
 
-timepoints <- c('baseline' = 'Baseline', 'post.induction' = 'Post-induction',
-                'on.nivo' = 'On nivo')
+timepoints <- c('baseline' = 'Baseline', 
+  'post.induction' = 'Post-induction', 'on.nivo' = 'On nivo')
 it_timepoints <- timepoints
 timepoints_inv <- setNames(names(timepoints), timepoints)
 

@@ -20,7 +20,7 @@ load(file.path(ALICE_lib, 'VDJT.rda'))
 # print(naturalsort(unique(VDJT[, 2])))
 
 N_cores <- 24
-pacman::p_load('doParallel')
+library('doParallel')
 doParallel::registerDoParallel(cores = N_cores)
 
 format_VJ <- function(name = 'TCRBJ02-01') {

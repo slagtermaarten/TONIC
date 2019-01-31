@@ -1,7 +1,11 @@
-sr(seq_stat_overview <- 
-  rbindlist(lapply(patient_labels[, unique(patient)], compute_dnaseq_stats),
-            fill = T))
-# saveRDS(seq_stat_overview, 'rds/seq_stat_overview.rds')
+if (F) {
+  sr(seq_stat_overview <- 
+    rbindlist(lapply(patient_labels[, unique(patient)], compute_dnaseq_stats),
+              fill = T))
+  saveRDS(seq_stat_overview, file.path(rds_dir, 'seq_stat_overview.rds'))
+} else {
+  seq_stat_overview <- readRDS(file.path(rds_dir, 'seq_stat_overview.rds'))
+}
 
 rank_percentile <- function(dtf, rank_var, continuous = F) {
   ranked_var <- sprintf('%s_ranked', rank_var)

@@ -1,10 +1,10 @@
-pacman::p_load(randomForest)
-pacman::p_load(mlbench)
-pacman::p_load(DEoptimR)
-# pacman::p_load(caret)
+library(randomForest)
+library(mlbench)
+library(DEoptimR)
+# library(caret)
 # devtools::install_github('topepo/caret/pkg/caret')
-pacman::p_load(caret)
-pacman::p_load(glmnet)
+library(caret)
+library(glmnet)
 
 prepare_ml_dat <- function(tp = 'Baseline', type = 'gene_sets') {
   type <- match.arg(type, choices = c('genes', 'gene_sets'), several.ok = F)
@@ -108,7 +108,7 @@ plot_variable_importance <- function(fit) {
     transform(perc_rank = frank(-MeanDecreaseGini, ties.method = 'min') - 1) %>%
     transform(perc_rank = perc_rank / max(perc_rank))
 
-  pacman::p_load(ggrepel)
+  library(ggrepel)
 
   ggplot(p_dat, aes(x = perc_rank, y = MeanDecreaseGini, label = gene)) +
     geom_point(alpha = .5, size = .5) +

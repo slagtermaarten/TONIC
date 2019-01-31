@@ -26,7 +26,8 @@ cpms <- limma::voom(cpms)
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
-FCs <- rbindlist(lapply(unique(rna_sample_annotation$patient), function(patient) {
+FCs <- rbindlist(lapply(unique(rna_sample_annotation$patient), 
+    function(patient) {
   l_patient <- patient
   cf_bl <- rna_sample_annotation[patient == l_patient &
                                  timepoint == 'Baseline', cf_number]
@@ -331,4 +332,64 @@ devtools::load_all('~/libs/GSEAgenesets')
 
 plot_GSEA_scores(fn = 'rds2/GSEA_unpaired_postinduction_STING.rds')
 plot_GSEA_scores(fn = 'rds2/GSEA_unpaired_baseline_STING.rds')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+devtools::load_all('~/libs/GSEAgenesets')
+
+plot_GSEA_scores(fn = 'rds2/GSEA_unpaired_postinduction_STING.rds')
+plot_GSEA_scores(fn = 'rds2/GSEA_unpaired_baseline_STING.rds')
+```
+
+# MDSC signatures
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/GSEA_plotting.R')
+readRDS(file = file.path(rds_dir, 'GSEA_paired_TMM_MDSC.rds')) %>%
+  dplyr::filter(arm != 'All arms') %>%
+  dplyr::mutate(GeneSet = gsub('HALLMARK_', '', GeneSet)) %>%
+  dplyr::mutate(GeneSet = gsub('GUTRANTIEN', 'Gu-Trantien', GeneSet)) %>%
+  plot_es(legend.position = 'right', ptitle = 'paired',
+          subset_var = NULL, x_var = 'arm')
+
+readRDS(file = file.path(rds_dir, 'GSEA_unpaired_baseline_TMM_MDSC.rds')) %>%
+  dplyr::filter(arm != 'All arms') %>%
+  dplyr::mutate(GeneSet = gsub('GUTRANTIEN', 'Gu-Trantien', GeneSet)) %>%
+  dplyr::mutate(GeneSet = gsub('HALLMARK_', '', GeneSet)) %>%
+  plot_es(legend.position = 'right', ptitle = 'unpaired_bl',
+          subset_var = NULL, x_var = 'arm')
+
+readRDS(file = file.path(rds_dir, 'GSEA_unpaired_postinduction_TMM_MDSC.rds')) %>%
+  dplyr::filter(arm != 'All arms') %>%
+  dplyr::mutate(GeneSet = gsub('GUTRANTIEN', 'Gu-Trantien', GeneSet)) %>%
+  dplyr::mutate(GeneSet = gsub('HALLMARK_', '', GeneSet)) %>%
+  plot_es(legend.position = 'right', ptitle = 'unpaired_pi',
+          subset_var = NULL, x_var = 'arm')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+source('R/load_rna_dat.R')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/GSEA_plotting.R')
+
+readRDS(file = file.path(rds_dir, 'GSEA_paired_TMM_MDSC.rds')) %>%
+  dplyr::filter(arm != 'All arms') %>%
+  dplyr::filter(grepl('PANDOLFI|GUTRANTIEN', GeneSet)) %>%
+  plot_es(legend.position = 'right', ptitle = 'paired_sub',
+          subset_var = NULL, x_var = 'arm')
+
+readRDS(file = file.path(rds_dir, 'GSEA_unpaired_baseline_TMM_MDSC.rds')) %>%
+  dplyr::filter(arm != 'All arms') %>%
+  dplyr::filter(grepl('PANDOLFI|GUTRANTIEN', GeneSet)) %>%
+  plot_es(legend.position = 'right', ptitle = 'unpaired_bl_sub',
+          subset_var = NULL, x_var = 'arm')
+
+readRDS(file = file.path(rds_dir, 'GSEA_unpaired_postinduction_TMM_MDSC.rds')) %>%
+  dplyr::filter(arm != 'All arms') %>%
+  dplyr::filter(grepl('PANDOLFI|GUTRANTIEN', GeneSet)) %>%
+  plot_es(legend.position = 'right', ptitle = 'unpaired_pi_sub',
+          subset_var = NULL, x_var = 'arm')
 ```

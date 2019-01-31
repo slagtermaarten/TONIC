@@ -1,4 +1,3 @@
-
 ## Labels for timepoints 1, 2 and 3
 timepoint_labels <- c('baseline', 'post_induction', 'on_nivo')
 

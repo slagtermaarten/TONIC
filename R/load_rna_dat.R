@@ -1,5 +1,6 @@
-pacman::p_load(readxl)
-pacman::p_load(naturalsort)
+library(readxl)
+library(naturalsort)
+source('R/misc.R')
 
 fn <- file.path(data_dir, 'Sample_annotations_RNAseq_TONICstageI.xlsx')
 # sys_file_open(fn)
@@ -54,8 +55,8 @@ rna_sample_annotation %<>%
 
 ## Merge some more variables from patient_labels
 rna_sample_annotation %<>% 
-  controlled_merge(patient_labels[, .(patient, timepoint, adaptive_t_cells)],
-                   by = c('patient', 'timepoint'))
+  controlled_merge(patient_labels[, .(patient, timepoint, adaptive_t_cells, 
+      brca1_like)], by = c('patient', 'timepoint'))
 
 if (local_run) {
   fastqc_res <- parse_fastqc(fastq_dir = file.path(p_root,
@@ -274,20 +275,24 @@ if (T) {
 if (T) {
   # clean_object('geneset_scores', sr)
   # clear_object('geneset_scores_rn', sr)
-  sr(geneset_scores <- gen_gene_set_score_matrix(sum_func = median,
-                         exp_mat = tpms_salmon,
-                         sets = filter_gmt('h.all', 'HALLMARK'),
-                         log_transform = 'log2'))
+  # sr(geneset_scores <- gen_gene_set_score_matrix(sum_func = median,
+  #                        exp_mat = tpms_salmon,
+  #                        sets = filter_gmt('HALLMARK'),
+  #                        log_transform = 'log2'))
+  geneset_scores <- readRDS(file.path(rds_dir, 'geneset_scores.rds'))
 
-  sr(geneset_scores_rn <- gen_gene_set_score_matrix(sum_func = median,
-                            exp_mat = tpms_salmon_rn,
-                            sets = filter_gmt('h.all', 'HALLMARK'),
-                            log_transform = 'log2'))
+  # sr(geneset_scores_rn <- gen_gene_set_score_matrix(sum_func = median,
+  #                           exp_mat = tpms_salmon_rn,
+  #                           sets = filter_gmt('HALLMARK'),
+  #                           log_transform = 'log2'))
+  geneset_scores_rn <- readRDS(file.path(rds_dir, 'geneset_scores_rn.rds'))
 
-  sr(geneset_scores_tmm <- gen_gene_set_score_matrix(sum_func = median,
-                             exp_mat = rna_read_counts_salmon_tmm,
-                             sets = filter_gmt('h.all', 'HALLMARK'),
-                             log_transform = 'log2'))
+  # sr(geneset_scores_tmm <- gen_gene_set_score_matrix(sum_func = median,
+  #                            exp_mat = rna_read_counts_salmon_tmm,
+  #                            sets = filter_gmt('HALLMARK'),
+  #                            log_transform = 'log2'))
+  geneset_scores_tmm <- readRDS(file.path(rds_dir, 'geneset_scores_tmm.rds'))
+
   rna_sample_annotation <-
     controlled_merge(rna_sample_annotation,
                      geneset_scores[, .('median_gs' = median(value)),

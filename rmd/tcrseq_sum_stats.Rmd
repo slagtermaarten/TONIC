@@ -10,7 +10,7 @@ output:
 
 
 ```{r, warning=FALSE, echo=FALSE, cache = F}
-knitr::opts_chunk$set(message = FALSE, cache = T, cache.lazy = F,
+knitr::opts_chunk$set(message = FALSE, cache = F, cache.lazy = F,
                       cache.comments = F, autodep = T, warning = FALSE,
                       results = 'hide', fig.keep = 'high',
                       echo = TRUE, error = FALSE)
@@ -45,10 +45,13 @@ print(knitr::kable(res))
 Visualisations of the comparisons shown above in table form
 
 ```{r, warning=FALSE, echo=FALSE, fig.width = 3, fig.height = 4}
-# source('R/plotting_adaptive.R')
+source('R/plotting_adaptive.R')
 # clear_object('as_plots_bl', sr)
 # clear_object('as_plots_pi', sr)
 # clear_object("as_plots_on", sr)
+# debugonce(plot_single_timepoint_r_assocation)
+graphics.off()
+# lapply(1:1e6, function(x) lapply(1:1e6, function(x) x))
 sr(as_plots_bl <- plot_single_timepoint_r_assocation(l_timepoint = 'Baseline',
                                    facet_var = NULL))
 print(as_plots_bl)
@@ -81,7 +84,7 @@ the peripheral T cell compartment weren't informative at all.
 
 
 ```{r, warning=FALSE, echo=FALSE, results='asis'}
-pacman::p_load(glmnet)
+library(glmnet)
 measures = c('sample_clonality', 'efron_thisted_estimator',
              'adaptive_t_cells')
 
@@ -256,7 +259,8 @@ Bivariate spider plots
 
 ```{r, warning=FALSE, echo=FALSE}
 source('R/plotting_adaptive.R')
-# source('R/plotting_nanostring.R')
+# devtools::load_all(file.path('~/libs', 'serializer'))
+# sr <- serializer::gen_serializer(rds_dir)
 sr(comb_time_resp_palette)
 
 plot_adaptive_FC(facet_var = 'arm',

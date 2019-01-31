@@ -39,7 +39,6 @@ colour_var = 'clinical_response'
 # debugonce(prep_geneset_parallel_coords)
 # debugonce(plot_parallel_coords)
 
-
 plots <- lapply(danaher_scores.m[, auto_name(unique(variable))], function(x) {
   p <- plot_parallel_coords_geneset(x,
                                     colour_var = colour_var,
@@ -295,6 +294,37 @@ ggsave(plot = pa, filename = file.path(plot_dir,
 # ggsave(plot = p, filename = file.path(plot_dir,
 #                             'induction_fc_p_values_baseline_on_nivo.png'),
 #        width = 10, height = 13, units = 'cm')
+```
+
+## Focus on myeloid compartment
+
+```{r, warning=FALSE, echo=FALSE, fig.width = 9, fig.height = 12}
+source('R/plotting_adaptive.R')
+source('R/plotting_nanostring.R')
+source('R/test_associations.R')
+
+gs_interest <- c('myleoid', 'inflammatory.chemokines', 'myleoid.inflam',
+  'neutrophils', 'mast.cells', 'nk.cells')
+gs_interest <- c('myleoid', 'inflammatory.chemokines', 'myleoid.inflam',
+  'neutrophils')
+# danaher_signature_genes[, unique(signature_name)]
+danaher_scores.m[, as.character(unique(variable))]
+
+for (final_timepoint in c('Post-induction', 'On nivo')) {
+  m <- rbindlist(lapply(gs_interest, 
+      function(gs) {
+    test_gene_set_difference(gene_set = gs,
+                             tp1 = 'Baseline',
+                             tp = final_timepoint)
+  }), fill = T)
+
+  invisible(m[p_val > .05, p_val := NA])
+  p <- plot_p_values_induction(filter(m, arm != 'All arms'))
+  ff <- gsub('\\.|-', '_', tolower(final_timepoint))
+  fn <- file.path(plot_dir, 
+    sprintf('innate_induction_fc_p_values_baseline_%s.pdf', ff))
+  ggsave(plot = p, filename = fn, width = 10, height = 6, units = 'cm')
+}
 ```
 
 # NanoString correlations with clinical response

@@ -2,8 +2,7 @@
 #'
 #'
 plot_datatype_cor_mat <- function(tp = 'Baseline',
-                         cormethod = 'spearman',
-                         sig_level = c(.05, .0005, 000005)) {
+  cormethod = 'spearman', sig_level = c(.05, .0005, 000005)) {
   library(corrplot)
 
   patient_labels <- controlled_merge(patient_labels, seq_stat_overview)
@@ -497,14 +496,16 @@ plot_single_timepoint_r_assocation <- function(
   measures = c('sample_clonality', 'efron_thisted_estimator',
                'adaptive_t_cells'),
   l_timepoint = 'Baseline', facet_var = 'arm') {
+  library(ggbeeswarm)
+
   s_dat <- timepoint_s_dat(l_timepoint)
   s_dat <- filter_patients(s_dat, 'clinical_response')
   single_plots <- lapply(measures, function(measure) {
-    y_label <-
-      sprintf('%s - %s', var_to_label(measure, label_reps), l_timepoint)
+    y_label <- sprintf('%s - %s', var_to_label(measure, label_reps), 
+      l_timepoint)
     p <- ggplot(s_dat,
-                aes_string(x = 'clinical_response', y = measure,
-                           fill = 'clinical_response')) +
+      aes_string(x = 'clinical_response', y = measure, 
+        fill = 'clinical_response')) +
       geom_boxplot() +
       ggbeeswarm::geom_quasirandom() +
       ggpubr::stat_compare_means(label = 'p.signif',
@@ -561,19 +562,19 @@ plot_single_timepoint_r_assocation <- function(
   #
   #   }) }
 
-  # pacman::p_load(pso)
+  # library(pso)
 
   # dual_plots[[2]]
-  dual_plots <- lapply(seq(1, length(measures) - 1),
-                      function(i) lapply(seq(i + 1, length(measures)),
-                                         function(j) c(measures[i], measures[j]))) %>%
-    unlist(recursive = F) %>%
-    { lapply(., function(x) {
-        x_label <- sprintf('%s - %s', var_to_label(x[1], label_reps),
+
+  dual_plots <- purrr::map(seq(1, length(measures) - 1), function(i) {
+    purrr::map(seq(i + 1, length(measures)), function(j) {
+      unlist(c(measures[i], measures[j]), recursive = F) %>% 
+      { 
+        x_label <- sprintf('%s - %s', var_to_label(.[1], label_reps),
                            l_timepoint)
-        y_label <- sprintf('%s - %s', var_to_label(x[2], label_reps),
+        y_label <- sprintf('%s - %s', var_to_label(.[2], label_reps),
                            l_timepoint)
-        p <- ggplot(data = s_dat, aes_string(x = x[1], y = x[2],
+        p <- ggplot(data = s_dat, aes_string(x = .[1], y = .[2],
                     colour = 'clinical_response')) +
           geom_point() +
           scale_colour_manual(name = '', values = resp_colors, guide = F) +
@@ -583,32 +584,32 @@ plot_single_timepoint_r_assocation <- function(
         } else {
           ## Initial thresholds
           init_ts <-
-            s_dat[, .(quantile(get(x[1]), probs = .5, na.rm = T),
-                      quantile(get(x[2]), probs = .5, na.rm = T))] %>%
+            s_dat[, .(quantile(get(.[1]), probs = .5, na.rm = T),
+                      quantile(get(.[2]), probs = .5, na.rm = T))] %>%
             unlist
           to_optimize <- function(ts) {
             quad_N <- c(
-              s_dat[get(x[1]) >= ts[1] & get(x[2]) >= ts[2], .N],
-              s_dat[get(x[1]) >= ts[1] & get(x[2]) < ts[2], .N],
-              s_dat[get(x[1]) < ts[1] & get(x[2]) >= ts[2], .N],
-              s_dat[get(x[1]) < ts[1] & get(x[2]) < ts[2], .N]) + 1
+              s_dat[get(.[1]) >= ts[1] & get(.[2]) >= ts[2], .N],
+              s_dat[get(.[1]) >= ts[1] & get(.[2]) < ts[2], .N],
+              s_dat[get(.[1]) < ts[1] & get(.[2]) >= ts[2], .N],
+              s_dat[get(.[1]) < ts[1] & get(.[2]) < ts[2], .N]) + 1
             # if (any(quad_N == 0)) return(1)
             quad_success <- c(
-              s_dat[get(x[1]) >= ts[1] & get(x[2]) >= ts[2],
+              s_dat[get(.[1]) >= ts[1] & get(.[2]) >= ts[2],
                     sum(clinical_response == 'R')],
-              s_dat[get(x[1]) >= ts[1] & get(x[2]) < ts[2],
+              s_dat[get(.[1]) >= ts[1] & get(.[2]) < ts[2],
                     sum(clinical_response == 'R')],
-              s_dat[get(x[1]) < ts[1] & get(x[2]) >= ts[2],
+              s_dat[get(.[1]) < ts[1] & get(.[2]) >= ts[2],
                     sum(clinical_response == 'R')],
-              s_dat[get(x[1]) < ts[1] & get(x[2]) < ts[2],
+              s_dat[get(.[1]) < ts[1] & get(.[2]) < ts[2],
                     sum(clinical_response == 'R')])
             suppressWarnings(prop.test(quad_success, quad_N)$p.value)
           }
           optimal_thresholds <- pso::psoptim(par = init_ts, fn = to_optimize,
-            lower = unlist(s_dat[, .(quantile(get(x[1]), probs = 0.2, na.rm = T),
-                                     quantile(get(x[2]), probs = 0.2, na.rm = T))]),
-            upper = unlist(s_dat[, .(quantile(get(x[1]), probs = .8, na.rm = T),
-                                     quantile(get(x[2]), probs = .8, na.rm = T))]))
+            lower = unlist(s_dat[, .(quantile(get(.[1]), probs = 0.2, na.rm = T),
+                                     quantile(get(.[2]), probs = 0.2, na.rm = T))]),
+            upper = unlist(s_dat[, .(quantile(get(.[1]), probs = .8, na.rm = T),
+                                     quantile(get(.[2]), probs = .8, na.rm = T))]))
           print((optimal_thresholds$par - init_ts) / init_ts)
           print((to_optimize(optimal_thresholds$par) - to_optimize(init_ts)) / 
                  to_optimize(init_ts))
@@ -616,7 +617,7 @@ plot_single_timepoint_r_assocation <- function(
           p <- p + geom_hline(yintercept = optimal_thresholds$par[2])
           p <- p + annotate(geom = 'text',
                             label = sprintf('italic(p)==%s',
-                                            fancy_scientific(optimal_thresholds$value)),
+                              fancy_scientific(optimal_thresholds$value)),
                             hjust = 1, 
                             vjust = 1, 
                             parse = T,
@@ -626,7 +627,10 @@ plot_single_timepoint_r_assocation <- function(
                                                         degree = .95))
         }
         return(p)
-    }) }
+      } 
+    }) 
+  })
+
   return(c(single_plots, dual_plots))
 }
 

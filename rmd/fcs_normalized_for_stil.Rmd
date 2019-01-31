@@ -17,7 +17,7 @@ knitr::opts_chunk$set(message = FALSE, cache = T, cache.lazy = F,
                       results = 'hide', fig.keep = 'high',
                       echo = TRUE, error = FALSE)
 knitr::opts_knit$set(progress = TRUE, verbose = TRUE)
-pacman::p_load(tidybayes)
+library(tidybayes)
 # devtools::install_github('paul-buerkner/brms')
 library(brms)
 
@@ -79,7 +79,7 @@ source('R/bayes.R')
 
 ## Test stability of inferences
 dtf <- prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction')
-# hlm_test <- run_sim(df_sigma_FC = 1, df_sigma_arm = 1, 
+# hlm_test <- run_sim(df_sigma_FC = 1, df_sigma_arm = 1,
 #                data = dtf, adapt_delta = .99)
 sr(hlm_test)
 
@@ -96,9 +96,9 @@ source('R/bayes.R')
 dtf <- prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction')
 
 extract_rel_parms <- function(df_sigma_FC = 1, df_sigma_arm = 3) {
-  hlm <- run_sim(df_sigma_FC = df_sigma_FC, df_sigma_arm = df_sigma_arm, 
+  hlm <- run_sim(df_sigma_FC = df_sigma_FC, df_sigma_arm = df_sigma_arm,
                  data = dtf, adapt_delta = .99)
-  get_posterior_mean(hlm, 
+  get_posterior_mean(hlm,
                      # grep('df_sigma_FC|df_sigma_arm|FC|normalized', names(hlm), value = T)) %>%
                      grep('normalized', names(hlm), value = T)) %>%
     # debug_pipe
@@ -107,14 +107,14 @@ extract_rel_parms <- function(df_sigma_FC = 1, df_sigma_arm = 3) {
 
 if (T) {
   hyper_param_scan <- expand.grid(df_sigma_FC = 1:6, df_sigma_arm = 1:6) %>%
-    as.data.table 
+    as.data.table
   hyper_param_scan %<>%
-    { .[, extract_rel_parms(df_sigma_FC = df_sigma_FC, 
+    { .[, extract_rel_parms(df_sigma_FC = df_sigma_FC,
                             df_sigma_arm = df_sigma_arm),
         by = .(df_sigma_FC, df_sigma_arm)] }
-  hyper_param_scan$param_name <- 
+  hyper_param_scan$param_name <-
     names(extract_rel_parms(df_sigma_FC = 1, df_sigma_arm = 1))
-  hyper_param_scan <- dcast(hyper_param_scan, 
+  hyper_param_scan <- dcast(hyper_param_scan,
                             df_sigma_FC + df_sigma_arm ~ param_name,
                             value.var = 'V1')
   saveRDS(hyper_param_scan, file.path(rds_dir, 'hyper_param_scan.rds'))
@@ -122,7 +122,7 @@ if (T) {
   sr(hyper_param_scan)
 }
 
-ggplot(hyper_param_scan, aes(x = as.factor(df_sigma_FC), 
+ggplot(hyper_param_scan, aes(x = as.factor(df_sigma_FC),
                              y = as.factor(df_sigma_arm),
                              fill = `sd_arm[4]`)) +
  geom_tile() +
@@ -135,72 +135,215 @@ ggplot(hyper_param_scan, aes(x = as.factor(df_sigma_FC),
 ## Acount for baseline levels
 
 ```{r, warning=FALSE, echo=FALSE}
+# source('R/init.R')
+source('R/bayes.R')
+getDoParWorkers()
+options(mc.cores = 32)
+
 data_pi <- prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction')
-hlm <- run_sim(data = data_pi, use_baseline = F, use_clinical_response = F)
-hlm_b <- run_sim(data = data_pi, use_baseline = T, use_clinical_response = F)
-hlm_r <- run_sim(data = data_pi, use_baseline = F, use_clinical_response = T)
-hlm_b_r <- run_sim(data = data_pi, use_baseline = T, use_clinical_response = T)
+## Post induction model fits
+pi_BM_sims <- list(
+  hlm = run_sim(data = data_pi,
+    use_baseline = F, use_clinical_response = F),
+  hlm_b = run_sim(data = data_pi,
+    use_baseline = T, use_clinical_response = F),
+  hlm_r = run_sim(data = data_pi,
+    use_baseline = F, use_clinical_response = T),
+  hlm_b_r = run_sim(data = data_pi,
+    use_baseline = T, use_clinical_response = T),
+  hlm_b_r_d = run_sim(data = data_pi,
+    use_baseline = T, use_clinical_response = T,
+    use_TL = T, use_LN = F),
+  hlm_b_r_l = run_sim(data = data_pi,
+    use_baseline = T, use_clinical_response = T,
+    use_TL = F, use_LN = T),
+  hlm_b_r_d_l = run_sim(data = data_pi,
+    use_baseline = T, use_clinical_response = T,
+    use_TL = T, use_LN = T)
+)
+saveRDS(pi_BM_sims, file.path(rds_dir, 'pi_BM_sims.rds'))
+
+purrr::map(pi_BM_sims, function(obj) {
+  i_pars <- intersect(fitted_coefs(obj), c('bc[1]', 'rc[1]', 'tc[1]', 'lc[1]'))
+  if (length(i_pars) == 0) return(NULL)
+  rstan::extract(obj, pars = i_pars) %>%
+    as.data.table %>%
+    { .[, lapply(.SD, mean)] }
+})
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
+## Try to print posterior means only
+# lapply(pi_BM_sims, function)
+pi_BM_sims$hlm_b_r
+pi_BM_sims$hlm_b_r_l
+pi_BM_sims$hlm_b_r_d_l
+lapply(kj
+compare(pi_BM_sims[[1]], pi_BM_sims[[2]], pi_BM_sims[[3]], pi_BM_sims[[4]])
+compare(x = pi_BM_sims)
+```
+
+```{r, eval = F, warning=FALSE, echo=FALSE}
 data_on <- prep_comp_data(tp1 = 'Baseline', tp2 = 'On nivo')
-hlm_on <- run_sim(data = data_on, use_baseline = F, 
-                  use_clinical_response = F)
-hlm_on_b <- run_sim(data = data_on, use_baseline = T, 
-                    use_clinical_response = F)
-hlm_on_r <- run_sim(data = data_on, use_baseline = F, 
-                    use_clinical_response = T)
-hlm_on_b_r <- run_sim(data = data_on, use_baseline = T, 
-                      use_clinical_response = T)
+## On-nivo model fits
+on_BM_sims <- list(
+  hlm = run_sim(data = data_on,
+    use_baseline = F, use_clinical_response = F),
+  hlm_b = run_sim(data = data_on,
+    use_baseline = T, use_clinical_response = F),
+  hlm_r = run_sim(data = data_on,
+    use_baseline = F, use_clinical_response = T),
+  hlm_b_r = run_sim(data = data_on,
+    use_baseline = T, use_clinical_response = T),
+  hlm_b_r_d = run_sim(data = data_on,
+    use_baseline = T, use_clinical_response = T,
+    use_TL = T, use_LN = F),
+  hlm_b_r_l = run_sim(data = data_on,
+    use_baseline = T, use_clinical_response = T,
+    use_TL = F, use_LN = T)
+  hlm_b_r_d_l = run_sim(data = data_on,
+    use_baseline = T, use_clinical_response = T,
+    use_TL = T, use_LN = T),
+)
+saveRDS(on_BM_sims, file.path(rds_dir, 'on_BM_sims.rds'))
+```
+
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/init.R')
+source('R/bayes.R')
+# on_BM_sims <- readRDS(file.path(rds_dir, 'on_BM_sims.rds'))
+pi_BM_sims <- readRDS(file.path(rds_dir, 'pi_BM_sims.rds'))
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
 source('R/bayes.R')
-plot_params(p_dat = hlm, mn = 'post_induction')
-plot_params(p_dat = hlm_b, mn = 'post_induction_b')
-plot_params(p_dat = hlm_r, mn = 'post_induction_r')
-plot_params(p_dat = hlm_b_r, mn = 'post_induction_b_r')
-plot_params(p_dat = hlm_on_b_r, mn = 'on_nivo_b_r')
+# imap(pi_sims, function(obj, name) {
+#   plot_params(p_dat = obj,
+#     mn = paste0('post_induction_', gsub('hlm_', '', name)))
+# }
+
+# plot_params(p_dat = hlm, mn = 'post_induction')
+# plot_params(p_dat = hlm_b, mn = 'post_induction_b')
+# plot_params(p_dat = hlm_r, mn = 'post_induction_r')
+# plot_params(p_dat = hlm_b_r, mn = 'post_induction_b_r')
+# plot_params(p_dat = hlm_on_b_r, mn = 'on_nivo_b_r')
+invisible(plot_params(p_dat = pi_BM_sims$hlm_b_r_l,
+    mn = 'post_induction_b_r_l'))
+pi_BM_sims$hlm_b_r_l
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
 data_pi <- prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction')
 # data_pi <- prep_comp_data(tp1 = 'Baseline', tp2 = 'On nivo')
-p <- ggplot(data_pi, aes(x = clinical_response, y = FC, fill = clinical_response))
+p <- ggplot(data_pi,
+  aes(x = clinical_response, y = FC, fill = clinical_response))
 p <- p + geom_boxplot(show.legend = F)
 p <- p + facet_wrap(~arm, nrow = 5)
 p <- p + coord_flip()
 p <- p + scale_fill_manual(values = tonic_color_palettes[['clinical_response']])
 p <- p + scale_x_discrete(name = 'Clinical response')
-p <- p + scale_y_continuous(name = 'median log2FC immune related gene sets')
-FC_boxplot <- p
+p <- p + scale_y_continuous(name = 'log2FC inflammation score')
+CR_boxplot <- p
 # p <- ggplot(data_pi, aes(x = clinical_response, y = FC_comp)) + geom_boxplot()
 # p + facet_grid(~arm)
 # data_pi[, .N, .(arm, clinical_response)][order(arm, clinical_response)]
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
-# devtools::load_all('~/libs/maartenutils')
-plots <-
-  list(NA, plot_params(p_dat = hlm, mn = 'post_induction'),
-       prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction') %>%
-           ggplot(aes(x = Baseline, y = FC)) + geom_point() + geom_smooth() +
-           ylab('log2FC median of immune related gene sets') +
-           xlab('Baseline median of immune related gene sets') + theme(text =
-         element_text(size = 8)),
-       plot_params(p_dat = hlm_b, mn = 'post_induction_b'),
-       FC_boxplot + theme(text = element_text(size = 8)),
-       plot_params(p_dat = hlm_b_r, mn = 'post_induction_b_r')
-       )
-# { align_plots(plotlist = ., 'hv') }
+data_pi <- prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction')
+data_pi[, lymphnode_only_disease :=
+  ifelse(lymphnode_only_disease, 'Lymph node only mets', 'Mets to other sites')]
+data_pi[, lymphnode_only_disease := factor(lymphnode_only_disease,
+  levels = c('Lymph node only mets', 'Mets to other sites'))]
 
-fn <- file.path(img_dir, 'panel_bayesian.pdf')
+LN_boxplot <- ggplot(data_pi, aes(x = lymphnode_only_disease, y = FC)) +
+  geom_boxplot() +
+  geom_point(data =
+    data_pi[, .('FC' = mean(FC)), by = .(lymphnode_only_disease)],
+    colour = 'red', size = 2) +
+  scale_x_discrete(name = '') +
+  scale_y_continuous(name = 'log2FC inflammation score') +
+  rotate_x_labels(45)
+
+TL_boxplot <- ggplot(data_pi,
+  aes(x = lines_of_therapy_for_metastatic_disease > 0, y = FC)) +
+  geom_boxplot() +
+  geom_point(data =
+    data_pi[, .('FC' = mean(FC)),
+       by = .(lines_of_therapy_for_metastatic_disease > 0)],
+    colour = 'red', size = 2) +
+  scale_x_discrete(name = '# TL > 0') +
+  scale_y_continuous(name = 'log2FC inflammation score') +
+  rotate_x_labels(45)
+
+CR_boxplot <- ggplot(data_pi,
+  aes(x = clinical_response, y = FC)) +
+  geom_boxplot() +
+  geom_point(
+    data = data_pi[, .('FC' = mean(FC)), by = .(clinical_response)],
+    colour = 'red', size = 2) +
+  scale_x_discrete(name = 'Clinical response') +
+  scale_y_continuous(name = 'log2FC inflammation score') +
+  rotate_x_labels(45)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+data_pi[, .N, by = .(arm, lines_of_therapy_for_metastatic_disease)]
+data_pi[, mean(lines_of_therapy_for_metastatic_disease), by = .(arm)]
+data_pi[, .('frac_LN_only' = mean(lymphnode_only_disease)), by = .(arm)]
+```
+
+```{r, warning=FALSE, echo=FALSE}
+plots <-
+  list(
+    prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction') %>%
+      ggplot(aes(x = Baseline, y = FC)) + 
+      geom_point() + geom_smooth() +
+      ylab('log2FC inflammation score') +
+      xlab('Baseline inflammation score') + 
+      theme(text = element_text(size = 8)),
+    CR_boxplot + theme(text = element_text(size = 8)),
+    LN_boxplot + theme(text = element_text(size = 8)),
+    TL_boxplot + theme(text = element_text(size = 8))
+  )
+
+fn <- file.path(img_dir, 'panel_bayesian_covariates.pdf')
 plot_panel_layout(plots, filename = fn, ncol = 2, labels = tolower(LETTERS),
-                  w = 19.5, h = 27.7, fig_padding = .05)
+                  w = 19.5, h = 20, panel_padding = .5)
+```
+
+```{r, warning=FALSE, echo=FALSE}
+# devtools::load_all('~/libs/maartenutils')
+source('R/bayes.R')
+
+# plot_params(p_dat = on_BM_sims$hlm_b_r, mn = 'post_induction_b_r')
+plots <-
+  list(
+    NA,
+    plot_params(p_dat = pi_BM_sims$hlm, mn = 'post_induction'),
+    prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction') %>%
+      ggplot(aes(x = Baseline, y = FC)) + geom_point() + geom_smooth() +
+      ylab('log2FC inflammation score') +
+      xlab('Baseline inflammation score') + theme(text =
+        element_text(size = 8)),
+    plot_params(p_dat = pi_BM_sims$hlm_b, mn = 'post_induction_b'),
+    CR_boxplot + theme(text = element_text(size = 8)),
+    plot_params(p_dat = pi_BM_sims$hlm_b_r, mn = 'post_induction_b_r'),
+    LN_boxplot + theme(text = element_text(size = 8)),
+    plot_params(p_dat = pi_BM_sims$hlm_b_r_l,
+        mn = 'post_induction_b_r_d_l')
+  )
+
+fn <- file.path(img_dir, 'panel_bayesian_revisions_t_dist.pdf')
+plot_panel_layout(plots, filename = fn, ncol = 2, labels = tolower(LETTERS),
+                  w = 19.5, h = 27.7, panel_padding = .5)
 ```
 
 
 ```{r, warning=FALSE, echo=FALSE}
+devtools::load_all(file.path('~/libs', 'maartenutils'))
+
 plots <-
 list(prep_comp_data(tp1 = 'Baseline', tp2 = 'Post-induction') %>%
        ggplot(aes(x = Baseline, y = FC)) + geom_point() + geom_smooth() +

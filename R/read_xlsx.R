@@ -2,9 +2,9 @@
 #'
 #' Courtesy of https://gist.githubusercontent.com/schaunwheeler/5825002/raw/3526a15b032c06392740e20b6c9a179add2cee49/xlsxToR.r
 xlsxToR <- function(file, keep_sheets = NULL, header = FALSE) {
-  pacman::p_load(XML)
-  pacman::p_load(plyr)
-  pacman::p_load(pbapply)
+  library(XML)
+  library(plyr)
+  library(pbapply)
 
   suppressWarnings(file.remove(tempdir()))
   file.copy(file, tempdir())

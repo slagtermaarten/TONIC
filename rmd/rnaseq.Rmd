@@ -1,10 +1,10 @@
 ```{r, warning=FALSE, echo=FALSE}
 # source('~/antigenic_space/bin/install_packages.R')
 setwd('~/TONIC')
-devtools::load_all('~/libs/GSEAgenesets')
 source('R/init.R')
 source('R/load_rna_dat.R')
 source('R/rna.R')
+devtools::load_all('~/libs/genesets')
 ```
 
 # QC
@@ -332,7 +332,7 @@ plot_gene_set(gs_name = 'CD4_cytokines',
 
 ```{r, eval = F, warning=FALSE, echo=FALSE}
 # plot_gene_set()
-# devtools::load_all('~/libs/GSEAgenesets')
+# devtools::load_all('~/libs/genesets')
 plot_gene_set(gs_name = 'CD4_TIL',
               gene_symbols = filter_gmt(gmt_pat = 'gu',
                                         gene_set_pat = 'TIL')[[1]],
@@ -345,7 +345,7 @@ plot_gene_set(gs_name = 'CD4_TIL',
 
 ```{r, warning=FALSE, echo=FALSE}
 source('~/antigenic_space/bin/install_packages.R')
-devtools::load_all('~/libs/GSEAgenesets')
+devtools::load_all('~/libs/genesets')
 source('R/init.R')
 source('R/load_rna_dat.R')
 source('R/rna.R')
@@ -1076,7 +1076,8 @@ Signatures defined in Jiang et al., (2018)
 setwd('~/TONIC')
 devtools::load_all('~/libs/GSEAgenesets')
 source('R/init.R')
-source('R/load_rna_dat.R')
+if (!exists('rna_sample_annotation'))
+  source(file.path(p_root, 'R/load_rna_dat.R'))
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
@@ -1115,7 +1116,7 @@ rna_sample_annotation %<>%
 
 Liu scores distribution, most genes are inferred to be uninformative
 
-```{r, warning=FALSE, echo=FALSE}
+```{r, eval = F, warning=FALSE, echo=FALSE}
 # plot(ecdf(liu_scores[, 'mdsc']))
 # lines(ecdf(liu_scores[, 'caf']))
 ## Not run yet, stalls
@@ -1132,7 +1133,7 @@ ggsave(ecdf_plot, filename = file.path(img_dir, 'liu_scores_ecdf.pdf'),
 All covoriates against each other
 
 ```{r, warning=FALSE, echo=FALSE}
-pacman::p_load('GGally')
+library('GGally')
 pan_bl <- rna_sample_annotation[timepoint == 'Baseline',
    c('clinical_response', colnames(liu_scores)), with = F] %>%
   { GGally::ggpairs(data = ., upper = list(continuous = wrap('cor', size = 10)),
@@ -1184,15 +1185,14 @@ Univariate correlations with clinical response
 ```{r, warning=FALSE, echo=FALSE}
 source('R/GSEA_plotting.R')
 
-length(plots)
 plots <- lapply(c('Baseline', 'Post-induction'), function(tp) {
   lapply(colnames(liu_scores), function(y_var) {
     p_dat <- rna_sample_annotation[timepoint == tp,
        c('clinical_response', y_var), with = F] %>%
        .[is.na(clinical_response), clinical_response := 'NA']
 
-    ggplot(p_dat, aes_string(x = 'clinical_response',
-                             y = y_var, fill = 'clinical_response')) +
+    ggplot(p_dat, aes_string(x = 'clinical_response', y = y_var,
+        fill = 'clinical_response')) +
       geom_boxplot() +
       ggbeeswarm::geom_quasirandom() +
       ggpubr::stat_compare_means(label = 'p.signif', method = 'wilcox') +
@@ -1223,15 +1223,15 @@ plots <- lapply(colnames(liu_scores), function(y_var) {
 
   p_vals <- rbindlist(lapply(p_dat[, unique(arm)], function(l_arm) {
     list('arm' = l_arm,
-         'p_val' = wilcox.test(value ~ timepoint, paired = T, 
+         'p_val' = wilcox.test(value ~ timepoint, paired = T,
            data = t_dat[arm == l_arm])$p.val)
   }))
 
-  sum_dat <- t_dat[, 
+  sum_dat <- t_dat[,
     .('value' = median(value, na.rm = T), 'patient' = 'median'),
     by = .(timepoint, clinical_response, arm)]
 
-  p <- plot_parallel_coords(p_dat = p_dat, 
+  p <- plot_parallel_coords(p_dat = p_dat,
     colour_var = 'clinical_response',
     sum_dat = sum_dat, facet_var = 'arm') +
     ggtitle(tonic_cap(var_to_label(y_var)))
@@ -1242,8 +1242,8 @@ plots <- lapply(colnames(liu_scores), function(y_var) {
 
   p + geom_text(data = p_vals,
     aes(label = sprintf('italic(p)==%.3f', p_val),
-      x = 1.5, y = interpolate_in_gg_range(p, axis = 'y', degree = .95), 
-      group = NULL), 
+        x = 1.5, y = interpolate_in_gg_range(p, axis = 'y', degree = .95),
+        group = NULL),
     inherit.aes = F, hjust = .5, parse = T, size = 3)
 })
 
@@ -1252,6 +1252,80 @@ plot_panel_layout(plots = plots,
   ncol = 1, nrow = 2, labels = NULL, w = 17.4, h = 25)
 ```
 
+Compare with Danaher signature genes, where do the Danaher genes fall in the
+loadings of Liu?
+
+```{r, warning=FALSE, echo=FALSE}
+contrast_liu_scores <- function(symbols_list = danaher_signature_genes,
+  name = 'liu_danaher') {
+
+  liu_scores_tmp <- as.data.frame(liu_scores) %>%
+    rownames_to_column('gene_name') %>%
+    as.data.table
+
+  symbols_list[, gene_name := as.character(gene_name)]
+  setkey(liu_scores_tmp, gene_name)
+  setkey(symbols_list, gene_name)
+  p_dat <- liu_scores_tmp[symbols_list][order(signature_name)] %>%
+    melt()
+
+  probs <- c(0, .25, .5, .75, 1)
+  middle_idx <- ceiling(length(probs) / 2)
+  weights <- c(seq(1, middle_idx), seq(middle_idx-1, 1))
+
+  line_dat <-
+    melt(liu_scores_tmp)[!is.na(value)] %>%
+    .[, as.list(quantile(value, probs = probs, na.rm = T), weights = weights),
+      by = c('variable')] %>%
+    melt %>%
+    .[, .(variable, value)] %>%
+    unique
+
+  p <- ggplot(p_dat, aes(x = signature_name, y = value, fill = signature_name)) +
+    geom_hline(data = line_dat, aes(yintercept = value, fill = NULL),
+      color = 'red', alpha = .5) +
+    geom_boxplot(outlier.size = .1, size = .1) +
+    facet_wrap(~variable, scales = 'free') +
+    scale_y_continuous(name = 'Liu sig loading') +
+    theme_ms(base_size = 5) +
+    rotate_x_labels(45)
+
+  ggsave(plot = p,
+    filename = file.path(img_dir, sprintf('%s_scores.pdf', name)),
+    width = 17.4, height = 17, units = 'cm')
+}
+
+contrast_liu_scores(symbols_list = danaher_signature_genes,
+  name = 'liu_danaher')
+```
+
+and with Pandolfi lab signature genes
+
+```{r, warning=FALSE, echo=FALSE}
+pandolfi_scores_tmp <-
+  purrr::imap(GSEAgenesets::filter_gmt(gmt_pat = 'custom.pandolfi'),
+  function(gs, name) {
+    data.frame('signature_name' = name, 'gene_name' = gs)
+  }) %>%
+  rbindlist
+
+contrast_liu_scores(symbols_list = pandolfi_scores_tmp,
+  name = 'liu_pandolfi')
+```
+
+and with senbabaoglu
+
+```{r, warning=FALSE, echo=FALSE}
+purrr::imap(GSEAgenesets::filter_gmt(gmt_pat = 'custom.senbabaoglu'),
+  function(gs, name) {
+    data.frame('signature_name' = name, 'gene_name' = gs)
+  }) %>%
+  rbindlist %>%
+  contrast_liu_scores(name = 'liu_senbabaoglu')
+```
+
+# R Experiment
+
 Environments can be stably modified inside of functions.
 
 ```{r, eval = F, warning=FALSE, echo=FALSE}
@@ -1259,7 +1333,7 @@ cont <- new.env(parent = emptyenv())
 search()
 
 fill_cont <- function() {
-  cont$cont_a <- 1
+  cont$cont_a <- 2
 }
 fill_cont()
 cont$cont_a
@@ -1332,6 +1406,96 @@ plot_panel_layout(plots = hormad_plots,
   filename =  file.path(img_dir, sprintf('single_gene_%s.pdf', goi)),
   w = 17.4, h = 20)
 
+```
+
+# More MDSC signatures
+
+2019-01-07 19:35
+
+Gene sets used in one of Pandolfi's papers (doi:10.1038/nm.4463, Figure 6),
+recommended to me by Max Wellenstein
+
+```{r, warning=FALSE, echo=FALSE}
+source('~/TONIC/R/init.R')
+if (!exists('rna_sample_annotation'))
+  source(file.path(p_root, 'R/load_rna_dat.R'))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source(file.path(p_root, 'R/rna.R'))
+pandolfi_gs <- GSEAgenesets::filter_gmt(gmt_pat = 'pandolfi')
+
+lapply(seq_along(pandolfi_gs), function(i) {
+  gs <- pandolfi_gs[[i]]
+  gs_name <- names(pandolfi_gs)[i]
+
+  ## Make heatmaps
+  lapply(timepoints[c(1,2)], function(timepoint) {
+    plot_gene_set(gs_name = gs_name,
+      gene_symbols = gs,
+      exp_mat = rna_read_counts_salmon_tmm_M,
+      timepoints = timepoint)
+  })
+})
+```
+
+```{r, warning=FALSE, echo=FALSE}
+if (!exists('rna_sample_annotation'))
+  source(file.path(p_root, 'R/load_rna_dat.R'))
+
+# source('~/TONIC/R/init.R')
+gen_every_single_gs_vis_ever <- function(gs) {
+  gs_collective_names <- as.character(substitute(gs))
+  plots <- purrr::imap(gs, function(gs, gs_name) {
+    ## Make parallel coordinate plots
+    gs_scores <- compute_gene_set_score(
+      timepoint = timepoints[c(1,2)],
+      gene_symbols = gs,
+      log_transform = NULL,
+      exp_mat = rna_read_counts_salmon_tmm_M,
+      sum_func = median) %>%
+      controlled_merge(rna_sample_annotation, by_cols = 'cf_number') %>%
+      dplyr::rename(value = gs_score) %>%
+      dplyr::mutate(timepoint = factor(timepoint, levels = timepoints))
+
+    p1 <- plot_parallel_coords(gs_scores, colour_var = 'clinical_response') +
+      ggtitle(tonic_cap(gs_name))
+    p2 <- plot_parallel_coords(gs_scores, colour_var = 'clinical_response') +
+      ggtitle(tonic_cap(gs_name)) + 
+      facet_wrap(~arm, ncol = 5)
+
+    p3 <- ggplot(gs_scores,
+      aes(y = value, x = clinical_response, fill = clinical_response)) +
+      geom_boxplot() +
+      facet_wrap(~ timepoint) +
+      ggpubr::stat_compare_means(label = 'p.signif', method = 'wilcox') +
+      scale_fill_manual(name = 'Clinical response',
+                        values = tonic_color_palettes[['clinical_response']]) +
+      xlab('') +
+      ylab(sprintf('%s gene set score', tonic_cap(gs_name)))
+
+    return(list(p1, p2, p3))
+  })
+
+  message(gs_collective_names)
+  pfn <- file.path(img_dir, sprintf('%s_parallels.pdf', gs_collective_names))
+  plot_panel_layout(unlist(plots, recursive = F),
+    w = 17.4, h = 25, filename = pfn, ncol = 1, nrow = 3, labels = NULL)
+  try(sys_file_open(pfn))
+}
+
+devtools::load_all(file.path('~/libs', 'maartenutils'))
+source('R/rna.R')
+pandolfi_gs <- genesets::filter_gmt(
+  pattern = 'PANDOLFI', gmt_pattern = 'immune', type = 'symbols')
+
+all_immune <- genesets::filter_gmt(
+  pattern = '*', gmt_pattern = 'immune', type = 'symbols')
+
+# head(genesets::preprocess_rna, n = 20)
+# debugonce(preprocess_rna)
+# debugonce(compute_gene_set_score)
+gen_every_single_gs_vis_ever(all_immune)
 ```
 
 ## Junk

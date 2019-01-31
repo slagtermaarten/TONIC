@@ -221,8 +221,9 @@ prep_geneset_parallel_coords <- function(gene_set = 'apm',
     { .[N > 1] }
   setkeyv(danaher_scores.m, by_vars)
 
-  sum_dat <- filter_patients(danaher_scores.m[allowed][variable %in% gene_set],
-                             colour_var, facet_var)
+  sum_dat <- filter_patients(
+    danaher_scores.m[allowed][variable %in% gene_set],
+    colour_var, facet_var)
 
   # danaher_scores.m[allowed][!is.na(value)][variable == gene_set][arm == 'Cisplatin']
   sum_dat <- sum_dat[variable == gene_set] %>%

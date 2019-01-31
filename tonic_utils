@@ -37,6 +37,9 @@ GITSTATUSCOM='git --no-pager status | grep "modified"'
 GITSTATUSCOM='git --no-pager diff'
 
 case "$1" in
+    backup|bu)
+        rsync -avz $REMOTEPROOT /shared/schumacher/m.slagter --delete
+        ;;
     ctags|ct)
         curdir=$(pwd)
         if [[ $(hostname) = 'coley' ]]; then

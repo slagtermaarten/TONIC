@@ -1,5 +1,4 @@
-prep_gene_set <- function(gs = NULL,
-                          gene_symbols = c('TP53', 'ERBB2'),
+prep_gene_set <- function(gene_symbols = c('TP53', 'ERBB2'),
                           gs_name = paste(gene_symbols, collapse = '_'),
                           cf_numbers = c(),
                           cf_ordered = F,
@@ -30,7 +29,8 @@ prep_gene_set <- function(gs = NULL,
                           rna_sample_annotation$patient)],
         rna_sample_annotation$cf_number[match(induction_arms,
                           rna_sample_annotation$induction_arm)],
-        rna_sample_annotation$cf_number[as.character(rna_sample_annotation$timepoint) %in% timepoints]))
+        rna_sample_annotation$cf_number[
+          as.character(rna_sample_annotation$timepoint) %in% timepoints]))
 
     if (length(cf_numbers) < 2) {
       warningf('Too little samples selected: %d. Timepoint: %s. Arms: %s', 
@@ -45,13 +45,14 @@ prep_gene_set <- function(gs = NULL,
   #                              ensembl_gene_id]
   mean(gene_symbols %in% rownames(exp_mat))
   p_dat <-
-    GSEAgenesets::preprocess_rna(exp_mat, 
-                                 gs_genes = gene_symbols,
-                                 log_transform = log_transform,
-                                 gene_normalisation = gene_normalisation,
-                                 sample_normalisation = sample_normalisation,
-                                 cov_thresh = NULL, symbol_var = NULL,
-                                 donor_ids = cf_numbers)
+    genesets::preprocess_rna(exp_mat, 
+                             gs_genes = gene_symbols,
+                             gene_id_col = NULL,
+                             log_transform = log_transform,
+                             gene_normalisation = gene_normalisation,
+                             sample_normalisation = sample_normalisation,
+                             cov_thresh = NULL, 
+                             sample_ids = cf_numbers)
   browser(expr = is.null(p_dat) || nrow(p_dat) <= 1)
   if (F) {
     ## Convert ENSGs to gene symbols
@@ -75,8 +76,10 @@ prep_gene_set <- function(gs = NULL,
 }
 
 
-plot_gene_set <- function(gs = NULL,
-                          gene_symbols = c('TP53', 'ERBB2'),
+#' Generate heatmap for a selected set of genes
+#'
+#'
+plot_gene_set <- function(gene_symbols = c('TP53', 'ERBB2'),
                           gs_name = paste(gene_symbols, collapse = '_'),
                           cf_numbers = c(),
                           cf_ordered = F,
@@ -124,8 +127,7 @@ plot_gene_set <- function(gs = NULL,
     }
   }
 
-  p_dat <- prep_gene_set(gs = gs, 
-                         gene_symbols = gene_symbols,
+  p_dat <- prep_gene_set(gene_symbols = gene_symbols,
                          exp_mat = exp_mat,
                          gs_name = gs_name, 
                          cf_numbers = cf_numbers,
@@ -152,13 +154,11 @@ plot_gene_set <- function(gs = NULL,
   #                        .(efron_thisted_estimator, sample_clonality,
   #                          adaptive_t_cells)])
   ann_col <- data.table(cf_number = cf_numbers) %>%
-    controlled_merge(rna_sample_annotation[, .(cf_number, patient, arm,
-                                               timepoint)]) %>%
-    controlled_merge(patient_labels[, .(patient, timepoint,
-                                        clinical_response,
-                                        efron_thisted_estimator, 
-                                        sample_clonality,
-                                        adaptive_t_cells)])
+    controlled_merge(rna_sample_annotation[, 
+      .(cf_number, patient, arm, timepoint)]) %>%
+    controlled_merge(patient_labels[, 
+      .(patient, timepoint, clinical_response, efron_thisted_estimator,
+        sample_clonality, adaptive_t_cells)])
   setkey(ann_col, cf_number)
   ann_col <- ann_col[cf_numbers]
   stopifnot(all(ann_col$cf_number == cf_numbers))
@@ -246,11 +246,11 @@ plot_gene_sets <- function(sets = filter_gmt(gmt_pat = 'h.all'),
 
 
 compute_gene_set_score <- function(timepoint = 'Baseline',
-                                   gene_symbols = filter_gmt(gmt_pat =
-                                                             'h.all')[1],
-                                   log_transform = NULL,
-                                   exp_mat = rna_read_counts_salmon_tmm_M,
-                                   sum_func = median) {
+  gene_symbols = filter_gmt(gmt_pat = 'h.all')[1],
+  log_transform = NULL,
+  exp_mat = rna_read_counts_salmon_tmm_M,
+  sum_func = median) {
+
   t_dat <- prep_gene_set(gene_symbols = gene_symbols,
                          gene_normalisation = F,
                          exp_mat = exp_mat,

@@ -12,8 +12,9 @@ compute_intensity <- function(dtf) {
 }
 
 
-compute_RNA_sigs <- function(sig = 'tis', genes = NULL) {
-  if (!exists('rna_read_counts')) {
+compute_RNA_sigs <- function(sig = 'tis', genes = NULL, 
+  expression_object = rna_read_counts) {
+  if (!exists('expression_object')) {
     source(file.path(p_root, 'R', 'load_rna_dat.R'))
   }
 
@@ -25,7 +26,7 @@ compute_RNA_sigs <- function(sig = 'tis', genes = NULL) {
   }
 
   rna_sigs <-
-    rna_read_counts[external_gene_id %in% gene_set_genes,
+    expression_object[external_gene_id %in% gene_set_genes,
                     .('value' = median(value, na.rm = T)),
                     by = c('patient', 'timepoint')]
   if (nrow(rna_sigs) == 0)

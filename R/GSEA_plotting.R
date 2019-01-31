@@ -3,8 +3,9 @@ library(grid)
 caplist_tonic <- c(caplist_def, 'Gu-Trantien', 'IFNy', 'IFNg', 'TNBC', 'TIL',
                    'mm2', 'Ichao1', 'cells', 'cell', 'TIS', 'score', 's', 'ng',
                    'LDH', 'IFN', 'Th1', 'CRP', 'TIL', 'CIBERSORT', 'GC',
+                   'Gu-Trantien',
                    'gamma', 'LumA', 'LumB', 'APM', 'FastQ',
-                   'ICB', 'CAF', 'TAM', 'MDSC',
+                   'ICB', 'CAF', 'TAM', 'MDSC', 'PMN', 'MO',
                    'PD-L1', 'MMR', 'loss', 'SASP', 'RNA')
 if (exists('rna_read_counts_salmon')) {
   caplist_tonic %<>% { c(., rownames(rna_read_counts_salmon)) }
@@ -109,11 +110,10 @@ plot_es <- function(p_dat,
     max_val <- max(ceiling(abs(nes_range)))
     nes_range <- c(-max_val, max_val)
   }
-
-  p <- ggplot(p_dat, aes_string(y = 'GeneSet', x = x_var, fill = 'nes',
-                                size = '1/fdr')) +
+  
+  p <- ggplot(p_dat, aes_string(x = 'GeneSet', y = x_var, fill = 'nes')) +
     geom_tile(size = 0) +
-    geom_point(color = 'black') +
+    geom_point(color = 'black', data = dplyr::filter(p_dat, fdr <= fdr_thresh)) +
     rotate_x_labels(rotate_labels = 90) +
     scale_fill_gradient2(name = 'Normalized\nEnrichment\nScore',
                          low = muted('blue'),
@@ -123,13 +123,13 @@ plot_es <- function(p_dat,
                          # high = 'red',
                          limits = nes_range) +
     scale_y_discrete(name = '', expand = c(0, 0)) +
-    scale_x_discrete(name = '', expand = c(0, 0))
+    scale_x_discrete(name = '', expand = c(0, 0), position = 'top')
 
   size_labelling <- function(x) round(1/x, 2)
   size_labelling(p_dat$fdr)
 
   ## Prevent errors this way
-  if (!all(is.na(p_dat$fdr))) {
+  if (!all(is.na(p_dat$fdr)) && F) {
     p <- p + scale_size_continuous(name = 'FDR',
                                    range = c(0, 1),
                                    # trans = 'probability',
@@ -157,7 +157,8 @@ plot_es <- function(p_dat,
   if (F) {
     p <- p + theme(axis.text.x = element_blank())
   } else {
-    p <- p + rotate_x_labels(45)
+    p <- p + ggplot2::theme(axis.text.x =
+      ggplot2::element_text(angle = 45, hjust = 0, vjust = 1))
   }
 
   if (!is.null(ptitle)) {
@@ -171,8 +172,8 @@ plot_es <- function(p_dat,
     mult <- ifelse(!is.null(subset_var) && subset_var %in% colnames(p_dat), 5, 1)
     pwidth <- uniqueN(p_dat$resp_exp) / NR 
     pheight <- uniqueN(p_dat$GeneSet) / NR 
-    fw <- mult * pwidth + 10 
-    fh <- max(8, pheight + 4) 
+    fh <- mult * pwidth + 8 
+    fw <- max(8, pheight + 4) + 5
     if (F) {
       ## Correct width for amount of panels
       mult <- unit(mult, 'cm') 

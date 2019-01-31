@@ -231,7 +231,7 @@ if (T) {
     stopifnot(patient_labels[cf_number == 'CF15397', patient == 'pat_65'])
     stopifnot(patient_labels[adaptive_sample_name == '69_T_1', .N <= 1])
     stopifnot(patient_labels[adaptive_sample_name == '69_T_1', patient == 'pat_65'])
-
+    stopifnot(patient_labels[patient == 'pat_65' & timepoint == 'Post-induction', adaptive_sample_name == '69_T_1'])
     return(patient_labels)
   }
 
@@ -251,6 +251,7 @@ if (T) {
     patient_labels[!is.na(cf_number) &
                    timepoint == 'Baseline' & is.na(brca1_like)]
   }
+  patient_labels <- correct_CFs(patient_labels)
 }
 
 if (F) {
@@ -409,6 +410,7 @@ if (T) {
                                      # by_cols = c('patient', 'timepoint'),
                                      clean_up_f = tonic_cleanup,
                                      all.x = T, by_cols = 'patient')
+  patient_labels <- correct_CFs(patient_labels)
   merge_tests(idx = 6)
   ## Fix blood cf numbers
   # blood_cfs <- fread(file.path(data_dir, 'cf_number_corrections.tsv')) %>%
@@ -439,6 +441,7 @@ if (T) {
                                      clean_up_f = tonic_cleanup,
                                      by_cols = 'adaptive_sample_name',
                                      all = T)
+  patient_labels <- correct_CFs(patient_labels)
   merge_tests(idx = 7)
   blood_adaptive <- controlled_merge(blood_adaptive,
                                      tmp[grepl('B', adaptive_sample_name)],
@@ -465,6 +468,7 @@ if (T) {
                                      clean_up_f = tonic_cleanup,
                                      by_cols = 'adaptive_sample_name',
                                      all = T)
+  patient_labels <- correct_CFs(patient_labels)
   merge_tests(idx = 9)
   blood_adaptive <- controlled_merge(blood_adaptive,
                                      tmp[grepl('B', adaptive_sample_name)],
@@ -480,15 +484,24 @@ if (T) {
 ## One laesion responds, the other one doesn't
 ## Leave out patient
 manual_clinical_corrections <- function(dtf) {
-  # dtf <- dtf[patient != 'pat_64']
-  dtf <- dtf[patient == 'pat_33', clinical_response := 'R']
-  dtf <- dtf[patient == 'pat_33', response := 'PR']
+  if ('clinical_response' %in% colnames(dtf)) {
+    dtf <- dtf[patient == 'pat_33', clinical_response := 'R']
+  }
   if ('timepoint' %in% colnames(dtf)) {
     dtf[timepoint == 'Postinduction', timepoint := 'Post-induction']
+    dtf[, timepoint := factor(timepoint, levels = timepoints)]
   }
-  dtf[, response := factor(response, levels = c('PD', 'SD', 'PR', 'CR'))]
-  dtf[arm == 'Cyclofosfamide',  arm := 'Cyclophosphamide']
-  dtf[, arm := factor(arm, levels = treatment_arms)]
+  if ('response' %in% colnames(dtf)) {
+    dtf[, response := factor(response, levels = c('PD', 'SD', 'PR', 'CR'))]
+    dtf <- dtf[patient == 'pat_33', response := 'PR']
+  }
+  if ('arm' %in% colnames(dtf)) {
+    dtf[arm == 'Cyclofosfamide',  arm := 'Cyclophosphamide']
+    dtf[, arm := factor(arm, levels = treatment_arms)]
+  }
+  if ('clinical_response' %in% colnames(dtf)) {
+    dtf[, clinical_response := factor(clinical_response, levels = c('NR', 'R'))]
+  }
   # dtf[patient == 'pat_64', clinical_response := NA]
   # dtf[patient == 'pat_64', response := NA]
   # patient_labels[patient == 'pat_64', .(patient, response, clinical_response)]
@@ -501,15 +514,18 @@ patient_labels[, timepoint := factor(timepoint, levels = timepoints)]
 patient_labels <- patient_labels[patient != 'pat_NA']
 patient_labels[, clinical_response := factor(clinical_response,
                                              levels = c('NR', 'R'))]
+patient_labels <- correct_CFs(patient_labels)
 blood_adaptive <- manual_clinical_corrections(blood_adaptive)
 
 if (T) {
   ## Combine timepoint and clinical response into one variable and create
   ## corresponding palette
+  patient_labels <- manual_clinical_corrections(patient_labels)
   patient_labels[, 'comb_time_resp' :=
                  sprintf('%s-%s', timepoint, clinical_response)]
-  levs <- patient_labels[, expand.grid('timepoint' = levels(timepoint),
-                                       'clinical_response' = levels(clinical_response))]
+  levs <- patient_labels[, 
+    expand.grid('timepoint' = levels(timepoint),
+                'clinical_response' = levels(clinical_response))]
   levs$timepoint <- factor(levs$timepoint, levels = timepoints)
   levs$comb <- apply(levs, 1, paste, collapse = '-')
   levs$cf <- (1.3^(as.integer(levs$timepoint) - 2))
@@ -518,6 +534,7 @@ if (T) {
                                      (1.4^(as.integer(levs$timepoint) - 2)))
   comb_time_resp_palette <- setNames(levs$color, levs$comb)
   # plot_palette(comb_time_resp_palette)
+  patient_labels <- correct_CFs(patient_labels)
   patient_labels[, comb_time_resp := factor(comb_time_resp, levels = levs$comb)]
   cond_rm(levs)
 }
@@ -578,6 +595,13 @@ if (T) {
   extra_covars <- extra_covars[, -'timepoint', with = F]
   patient_labels[, lines_of_therapy_for_metastatic_disease := NULL]
   patient_labels <- controlled_merge(patient_labels, extra_covars)
+  patient_labels <- correct_CFs(patient_labels)
+
+  ## 2019-01-27 14:38 Manual correction
+  patient_labels[patient == 'pat_5', lymphnode_only_disease := F]
+  # 2019-01-29 13:14 Pat_63 heeft wel LN-only disease; pat_61 niet.
+  patient_labels[patient == 'pat_63', lymphnode_only_disease := T]
+  patient_labels[patient == 'pat_61', lymphnode_only_disease := F]
   merge_tests(idx = 13)
 }
 
@@ -595,4 +619,4 @@ if (T) {
   saveRDS(blood_adaptive, file.path(rds_dir, 'blood_adaptive.rds'))
 }
 
-unique(patient_labels[!is.na(brca1_like)], by = 'patient')[, .N, by = brca1_like]
+# unique(patient_labels[!is.na(brca1_like)], by = 'patient')[, .N, by = brca1_like]

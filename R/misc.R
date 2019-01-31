@@ -59,7 +59,8 @@ parse_fastqc <- function(fastq_dir = sprintf('%s/salmon_rna/fastqc', p_root)) {
 #'
 filter_exp_mat <- function(dtf = tpms_salmon, 
                            search_term = 'ribosomal|mitochondrial',
-                           search_var = 'hgnc_symbol',
+                           # search_var = 'hgnc_symbol',
+                           search_var = 'gene_biotype',
                            invert = F) {
   entrez_table <- as.data.table(readRDS('rds/entrez_table.rds'))
   
@@ -68,7 +69,8 @@ filter_exp_mat <- function(dtf = tpms_salmon,
   if (invert) {
     exclude_genes <- setdiff(rownames(dtf), exclude_genes)
   }
-  entrez_table[hgnc_symbol %in% exclude_genes, gene_biotype]
+  setDT(dtf)
+  # entrez_table[hgnc_symbol %in% exclude_genes, gene_biotype]
   messagef('Excluding %d/%d genomic features', length(exclude_genes),
            length(rownames(entrez_table)))
 

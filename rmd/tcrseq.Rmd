@@ -73,7 +73,8 @@ sr(tcr_dna_seqs_shared_by_amino_acids <-
 
 
 ```{r, eval = F, warning=FALSE, echo=FALSE}
-ggplot(p_dat[timepoint == '-2'], aes(y = freq_rank, x = unique_seqs, size = N)) +
+ggplot(p_dat[timepoint == '-2'], 
+  aes(y = freq_rank, x = unique_seqs, size = N)) +
   geom_point()
 patient_list <- c('pat_1')
 ggplot(p_dat[timepoint == 'Baseline' & patient %in% patient_list],
@@ -590,9 +591,9 @@ write_tsv(frac_IT_dtf_p, file.path(p_root, 'ext', 'pb_tcrs_in_til.tsv'))
 setwd('~/TONIC')
 source('R/init.R')
 library(Biostrings)
-pacman::p_load("igraph")
-pacman::p_load("stringdist")
-pacman::p_load(data.table)
+library("igraph")
+library("stringdist")
+library(data.table)
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
