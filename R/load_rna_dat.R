@@ -107,9 +107,9 @@ if (local_run) {
 
 if (F) {
   ## Read in RNA
-  rna_read_counts <- suppressWarnings(read_excel(file.path(data_dir,
-                                                           'readcounts.xlsx'),
-                                                 sheet = 1, na = c("", "NA")))
+  rna_read_counts <- suppressWarnings(
+    read_excel(file.path(data_dir, 'readcounts.xlsx'), 
+      sheet = 1, na = c("", "NA")))
   setDT(rna_read_counts)
   normalize_colnames(rna_read_counts)
 

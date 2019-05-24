@@ -47,13 +47,12 @@ FCs[1:5, 1:5]
 ```{r, devel, eval = F, warning=FALSE, echo=FALSE}
 source('R/GSEA_funcs_paired.R')
 res <- gsea_wrapper(gene_sets = HALLMARK_pathways,
-                    patients = rna_sample_annotation[arm == 'No induction',
-                                                     unique(patient)],
-                    exp_mat = rna_read_counts_salmon_tmm_M,
-                    resp_exp = 'timepoint',
-                    nperm = 100,
-                    abs = F,
-                    fn_extra = '')
+  patients = rna_sample_annotation[arm == 'No induction', unique(patient)],
+  exp_mat = rna_read_counts_salmon_tmm_M,
+  resp_exp = 'timepoint',
+  nperm = 100,
+  abs = F,
+  fn_extra = '')
 ```
 
 ```{r, warning=FALSE, echo=FALSE}
@@ -82,6 +81,41 @@ dplyr::filter(res, arm != 'All arms') %>%
           # filename = sprintf('plots2/%s/GSEA_%s.pdf',
           #                    format(Sys.time(), "%Y_%b_%d"), 'paired'),
           subset_var = NULL, x_var = 'arm')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+source('R/GSEA_plotting.R')
+graphics.off()
+
+plot_cr_gsea_res(ptitle = 'unpaired',
+                 bl_fn = 'rds2/GSEA_unpaired_baseline_TMM.rds',
+                 pi_fn = 'rds2/GSEA_unpaired_postinduction.rds')
+```
+
+```{r, warning=FALSE, echo=FALSE}
+## This one is generated on Coley
+# devtools::load_all('~/libs/GSEAgenesets')
+# devtools::load_all(file.path('~/libs', 'maartenutils'))
+source('R/GSEA_plotting.R')
+# res <- readRDS(file = 'rds2/GSEA_paired.rds')
+# res[fdr <= .25]
+
+# filename <- sprintf('plots2/%s/GSEA_%s.pdf', format(Sys.time(), "%Y_%b_%d"), 'paired')
+# dirname(filename)
+res <- readRDS(file = 'rds2/GSEA_brca1_like_baseline_TMM.rds')
+res %>%
+  dplyr::mutate(GeneSet = gsub('HALLMARK_', '', GeneSet)) %>%
+  dplyr::filter(arm == 'All arms') %>%
+  plot_es(legend.position = 'right', ptitle = 'brca1_like_baseline',
+    subset_var = NULL, x_var = 'arm')
+
+
+res <- readRDS(file = 'rds2/GSEA_brca1_like_post_induction_TMM.rds')
+res %>%
+  dplyr::mutate(GeneSet = gsub('HALLMARK_', '', GeneSet)) %>%
+  dplyr::filter(arm == 'All arms') %>%
+  plot_es(legend.position = 'right', ptitle = 'brca1_like_post_induction',
+    subset_var = NULL, x_var = 'arm')
 ```
 
 ## Heatmaps for leading edge genes.

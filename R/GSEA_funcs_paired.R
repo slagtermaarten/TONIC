@@ -129,21 +129,47 @@ my_unpaired_WC_test_ca15_3 <- function(x, y, abs = F) {
 }
 
 
+#' WC test ranking function
+#'
+#'
+my_unpaired_WC_test_brca1like <- function(x, y, abs = F) {
+  HI_idx <- y[, which(brca1_like == T)]
+  LO_idx <- y[, which(brca1_like == F)]
+
+  ret_val <- apply(x, 2, function(r) {
+    w_test <- tryCatch(wilcox.test(x = r[HI_idx], y = r[LO_idx], paired = F, 
+                                   exact = F),
+                       error = function(e) { print(e); browser() })
+    t_val <- sign(median(r[HI_idx], na.rm = T) - median(r[LO_idx], na.rm = T)) *
+              (1 - w_test$p.value)
+    return(t_val)
+  })
+  ret_val[is.na(ret_val)] <- 0
+  ret_val <- as.matrix(ret_val)
+  colnames(ret_val) <- 't_val'
+
+  if (abs) {
+    ret_val <- abs(ret_val)
+  }
+  return(ret_val)
+}
+
+
 #' Run GSEA
 #'
 #'
 gsea_wrapper <- function(gene_sets = HALLMARK_pathways,
-                         patients = rna_sample_annotation[arm == 'Doxorubicin',
-                                                          unique(patient)],
-                         gene_score_fn = my_paired_WC_test,
-                         paired_test = T,
-                         preprocessing = 'none',
-                         resp_exp = NULL,
-                         exp_mat = rna_read_counts_salmon_tmm_M,
-                         allowed_timepoints = NULL,
-                         nperm = 25,
-                         abs = F,
-                         fn_extra = '') {
+  patients = rna_sample_annotation[arm == 'Doxorubicin', unique(patient)],
+  gene_score_fn = my_paired_WC_test,
+  paired_test = T,
+  preprocessing = 'none',
+  resp_exp = NULL,
+  exp_mat = rna_read_counts_salmon_tmm_M,
+  allowed_timepoints = NULL,
+  nperm = 25,
+  abs = F,
+  fn_extra = '') {
+
   starttime <- Sys.time()
   if (!exists('rna_sample_annotation')) source('R/load_rna_dat.R')
 
@@ -152,11 +178,11 @@ gsea_wrapper <- function(gene_sets = HALLMARK_pathways,
                                  .(patient, cf_number,
                                    timepoint, clinical_response)] %>%
     controlled_merge(patient_labels[timepoint == 'Baseline', 
-                                    .(patient, 'baseline_ca15_3' = ca15_3)]) %>%
+      .(patient, 'baseline_ca15_3' = ca15_3, brca1_like)]) %>%
     mutate(baseline_ca15_3_bin = baseline_ca15_3 <= 
-           patient_labels[timepoint == 'Baseline' & 
-                          !is.na(ca15_3) & clinical_response == 'R', 
-                          max(ca15_3)])
+      patient_labels[timepoint == 'Baseline' & 
+      !is.na(ca15_3) & clinical_response == 'R', max(ca15_3)]) %>%
+    as.data.table
 
   ## Subselect patients for which response var is not NA
   if (!is.null(resp_exp)) {
@@ -254,36 +280,38 @@ gsea_wrapper <- function(gene_sets = HALLMARK_pathways,
 }
 
 
-gsea_all_arms <- function(gene_sets = HALLMARK_pathways,
-                          patients = rna_sample_annotation[!is.na(clinical_response),
-                                                           unique(patient)],
-                          allowed_timepoints = c('Baseline', 'Post-induction'),
-                          gene_score_fn = my_unpaired_WC_test,
-                          exp_mat = rna_read_counts_salmon_tmm_M,
-                          resp_exp = 'timepoint',
-                          paired_test = F,
-                          nperm = 1000,
-                          abs = F,
-                          fn_extra = '') {
+gsea_all_arms <- function(
+  gene_sets = HALLMARK_pathways,
+  patients = rna_sample_annotation[!is.na(clinical_response), unique(patient)],
+  allowed_timepoints = c('Baseline', 'Post-induction'),
+  gene_score_fn = my_unpaired_WC_test,
+  exp_mat = rna_read_counts_salmon_tmm_M,
+  resp_exp = 'timepoint',
+  paired_test = F,
+  nperm = 1000,
+  abs = F,
+  fn_extra = '') {
+
   if (!exists('rna_sample_annotation')) source('R/load_rna_dat.R')
+
   arm_specific_gsea <-
-    lapply(c(rna_sample_annotation[, levels(arm)], 'All arms'),
-                     function(l_arm) {
+    lapply(c(rna_sample_annotation[, levels(arm)], 'All arms'), 
+      function(l_arm) {
       l_patients <- intersect(rna_sample_annotation[, patient], patients)
       if (l_arm != 'All arms') {
         l_patients <- intersect(l_patients,
-                                rna_sample_annotation[arm %in% l_arm, patient])
+          rna_sample_annotation[arm %in% l_arm, patient])
       }
       res <- gsea_wrapper(gene_sets = gene_sets,
-                          patients = l_patients,
-                          allowed_timepoints = allowed_timepoints,
-                          gene_score_fn = gene_score_fn,
-                          exp_mat = exp_mat,
-                          resp_exp = resp_exp,
-                          paired_test = paired_test,
-                          nperm = nperm,
-                          abs = abs,
-                          fn_extra = fn_extra)
+        patients = l_patients,
+        allowed_timepoints = allowed_timepoints,
+        gene_score_fn = gene_score_fn,
+        exp_mat = exp_mat,
+        resp_exp = resp_exp,
+        paired_test = paired_test,
+        nperm = nperm,
+        abs = abs,
+        fn_extra = fn_extra)
       if (!is.null(res)) 
         res <- cbind(res$gsea, 'arm' = l_arm)
       return(res)

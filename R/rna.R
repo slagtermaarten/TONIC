@@ -245,7 +245,8 @@ plot_gene_sets <- function(sets = filter_gmt(gmt_pat = 'h.all'),
 }
 
 
-compute_gene_set_score <- function(timepoint = 'Baseline',
+compute_gene_set_score <- function(
+  timepoint = 'Baseline',
   gene_symbols = filter_gmt(gmt_pat = 'h.all')[1],
   log_transform = NULL,
   exp_mat = rna_read_counts_salmon_tmm_M,
@@ -287,9 +288,9 @@ gen_gene_set_score_matrix <- function(sets = filter_gmt(gmt_pat = 'h.all'),
     return(dtf)
   }), fill = T)
   if (null_dat(dtf)) return(NULL)
-  dtf_m <- melt(dtf, id.vars = c('timepoint', 'gene_set', 'cf_number', 
-                                 'patient'),
-                measure.vars = 'gs_score') 
+  dtf_m <- melt(dtf, 
+    id.vars = c('timepoint', 'gene_set', 'cf_number', 'patient'),
+    measure.vars = 'gs_score') 
   stopifnot(dtf_m[, uniqueN(variable)] == 1)
   dtf_m[, variable := NULL]
   dtf_m[, timepoint := factor(timepoint, levels = timepoints)]
